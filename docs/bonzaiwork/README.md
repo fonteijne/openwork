@@ -1,0 +1,189 @@
+# BonzaiWork: eerste spike
+
+Eigen desktop-app op basis van OpenWork, met een eigen UI en LiteLLM als enige provider.
+De opdracht staat in [`referentie.md`](./referentie.md). Dit document beschrijft wat er gebouwd is,
+hoe het geverifieerd is, waar we van de referentie afwijken en wat er nog openstaat.
+
+Stand: upstream `dev` op `20ddd4b` (= `v0.18.63` + 22 commits), branch `claude/nifty-wozniak-iguy5r`.
+
+## Genomen beslissingen
+
+| # | Beslissing | Bron |
+|---|---|---|
+| O4 | App-naam **BonzaiWork**, mapnaam/prefix `bonzaiwork` (zoals `openwork`). `appId` voorlopig `nl.bonzaiwork.desktop`; signing en updater-host staan nog open. | gebruiker / voorlopig |
+| O3 | De LiteLLM-URL wordt **in de build ingebakken** (`BONZAIWORK_LITELLM_BASE_URL` bij het bouwen). Onboarding vraagt alleen de key. | gebruiker |
+| O2 | Transcriptie loopt **via een Whisper-model in LiteLLM** (`/v1/audio/transcriptions`). Whisper doet geen diarization: de splitsing "ik versus de anderen" komt uit de aparte sporen (mic en systeemaudio). Echte sprekerherkenning vraagt een model met diarization achter LiteLLM of een aparte stap. De proxyroute stuurt `audio/transcriptions` al door. | gebruiker |
+| O1 | Nog open. Beide `KeyResolver`s zijn gebouwd. De build kiest met `BONZAIWORK_KEY_MODE=user\|workspace`; de standaard is `user`. | – |
+
+## Wat er staat
+
+```
+apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electron-entry
+  src/                           onboarding, workspaces, chat, instellingen
+  electron/main.ts               zet env + keychain-store, laadt daarna de ONGEWIJZIGDE upstream main.mjs
+  scripts/package.mjs            verpakken; smoke-packaged.mjs: smoketest van de verpakte app
+packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
+packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
+apps/server/src/downstream-hooks.ts   het aanhaakpunt in de server (nieuw bestand)
+apps/desktop/electron-builder.bonzaiwork.mjs   builder-config (nieuw bestand)
+PATCHES.md, bonzaiwork.upstream.json, scripts/bonzaiwork/check-patches.mjs
+.github/workflows/bonzaiwork.yml
+```
+
+### Hoe het in elkaar zit
+
+```
+Electron main (BonzaiWork-entry)
+  ├─ env: BONZAIWORK_* (ingebakken), OPENWORK_DISABLE_FREE_INFERENCE/HOSTED_MODELS=1,
+  │       OPENWORK_SERVER_HOOKS=<bundel>/server-hooks.js
+  ├─ registerKeyStore(SafeStorageKeyStore)      ← OS-keychain, in hetzelfde proces als de server
+  └─ import upstream electron/main.mjs          ← start in-process openwork-server
+        └─ openwork-server laadt OPENWORK_SERVER_HOOKS
+             ├─ allowedProviderIds = ["litellm"]
+             │    ├─ organizationProviderGate()  → mirror duwt alleen litellm naar de engine
+             │    └─ engine-config experimental.policies: provider.use * deny, litellm allow
+             ├─ provider "litellm" in de globale runtime-config:
+             │    baseURL http://127.0.0.1:<poort>/bonzaiwork/litellm/v1, apiKey = lokaal token
+             └─ routes
+                  /bonzaiwork/litellm/v1/*   (engine → LiteLLM, token check, key-injectie, SSE-passthrough)
+                  /bonzaiwork/status, /bonzaiwork/keys/user|workspace/:id  (UI)
+```
+
+- **Welke workspace?** (§6.B3 [VERIFIEER]) De v2-engine stuurt bij elk modelverzoek `x-opencode-session`
+  mee. De route zoekt de sessie op in de engine en vergelijkt de home-map met de workspace-paden. Dat is
+  dezelfde controle die de eigen proxy van de server gebruikt. Er is geen `baseURL` per workspace en geen
+  extra engine-patch nodig. De koppeling wordt per sessie gecachet.
+- **Keys** staan versleuteld met Electron `safeStorage` in `userData/bonzaiwork/litellm-keys.json`. Dat
+  bestand bevat alleen ciphertext; de sleutel blijft in de OS-keychain. Zonder echte keychain
+  (Linux zonder secret service, `basic_text`) blijven keys alleen in het geheugen, en de instellingen tonen
+  dat. De server ontvangt keys niet via IPC: de store staat in hetzelfde proces (de server draait
+  in-process). Keys gaan nooit naar config, env, logs of foutmeldingen. LiteLLM-fouten worden vóór
+  doorgifte opgeschoond.
+- **Modellen** komen uit `GET /v1/models` met de gekoppelde key (in `workspace`-modus de vereniging over
+  alle workspace-keys).
+
+## Verificatie (alles in deze container uitgevoerd)
+
+| Wat | Hoe | Uitkomst |
+|---|---|---|
+| Unit-tests | `bun test` in beide pakketten + `apps/server/test/downstream-hooks.test.ts` | 4 + 9 + 4 groen |
+| Bestaande upstream-tests rond de gepatchte bestanden | 17 testbestanden (`engine-v2-*`, `live-provider-*`, `provider-config-templates`, …) | 88 groen, 11 overgeslagen, 0 fout |
+| Typecheck | `openwork-server`, `@openwork/app`, `@bonzaiwork/*` | 0 fouten |
+| **B "klaar als"** | `pnpm --filter @bonzaiwork/litellm e2e`: echte server + v2-engine + stand-in LiteLLM, met `ANTHROPIC_API_KEY` gezet, een project-`opencode.json` met een eigen provider (die zichzelf via `experimental.policies` probeert toe te staan) en een lokale `auth.json` | engine toont alleen `litellm`; chat via de projectprovider faalt; chat via LiteLLM slaagt; twee workspaces bereiken LiteLLM met hun eigen key; geen key in logs, engine-config, `runtime.sqlite` of workspaces |
+| UI (headless Chrome) | Vite-dev + headless server; onboarding → afgewezen key → geldige key → chat → instellingen | zie `screenshots/`; key niet in de DOM |
+| **A "klaar als"** | `package.mjs --dir --linux` + `xvfb-run node smoke-packaged.mjs` | verpakte app toont BonzaiWork-onboarding met de ingebakken URL, koppelt een key, beantwoordt een chatbeurt via LiteLLM |
+| **C (deel)** | dezelfde smoketest; al het uitgaande verkeer via een registrerende proxy die niets doorstuurt | 0 verzoeken naar `*.openworklabs.com`; enige uitgaande bestemming: `redirector.gvt1.com` (Chromium component updater) |
+
+Een eerder handmatig experiment liet zien waarom de engine-policy nodig is: zonder die policy leest de
+v2-engine een project-`opencode.json` zelf in, en een chat via die provider **slaagde** ondanks de
+mirror-gate. Upstream heeft hetzelfde gat in zijn eigen "Only models you provide"-beleid. De
+`managed-opencode-v2.ts`-hook is dus ook een goede kandidaat voor een upstream-PR.
+
+## Merge-test (§9.4)
+
+Spike opgebouwd op `v0.18.58` (de drie commits geport zoals een ontwikkelaar dat daar had gedaan), daarna
+`git merge v0.18.63` (450 upstream-commits, 3.258 gewijzigde bestanden).
+
+| Meting | Uitkomst |
+|---|---|
+| Conflicten | **3**: `apps/server/src/managed-opencode-v2.ts` (aangrenzende importregels, triviaal), `apps/server/src/openwork-runtime-config.ts` (upstream had hier net `organizationProviderGate()` ingevoerd; onze hook verhuisde naar dat nieuwe bestand, plus één regel in de oude plek), `pnpm-lock.yaml` (geregenereerd met `pnpm install`). Geen conflicten in `apps/bonzaiwork` of `packages/bonzaiwork-*`. |
+| Typecheck-fouten in onze code door upstream | **0** (`openwork-server`, `@openwork/app`, `@bonzaiwork/policy`, `@bonzaiwork/litellm`, `@bonzaiwork/app`) |
+| `PATCHES.md` na de merge | **4** gepatchte upstream-bestanden + 2 nieuwe bestanden in upstream-mappen. `check-patches.mjs` signaleerde de verhuisde hook zelf. |
+| Na de merge | unit-tests groen, engine-E2E groen (v2 is daar standaard; op `v0.18.58` alleen met `OPENWORK_ENGINE_V2_PREVIEW=1`) |
+| Extra: `v0.18.63` → upstream `dev` `20ddd4b` (verwijdert v1) | 0 conflicten |
+| Gevonden tijdens de test | een race in onze hooks (routes antwoordden vóór `start()` klaar was; vroege key-`PUT` gaf 404). Opgelost in de hoofdbranch, met test. |
+
+**Conclusie:** de aanpak is houdbaar. Conflicten blijven beperkt tot de aanhaakpunten zelf, en de
+interessantste (upstream verplaatst de gate) is precies het soort wijziging dat een upstream-PR voor
+`downstream-hooks.ts` zou wegnemen.
+
+Wat de test niet meet: upstream-wijzigingen in hun UI-clients (`apps/app/src/app/lib/*`) die wij importeren.
+Bij deze merge leverde dat 0 fouten op, maar die bestanden veranderen vaak. Daarom houdt de UI het aantal
+geïmporteerde modules bewust klein (desktop-IPC, server-client, v2-client, enkele UI-primitives).
+
+## Afwijkingen van de referentie (bewust)
+
+1. **Fork staat op `dev`, niet op een release-tag.** `main`/de fork komt van upstream `dev` (`v0.18.63` + 22
+   commits, inclusief het verwijderen van OpenCode v1). §5.2 zegt alleen tags te mergen. Advies: zet de
+   productiebranch bij de eerstvolgende sync op een tag (`v0.18.64`+); `bonzaiwork.upstream.json` legt de
+   basiscommit vast, zodat de PATCHES-check ook nu klopt.
+2. **Geen import van `domains/session` (§6.A3).** Gemeten: hun `session-page.tsx` sleept 499 bronbestanden
+   mee, waaronder 19 Den-modules, 26 uit `domains/cloud`, analytics en telemetrie, plus hun complete
+   provider-stack. Dat botst met E6 (geen verkeer naar de OpenWork-cloud, geen telemetrie). De UI gebruikt daarom alleen hun
+   framework-vrije clients (`desktop.ts`, `openwork-server.ts`, `opencode-v2-adapter.ts`,
+   `workspace-endpoint.ts`: samen 22 bestanden, geen Den of telemetrie) en hun `@/components`-primitives,
+   met een smalle eigen chatweergave.
+3. **Server-routes via een nieuw aanhaakpunt, niet via `apps/server/src/extensions/` (§6.B3).** Dat
+   mechanisme is actie-gebaseerd (JSON in, JSON uit) en kan geen streaming-proxy dragen.
+   `OPENWORK_SERVER_HOOKS` is generiek genoeg om upstream aan te bieden.
+4. **v1 bestaat niet meer.** `openwork-runtime-config.ts` (v1 `enabled_providers`) is in deze stand
+   alleen nog debugweergave; afdwinging zit in de mirror-gate en in de engine-policies (v2).
+5. **`model` in de runtime-config (§6.B1)** bestaat niet in v2. De UI kiest het model per gesprek uit
+   `/bonzaiwork/status.defaultModel` (ingebakken `BONZAIWORK_DEFAULT_MODEL`, anders het eerste model).
+6. **Builder-config is `.mjs`, geen `.yml` (§6.A5).** electron-builder voegt arrays samen bij `extends`;
+   een YAML-overlay zou hun UI naast de onze in `app-dist` zetten en hun GitHub-publish-doel houden. De
+   `.mjs` leest hun YAML in (upstream-wijzigingen komen mee) en vervangt alleen UI, entry, identiteit en
+   `publish`.
+
+## Bevindingen voor werkstroom C (en risico's)
+
+- **Updater**: `apps/desktop/electron/updater.mjs` heeft de feed hardcoded op
+  `github.com/different-ai/openwork`. Onze UI start nooit een updatecheck, en `publish` staat uit. Maar
+  een echte BonzaiWork-updater vraagt een hook in `updater.mjs` (één patch), anders "updatet" de app zich
+  naar OpenWork.
+- **CDP standaard aan in verpakte builds**: upstream `main.mjs` opent de DevTools-poort (9223–9227) op
+  loopback, ook in productie. Elk lokaal proces kan de app dan besturen en tokens lezen. Overweeg
+  `OPENWORK_ELECTRON_REMOTE_DEBUG_PORT` dicht te zetten of hiervoor een hook te maken.
+- **Branding**: upstream maakt bij de eerste start een workspace "OpenWork Chat" aan, en iconen en
+  `NS*UsageDescription`-teksten komen van upstream (die laatste vervangt de builder-config). Dit hangt
+  samen met O5 (juridische check op naam en logo).
+- Nog niet gecontroleerd: `DEFAULT_DEN_BASE_URL`/`DOCS_PAGE_URL` in `main.mjs` en
+  `workspace-store.mjs` worden in de smoketest niet aangeroepen, maar zijn niet omgeleid.
+
+## CI
+
+`.github/workflows/bonzaiwork.yml`: typecheck, unit-tests, engine-E2E, PATCHES-check en een verpakte
+Linux-build met smoketest. Upstream heeft ±50 eigen workflows. Veel daarvan draaien op `push` naar
+`dev`, publiceren naar hun releases of hebben hun secrets nodig. Zet ze uit in GitHub → Actions per
+workflow (dat raakt geen bestanden en geeft dus geen merge-conflicten), behalve wat wij ook gebruiken.
+
+## Upstream mergen (procedure)
+
+```bash
+git remote add upstream https://github.com/different-ai/openwork.git   # eenmalig
+git fetch upstream --tags
+git switch -c upstream-sync/v0.18.64 main
+git merge v0.18.64
+git checkout --theirs pnpm-lock.yaml && pnpm install                    # bij een lockfile-conflict
+# bonzaiwork.upstream.json → commit van v0.18.64
+node scripts/bonzaiwork/check-patches.mjs                              # werkt PATCHES.md bij
+pnpm --filter @bonzaiwork/litellm e2e
+BONZAIWORK_LITELLM_BASE_URL=http://127.0.0.1:4010 node apps/bonzaiwork/scripts/package.mjs --dir --linux
+xvfb-run -a node apps/bonzaiwork/scripts/smoke-packaged.mjs
+```
+
+## Ontwikkelen
+
+```bash
+pnpm install
+# headless: server + engine met onze hooks
+BONZAIWORK_LITELLM_BASE_URL=http://127.0.0.1:4000 \
+OPENWORK_SERVER_HOOKS=$PWD/packages/bonzaiwork-litellm/dist/server-hooks.js \
+OPENWORK_TOKEN=dev OPENWORK_HOST_TOKEN=dev-host OPENWORK_DEV_MODE=1 OPENWORK_DISABLE_FREE_INFERENCE=1 \
+  sh -c 'cd apps/server && bun --conditions=development src/cli.ts --workspace ~/werk --port 8787 --cors http://127.0.0.1:5183'
+pnpm --filter @bonzaiwork/litellm build        # bundelt server-hooks.js
+pnpm --filter @bonzaiwork/app dev              # http://127.0.0.1:5183/?server=http://127.0.0.1:8787&token=dev&hostToken=dev-host
+```
+
+Gebruik voor development een lokale LiteLLM (§7: geen tweede provider, ook niet tijdelijk).
+
+## Volgende stappen
+
+1. O1 beslissen (keys per gebruiker of per project) en O4 afronden (appId, signing, updater-host).
+2. Werkstroom C afmaken: updater-hook, CDP-poort, Den-/docs-URL's, branding (O5).
+3. Upstream-PR's voorstellen: `downstream-hooks.ts` + de drie hooks, en los daarvan de
+   `experimental.policies`-afdwinging voor hun eigen "Only models you provide" (zelfde gat).
+4. UI: markdown-weergave en tool-activiteit in de chat (eventueel hun `components/chat/*`-primitives, na
+   een meting zoals hierboven), streaming via `/api/event` in plaats van pollen.
+5. Werkstroom D (meetings), achter een eigen feature-flag (eigen registry, zodat `registry.ts` niet
+   gepatcht hoeft te worden).
