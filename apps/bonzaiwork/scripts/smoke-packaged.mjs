@@ -121,7 +121,7 @@ try {
   await page.waitForSelector('[data-testid="new-workspace"]', { timeout: 60_000 });
 
   // The native folder picker cannot be driven here; register the folder the way the UI does after picking one.
-  await page.evaluate(async (folderPath) => {
+  const workspaceId = await page.evaluate(async (folderPath) => {
     const info = await window.__OPENWORK_ELECTRON__.invokeDesktop("openworkServerInfo");
     const response = await fetch(`${info.baseUrl}/workspaces/local`, {
       method: "POST",
@@ -129,12 +129,35 @@ try {
       body: JSON.stringify({ folderPath, name: "workspace", preset: "starter" }),
     });
     if (!response.ok) throw new Error(`workspace create failed: ${response.status}`);
+    const list = await (await fetch(`${info.baseUrl}/workspaces`, { headers: { Authorization: `Bearer ${info.ownerToken}` } })).json();
+    return list.items.find((item) => item.path === folderPath)?.id ?? null;
   }, workspace);
+  if (!workspaceId) throw new Error("The new workspace is not listed");
+  // Like the engine e2e: the first prompt needs the engine to have loaded LiteLLM's models for this folder.
+  const engineReady = await page.evaluate(async (id) => {
+    const info = await window.__OPENWORK_ELECTRON__.invokeDesktop("openworkServerInfo");
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      const response = await fetch(`${info.baseUrl}/workspace/${id}/opencode2/api/model`, { headers: { Authorization: `Bearer ${info.ownerToken}` } }).catch(() => null);
+      const body = response?.ok ? await response.json().catch(() => null) : null;
+      if (body?.data?.some((model) => model.providerID === "litellm")) return true;
+      await new Promise((done) => setTimeout(done, 500));
+    }
+    return false;
+  }, workspaceId);
+  check("engine offers LiteLLM's models for the new workspace", engineReady);
   await page.reload();
+  // Upstream creates its own first-run workspace too; pick ours explicitly rather than relying on list order.
+  await page.click('[data-testid="workspace-item"]:text-is("workspace")', { timeout: 60_000 });
   await page.waitForSelector('[data-testid="composer-input"]', { timeout: 60_000 });
   await page.fill('[data-testid="composer-input"]', "Zeg hallo");
   await page.click('[data-testid="composer-send"]');
   const answered = await page.waitForSelector('[data-role="assistant"]:has-text("Hallo van LiteLLM")', { timeout: 120_000 }).then(() => true, () => false);
+  if (!answered) {
+    console.error(`chat panel: ${(await page.textContent('[data-testid="chat-messages"]').catch(() => "")) ?? ""}`);
+    console.error(`LiteLLM calls: ${JSON.stringify(litellmCalls.map((call) => call.url))}`);
+    console.error(appLog.slice(-4000));
+    await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-failure.png") }).catch(() => undefined);
+  }
   check("one chat turn via LiteLLM in the packaged app", answered);
   await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-chat.png") });
   check("LiteLLM received the linked key", litellmCalls.some((call) => call.url === "/v1/chat/completions" && call.authorization === `Bearer ${KEY}`));

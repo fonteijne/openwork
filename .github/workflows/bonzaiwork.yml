@@ -7,7 +7,8 @@ name: BonzaiWork
 
 on:
   push:
-    branches: [main, "upstream-sync/**", "claude/**"]
+    # Feature branches run through pull_request; pushing them too ran every commit twice.
+    branches: [main, "upstream-sync/**"]
   pull_request:
   workflow_dispatch:
 
@@ -82,3 +83,10 @@ jobs:
         run: node apps/bonzaiwork/scripts/package.mjs --dir --linux
       - name: Smoke test (starts, links a key, one chat turn via LiteLLM, no openworklabs.com traffic)
         run: xvfb-run -a node apps/bonzaiwork/scripts/smoke-packaged.mjs
+      - name: Keep smoke-test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bonzaiwork-smoke
+          path: apps/bonzaiwork/dist-electron/*.png
+          if-no-files-found: ignore
