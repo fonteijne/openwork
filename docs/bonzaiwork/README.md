@@ -147,6 +147,20 @@ Linux-build met smoketest. Upstream heeft ±50 eigen workflows. Veel daarvan dra
 `dev`, publiceren naar hun releases of hebben hun secrets nodig. Zet ze uit in GitHub → Actions per
 workflow (dat raakt geen bestanden en geeft dus geen merge-conflicten), behalve wat wij ook gebruiken.
 
+Status in `fonteijne/openwork` (27-10-2026):
+
+| Workflow | Bestand | Stand | Reden |
+|---|---|---|---|
+| BonzaiWork | `bonzaiwork.yml` | aan | onze CI |
+| CodeQL | `codeql.yml` | aan | vond al een echt probleem (ReDoS) |
+| Warden quick review, Feature registry check | `warden-quick.yml`, `features-check.yml` | aan | slagen zonder secrets |
+| Warden | `warden.yml` | **uit** | heeft `WARDEN_OPENAI_API_KEY` nodig |
+| Build and core checks | `ci-tests.yml` | **uit** | draait op Blacksmith-runners van upstream |
+| PR change proof | `pr-proof.yml` | **uit** | draait op Blacksmith-runners van upstream |
+
+De overige upstream-workflows draaien op `push` naar `dev`, een schema of releases. Loop ze na bij de
+eerste push naar `dev` en zet alles uit wat publiceert of hun secrets/runners nodig heeft.
+
 ## Upstream mergen (procedure)
 
 ```bash
@@ -158,6 +172,7 @@ git checkout --theirs pnpm-lock.yaml && pnpm install                    # bij ee
 # bonzaiwork.upstream.json → commit van v0.18.64
 node scripts/bonzaiwork/check-patches.mjs                              # werkt PATCHES.md bij
 pnpm --filter @bonzaiwork/litellm e2e
+# GitHub → Actions: workflows die upstream sinds de vorige sync toevoegde staan aan; zet ze uit (zie "CI")
 BONZAIWORK_LITELLM_BASE_URL=http://127.0.0.1:4010 node apps/bonzaiwork/scripts/package.mjs --dir --linux
 xvfb-run -a node apps/bonzaiwork/scripts/smoke-packaged.mjs
 ```
