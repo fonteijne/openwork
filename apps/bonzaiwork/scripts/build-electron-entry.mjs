@@ -33,7 +33,7 @@ function run(command, args) {
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-run("bun", ["build", "electron/main.ts", "--outfile", "dist-electron/main.mjs", "--target", "node", "--format", "esm", "--external", "electron"]);
+run("bun", ["build", "desktop-main/main.ts", "--outfile", "dist-electron/main.mjs", "--target", "node", "--format", "esm", "--external=electron"]);
 run("bun", ["build", "../../packages/bonzaiwork-litellm/src/server-hooks.ts", "--outfile", "dist-electron/server-hooks.js", "--target", "node", "--format", "esm"]);
 writeFileSync(resolve(out, "build-config.json"), `${JSON.stringify(settings, null, 2)}\n`);
 console.log(`[bonzaiwork] electron entry built for ${settings.litellmBaseUrl} (${settings.keyMode} keys)`);

@@ -20,7 +20,7 @@ Stand: upstream `dev` op `20ddd4b` (= `v0.18.63` + 22 commits), branch `claude/n
 ```
 apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electron-entry
   src/                           onboarding, workspaces, chat, instellingen
-  electron/main.ts               zet env + keychain-store, laadt daarna de ONGEWIJZIGDE upstream main.mjs
+  desktop-main/main.ts           zet env + keychain-store, laadt daarna de ONGEWIJZIGDE upstream main.mjs
   scripts/package.mjs            verpakken; smoke-packaged.mjs: smoketest van de verpakte app
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
