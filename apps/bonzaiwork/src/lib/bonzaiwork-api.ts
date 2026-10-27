@@ -1,3 +1,4 @@
+import { trimTrailingSlashes } from "@bonzaiwork/policy";
 import { z } from "zod";
 
 import type { ServerConnection } from "./connection";
@@ -45,7 +46,7 @@ async function call(connection: ServerConnection, path: string, init: { method?:
     headers.set("Authorization", `Bearer ${connection.token}`);
   }
   if (init.body !== undefined) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${connection.baseUrl.replace(/\/+$/, "")}${path}`, {
+  const response = await fetch(`${trimTrailingSlashes(connection.baseUrl)}${path}`, {
     method: init.method ?? "GET",
     headers,
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),

@@ -22,6 +22,13 @@ export const SERVER_ENVIRONMENT_DEFAULTS: Readonly<Record<string, string>> = {
   VITE_DISABLE_OPENWORK_MODELS: "1",
 };
 
+/** Drops trailing slashes without a regex, which backtracks quadratically on long runs of "/" (CodeQL js/polynomial-redos). */
+export function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return value.slice(0, end);
+}
+
 export function isAllowedProvider(providerId: string): boolean {
   return ALLOWED_PROVIDER_IDS.includes(providerId);
 }
@@ -53,7 +60,8 @@ export function readSettings(environment: Record<string, string | undefined>): B
   if (url.protocol !== "https:" && !(url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname))) {
     throw new Error("BONZAIWORK_LITELLM_BASE_URL must use HTTPS (plain HTTP only for a loopback LiteLLM).");
   }
-  const litellmBaseUrl = url.href.replace(/\/+$/, "").replace(/\/v1$/, "");
+  const trimmed = trimTrailingSlashes(url.href);
+  const litellmBaseUrl = trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
   const keyMode = environment.BONZAIWORK_KEY_MODE?.trim() === "workspace" ? "workspace" : "user";
   return { litellmBaseUrl, defaultModel: environment.BONZAIWORK_DEFAULT_MODEL?.trim() || null, keyMode };
 }

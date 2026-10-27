@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
+import { trimTrailingSlashes } from "@bonzaiwork/policy";
+
 import { redactSecrets, type KeyResolver } from "./keys.ts";
 
 /**
@@ -77,7 +79,7 @@ async function sanitizedFailure(upstream: Response, secrets: readonly string[]):
 }
 
 export function createLiteLLMProxy(options: ProxyOptions) {
-  const base = options.litellmBaseUrl.replace(/\/+$/, "");
+  const base = trimTrailingSlashes(options.litellmBaseUrl);
   const userId = options.userId ?? "local";
 
   return async function handle(request: Request, input: { path: string; workspaceId?: string }): Promise<Response> {
@@ -136,7 +138,7 @@ export type LiteLLMModelList = { id: string }[];
 
 /** GET /v1/models with one key (workstream B5). Throws a key-free error on failure. */
 export async function listLiteLLMModels(litellmBaseUrl: string, key: string, fetch: Fetch, signal?: AbortSignal): Promise<LiteLLMModelList> {
-  const response = await fetch(`${litellmBaseUrl.replace(/\/+$/, "")}/v1/models`, {
+  const response = await fetch(`${trimTrailingSlashes(litellmBaseUrl)}/v1/models`, {
     headers: { authorization: `Bearer ${key}`, accept: "application/json" },
     redirect: "error",
     ...(signal ? { signal } : {}),

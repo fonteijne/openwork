@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isAllowedProvider, liteLLMProviderEntry, pickDefaultModel, readSettings } from "../src/index.ts";
+import { isAllowedProvider, liteLLMProviderEntry, pickDefaultModel, readSettings, trimTrailingSlashes } from "../src/index.ts";
 
 describe("provider policy", () => {
   test("only litellm is allowed", () => {
@@ -26,6 +26,17 @@ describe("provider policy", () => {
     expect(() => readSettings({ BONZAIWORK_LITELLM_BASE_URL: "https://user:pw@llm.example.org" })).toThrow();
     expect(() => readSettings({})).toThrow();
     expect(readSettings({ BONZAIWORK_LITELLM_BASE_URL: "https://x.org", BONZAIWORK_KEY_MODE: "workspace" }).keyMode).toBe("workspace");
+  });
+
+  test("trailing slashes are trimmed in linear time", () => {
+    expect(trimTrailingSlashes("https://x.org///")).toBe("https://x.org");
+    expect(trimTrailingSlashes("///")).toBe("");
+    expect(trimTrailingSlashes("https://x.org/v1")).toBe("https://x.org/v1");
+    // The input shape that makes /\/+$/ backtrack quadratically.
+    const hostile = `${"/".repeat(200_000)}x`;
+    const started = performance.now();
+    expect(trimTrailingSlashes(hostile)).toBe(hostile);
+    expect(performance.now() - started).toBeLessThan(100);
   });
 
   test("default model falls back to the first listed model", () => {
