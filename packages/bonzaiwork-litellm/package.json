@@ -11,13 +11,21 @@
     "./server-hooks": {
       "types": "./src/server-hooks.ts",
       "default": "./dist/server-hooks.js"
+    },
+    "./keys": {
+      "types": "./src/keys.ts",
+      "default": "./src/keys.ts"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "bun build src/server-hooks.ts --outfile dist/server-hooks.js --target node --format esm",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "e2e": "bun e2e/engine.e2e.ts"
   },
   "dependencies": {
     "@bonzaiwork/policy": "workspace:*"

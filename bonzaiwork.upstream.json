@@ -1,0 +1,6 @@
+{
+  "comment": "The upstream OpenWork commit this fork is merged up to. Update it in every upstream-sync/<tag> merge; scripts/bonzaiwork/check-patches.mjs diffs against it.",
+  "repository": "https://github.com/different-ai/openwork",
+  "ref": "dev (v0.18.63 + 22 commits)",
+  "commit": "20ddd4bebdac2b4fa42ffca832ef2a86bb4ad21b"
+}
