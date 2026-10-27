@@ -153,6 +153,14 @@ describe("server hooks", () => {
     };
   }
 
+  test("routes wait until the hooks have started", async () => {
+    const hooks = createServerHooks({ settings: { litellmBaseUrl: baseUrl, defaultModel: null, keyMode: "workspace" }, keyStore: new MemoryKeyStore(), localToken: LOCAL });
+    const putKey = hooks.routes.find((route) => route.method === "PUT" && route.path === "/bonzaiwork/keys/workspace/:workspaceId")!;
+    const early = putKey.handle(new Request("http://x", { method: "PUT", body: JSON.stringify({ key: WORKSPACE_KEY }) }), { workspaceId: "ws_a" });
+    await hooks.start(fakeHost([]));
+    expect((await early).status).toBe(200);
+  });
+
   test("allows only litellm and writes the provider entry with LiteLLM's models", async () => {
     const updates: unknown[] = [];
     const store = new MemoryKeyStore();

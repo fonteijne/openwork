@@ -96,6 +96,13 @@ export function createServerHooks(options: ServerHooksOptions = {}): ServerHooks
   const resolver: KeyResolver = settings.keyMode === "workspace" ? new PerWorkspaceKeyResolver(store) : new PerUserKeyResolver(store);
   const localToken = options.localToken ?? `bwk_local_${randomBytes(32).toString("base64url")}`;
   let host: ServerHost | null = null;
+  // The server serves routes as soon as it listens; ours wait until start() ran.
+  let markStarted = () => {};
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const whenStarted = <T extends unknown[]>(handle: (...args: T) => Promise<Response>) => async (...args: T): Promise<Response> => {
+    const ready = await Promise.race([started.then(() => true), new Promise<false>((resolve) => setTimeout(resolve, 30_000, false))]);
+    return ready ? handle(...args) : failure(503, "starting", "BonzaiWork is still starting.");
+  };
   let models: LiteLLMModel[] = [];
   let lastError: string | null = null;
   let refreshing: Promise<void> = Promise.resolve();
@@ -203,7 +210,7 @@ export function createServerHooks(options: ServerHooksOptions = {}): ServerHooks
 
   const knownWorkspace = (workspaceId: string) => host?.workspaces().some((workspace) => workspace.id === workspaceId) ?? false;
 
-  const routes: ServerRoute[] = [
+  const routes: ServerRoute[] = ([
     ...["GET", "POST"].flatMap((method): ServerRoute[] => [
       { method, path: `${LOCAL_ROUTE_PREFIX}/v1/*`, auth: "none", handle: (request, params) => proxy(request, { path: params["*"] ?? "" }) },
       {
@@ -225,15 +232,19 @@ export function createServerHooks(options: ServerHooksOptions = {}): ServerHooks
       method: "DELETE", path: "/bonzaiwork/keys/workspace/:workspaceId", auth: "host-token",
       handle: (_request, params) => deleteKey({ kind: "workspace", workspaceId: params.workspaceId }),
     },
-  ];
+  ] satisfies ServerRoute[]).map((route) => ({ ...route, handle: whenStarted(route.handle) }));
 
   return {
     allowedProviderIds: ALLOWED_PROVIDER_IDS,
     routes,
     async start(next) {
       host = next;
-      if (!store.persistent) next.log("warn", "LiteLLM keys are kept in memory only; they are lost when the server stops.");
-      await refresh();
+      try {
+        if (!store.persistent) next.log("warn", "LiteLLM keys are kept in memory only; they are lost when the server stops.");
+        await refresh();
+      } finally {
+        markStarted();
+      }
     },
   };
 }
