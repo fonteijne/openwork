@@ -20,7 +20,8 @@ const binary = resolve(appRoot, "../desktop/dist-electron/bonzaiwork/linux-unpac
 const baked = JSON.parse(readFileSync(resolve(appRoot, "dist-electron/build-config.json"), "utf8"));
 const litellmUrl = new URL(baked.litellmBaseUrl);
 const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+// playwright-core only drives the app over CDP; no browser download needed.
+const { chromium } = require("playwright-core");
 
 const KEY = "sk-smoke-virtual-key-7777";
 const outbound = [];
