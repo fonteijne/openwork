@@ -183,9 +183,11 @@ export function createServerHooks(options: ServerHooksOptions = {}): ServerHooks
     try {
       await listLiteLLMModels(settings.litellmBaseUrl, key, fetchImpl);
     } catch (error) {
-      const status = error instanceof LiteLLMError && (error.status === 401 || error.status === 403) ? 400 : 502;
-      const message = redactSecrets(error instanceof Error ? error.message : String(error), [key]);
-      return failure(status, status === 400 ? "key_rejected" : "litellm_unreachable", message);
+      if (error instanceof LiteLLMError && (error.status === 401 || error.status === 403)) {
+        return failure(400, "key_rejected", "LiteLLM rejected this key.");
+      }
+      log("warn", "LiteLLM could not validate a key", { reason: redactSecrets(error instanceof Error ? error.message : String(error), [key]) });
+      return failure(502, "litellm_unreachable", "LiteLLM could not be reached.");
     }
     await store.set(scope, key);
     await refresh();

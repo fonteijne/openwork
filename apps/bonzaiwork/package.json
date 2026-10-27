@@ -1,0 +1,38 @@
+{
+  "name": "@bonzaiwork/app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "BonzaiWork desktop UI on top of the OpenWork shell and server.",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm --filter @openwork/types build && vite build",
+    "build:electron-entry": "node ./scripts/build-electron-entry.mjs",
+    "package": "node ./scripts/package.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test test"
+  },
+  "dependencies": {
+    "@bonzaiwork/litellm": "workspace:*",
+    "@bonzaiwork/policy": "workspace:*",
+    "lucide-react": "^0.577.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.0.4",
+    "bun-types": "^1.3.13",
+    "electron": "^43.7.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^6.4.4"
+  }
+}
