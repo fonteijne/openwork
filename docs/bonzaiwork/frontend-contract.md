@@ -85,7 +85,7 @@ Lokale OpenWork-server (http://127.0.0.1:<poort>)
 | Laag | Basis-URL | Client in code |
 |---|---|---|
 | OpenWork-server | `<baseUrl>` | `createOpenworkServerClient` (`apps/app/src/app/lib/openwork-server.ts`) |
-| Engine per project | `<baseUrl>/workspace/<workspaceId>/opencode2` | `createClientV2` (`apps/app/src/app/lib/opencode-v2-adapter.ts`). **Altijd `/opencode2`**: `/opencode` is de v1-engine, die LiteLLM-only niet afdwingt. |
+| Engine per project | `<baseUrl>/workspace/<workspaceId>/opencode2` | `createClientV2` (`apps/app/src/app/lib/opencode-v2-adapter.ts`). Gebruik **altijd** `/opencode2`: `/opencode` is de v1-engine, die LiteLLM-only niet afdwingt. |
 | BonzaiWork | `<baseUrl>/bonzaiwork` | `bonzaiworkApi` (`apps/bonzaiwork/src/lib/bonzaiwork-api.ts`) |
 
 **Twee soorten rechten.** Gewone acties gebruiken het client-token. Beheeracties (project aanmaken, hernoemen,
