@@ -16,13 +16,23 @@ import { useUi } from "./ui-store";
 const CommandPalette = lazy(() => import("./command-palette").then((module) => ({ default: module.CommandPalette })));
 const NewProjectDialog = lazy(() => import("../projects/new-project-dialog").then((module) => ({ default: module.NewProjectDialog })));
 
-const NO_ENGINE: NonNullable<Backend["engine"]> = { current: () => "ready", subscribe: () => () => undefined };
+const NO_ENGINE: NonNullable<Backend["engine"]> = { current: () => "ready", subscribe: () => () => undefined, error: () => null, retry: () => undefined };
 
 /** While the live engine starts or copies older chats, say so instead of leaving screens empty (C6). */
 function EngineBanner() {
   const engine = useBackend().engine ?? NO_ENGINE;
   const state = useSyncExternalStore(engine.subscribe, engine.current);
   if (state === "ready") return null;
+  if (state === "failed") {
+    return (
+      <div role="alert" className="flex shrink-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-border bg-red-3 px-4 py-2 text-xs font-semibold text-red-11">
+        <span>{engine.error()}</span>
+        <button type="button" className="rounded-full px-2 py-0.5 underline underline-offset-2 hover:bg-red-11/10" onClick={() => engine.retry()}>
+          {copy.boot.retry}
+        </button>
+      </div>
+    );
+  }
   return (
     <div role="status" className="flex shrink-0 items-center justify-center gap-2 border-b border-border bg-electric-3 px-4 py-2 text-xs font-semibold text-electric-11">
       <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />

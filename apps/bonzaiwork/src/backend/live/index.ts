@@ -213,39 +213,59 @@ export async function createLiveBackend(): Promise<Backend> {
     for (const listener of engineListeners) listener();
   };
   let readiness: Promise<void> | null = null;
+  // After a failure, requests fail at once with that reason until retryEngine().
+  let engineFailure: BackendError | null = null;
   function engineReady(): Promise<void> {
+    if (engineFailure) return Promise.reject(engineFailure);
     readiness ??= waitForEngine().finally(() => {
       readiness = null;
     });
     return readiness;
+  }
+  function retryEngine(): void {
+    engineFailure = null;
+    void engineReady().catch(() => undefined);
   }
 
   async function waitForEngine(): Promise<void> {
     const direct: Connection = { ...connection, whenStarting: undefined };
     const begun = Date.now();
     let switchedOn = false;
+    let resumed = false;
     try {
       for (;;) {
         const status = await request(direct, "/experimental/engine-v2-preview/status", { timeoutMs: 10_000 });
-        const migrating = str(field(status, "migration"), "state") === "running";
-        if (field(status, "running") === true && !migrating) {
+        const migration = str(field(status, "migration"), "state");
+        const running = field(status, "running") === true;
+        if (running && migration !== "running") {
           setEngineState("ready");
           return;
         }
-        setEngineState(migrating ? "migrating" : "starting");
-        if (!migrating && field(status, "enabled") !== true && !switchedOn) {
+        if (migration === "error" && field(field(status, "migration"), "resumed") === true && !running) {
+          // A saved copy of older chats that stopped halfway keeps v2 locked until it finishes.
+          // The server resumes it on request, as it does after a restart; nothing is trimmed.
+          if (resumed) throw new BackendError("engine_migration_failed", "Je eerdere gesprekken konden niet worden overgezet, en tot dat lukt start de AI-engine niet. Sluit BonzaiWork en open de app opnieuw.", 503, str(field(status, "migration"), "error"));
+          resumed = true;
+          setEngineState("migrating");
+          await request(direct, "/experimental/engine-v2-preview/migrate", { method: "POST", body: { confirm: true }, host: true, timeoutMs: 15_000 });
+          await wait(1_500);
+          continue;
+        }
+        setEngineState(migration === "running" ? "migrating" : "starting");
+        if (migration !== "running" && field(status, "enabled") !== true && !switchedOn) {
           switchedOn = true;
           await request(direct, "/experimental/engine-v2-preview", { method: "PUT", body: { enabled: true }, timeoutMs: 10_000 }).catch(() => null);
         }
         const lastError = str(status, "lastError");
         // Starting can install the engine binary first; give it time before calling it failed.
-        if (!migrating && lastError && Date.now() - begun > 20_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, lastError);
-        if (!migrating && Date.now() - begun > 120_000) throw new BackendError("engine_v2_preview_not_running", "De AI-engine start nog. Probeer het over een halve minuut opnieuw.", 503);
+        if (migration !== "running" && lastError && Date.now() - begun > 20_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, lastError);
+        if (migration !== "running" && Date.now() - begun > 120_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, "Not running after two minutes.");
         await wait(1_500);
       }
     } catch (failure) {
-      setEngineState("ready");
-      throw failure;
+      engineFailure = failure instanceof BackendError ? failure : new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503);
+      setEngineState("failed");
+      throw engineFailure;
     }
   }
 
@@ -394,6 +414,8 @@ export async function createLiveBackend(): Promise<Backend> {
     capabilities,
     engine: {
       current: () => engineState,
+      error: () => engineFailure?.message ?? null,
+      retry: retryEngine,
       subscribe(listener) {
         engineListeners.add(listener);
         return () => engineListeners.delete(listener);
