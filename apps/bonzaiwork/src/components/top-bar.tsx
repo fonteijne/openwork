@@ -11,7 +11,7 @@ import { Button } from "./ui/button";
 export function TopBar(props: { children?: ReactNode; actions?: ReactNode; className?: string; leading?: ReactNode }) {
   const setDrawer = useUi((state) => state.setDrawer);
   return (
-    <header className={cn("flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 pt-[env(safe-area-inset-top)] lg:px-4", props.className)}>
+    <header className={cn("flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 pt-[env(safe-area-inset-top)] lg:px-4", props.className)} data-titlebar="page">
       {props.leading ?? (
         <Button variant="quiet" size="icon" className="-ms-1 lg:hidden" aria-label={copy.nav.openMenu} onClick={() => setDrawer(true)}>
           <MenuIcon />

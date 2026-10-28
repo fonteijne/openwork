@@ -89,6 +89,8 @@ export function Onboarding() {
   const userMode = status.data?.keyMode === "user" && !status.data.user.hasKey;
   return (
     <main className="flex min-h-dvh items-center justify-center overflow-y-auto bg-background px-4 py-10">
+      {/* No header here: in the desktop shell this strip moves the window. */}
+      <div className="fixed inset-x-0 top-0 h-10" data-titlebar="strip" aria-hidden="true" />
       <div className="flex w-full max-w-sm flex-col items-start gap-8">
         <div className="flex items-center gap-2.5">
           <BrandMark className="size-8" />

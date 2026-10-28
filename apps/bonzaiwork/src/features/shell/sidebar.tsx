@@ -154,7 +154,7 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
   const setPalette = useUi((state) => state.setPalette);
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar">
-      <div className="flex h-12 shrink-0 items-center gap-2 px-3 pt-[env(safe-area-inset-top)]">
+      <div className="flex h-12 shrink-0 items-center gap-2 px-3 pt-[env(safe-area-inset-top)]" data-titlebar="sidebar">
         <a href={href({ name: "projects" })} className="flex min-w-0 items-center gap-2 rounded-full py-1 pe-1.5" aria-label={copy.appName}>
           <BrandMark />
           <span className="truncate text-sm font-semibold tracking-tight text-foreground">{copy.appName}</span>

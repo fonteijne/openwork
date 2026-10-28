@@ -54,7 +54,7 @@ function prefetchProjectPage(): () => void {
 function PageSkeleton() {
   return (
     <div className="flex h-full flex-col" aria-busy="true" aria-label={copy.boot.connecting}>
-      <div className="h-12 shrink-0 border-b border-border" />
+      <div className="h-12 shrink-0 border-b border-border" data-titlebar="page" />
       <div className="mx-auto mt-10 flex w-full max-w-3xl flex-col gap-4 px-6">
         <Skeleton className="h-6 w-1/2" />
         <Skeleton className="h-14 w-full" />
@@ -86,7 +86,7 @@ function ShellSkeleton() {
         <Skeleton className="h-7 w-4/5" />
       </div>
       <div className="flex flex-1 flex-col">
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 lg:px-4">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 lg:px-4" data-titlebar="page">
           <BrandMark className="lg:hidden" />
           <span className="text-sm font-semibold text-foreground lg:hidden">{copy.appName}</span>
         </div>

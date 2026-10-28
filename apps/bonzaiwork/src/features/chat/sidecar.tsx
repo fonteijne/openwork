@@ -297,7 +297,7 @@ export function Sidecar(props: { project: Project; chatId: string | null; onClos
   const chat = useProjectState((state) => (props.chatId ? state.chats[props.chatId] : undefined));
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4" data-titlebar="sidecar">
         <h2 className="text-sm font-semibold">{copy.sidecar.title}</h2>
         {props.onClose ? (
           <Button variant="quiet" size="icon-sm" aria-label={copy.common.close} onClick={props.onClose}>

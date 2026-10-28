@@ -55,7 +55,7 @@ export function ProjectPage(props: { projectId: string; chatId: string | null })
   if (!project) return isLoading ? <ProjectLoading /> : <ProjectMissing />;
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0" data-sidecar-pinned={wide && sidecarPinned ? "" : undefined}>
       <div className="flex min-w-0 flex-1 flex-col">{props.chatId ? <ChatView key={props.chatId} project={project} chatId={props.chatId} /> : <ProjectHome project={project} />}</div>
       {wide && sidecarPinned ? (
         <aside className="hidden w-80 shrink-0 border-s border-border bg-background xl:flex xl:flex-col" aria-label={copy.sidecar.title}>

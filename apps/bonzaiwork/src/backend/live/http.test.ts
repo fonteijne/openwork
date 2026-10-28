@@ -37,6 +37,18 @@ describe("server errors", () => {
     expect(error.message).toBe("De lokale server weigerde dit verzoek (fout 409).");
   });
 
+  it("waits while the engine is still starting, then answers", async () => {
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      calls += 1;
+      return calls < 3
+        ? new Response(JSON.stringify({ error: "engine_v2_preview_not_running" }), { status: 503 })
+        : new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }));
+    expect(await request(connection, "/workspace/w/opencode2/api/session")).toEqual({ ok: true });
+    expect(calls).toBe(3);
+  });
+
   it("reads a bare 404 as not found", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })));
     expect((await failure("/missing")).code).toBe("not_found");

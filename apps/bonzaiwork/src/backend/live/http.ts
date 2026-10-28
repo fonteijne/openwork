@@ -66,6 +66,8 @@ const SERVER_MESSAGES: Record<string, string> = {
   opencode_unreachable: "De AI-engine reageert niet. Probeer het zo opnieuw.",
   opencode_request_failed: "De AI-engine kon dit niet uitvoeren. Probeer het opnieuw.",
   invalid_engine_response: "De AI-engine gaf een onleesbaar antwoord. Probeer het opnieuw.",
+  engine_v2_preview_not_running: "De AI-engine start nog. Probeer het over een halve minuut opnieuw.",
+  starting: "BonzaiWork start nog. Probeer het over een halve minuut opnieuw.",
   mcp_tools_not_ready: "De connectie is opgeslagen, maar de tools zijn nog niet klaar. Probeer het zo opnieuw.",
   request_aborted: "Het verzoek is afgebroken.",
   internal_error: "De lokale server liep vast. Probeer het opnieuw.",
@@ -76,6 +78,25 @@ const SERVER_MESSAGES: Record<string, string> = {
  * server's code and a Dutch sentence, never a stack trace or provider body.
  */
 export async function request(connection: Connection, path: string, options: RequestOptions = {}): Promise<unknown> {
+  // Right after launch the server answers before its engine (or BonzaiWork's
+  // hooks) is up. Those 503s mean nothing was done, so any request can wait
+  // and try again; the screen shows its loading state meanwhile.
+  const started = Date.now();
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await attemptRequest(connection, path, options);
+    } catch (failure) {
+      const starting = failure instanceof BackendError && failure.status === 503 && STARTING_CODES.has(failure.code);
+      if (!starting || options.signal?.aborted || Date.now() - started > STARTING_PATIENCE_MS) throw failure;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 2_000)));
+    }
+  }
+}
+
+const STARTING_CODES = new Set(["engine_v2_preview_not_running", "starting"]);
+const STARTING_PATIENCE_MS = 45_000;
+
+async function attemptRequest(connection: Connection, path: string, options: RequestOptions): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 30_000);
   options.signal?.addEventListener("abort", () => controller.abort(), { once: true });
@@ -103,7 +124,9 @@ export async function request(connection: Connection, path: string, options: Req
     }
   }
   if (!response.ok) {
-    const code = str(payload, "code") ?? str(payload, "name") ?? (response.status === 404 ? "not_found" : "request_failed");
+    // Most routes send { code, message }; a few send only { error: "some_code" }.
+    const bare = str(payload, "error");
+    const code = str(payload, "code") ?? str(payload, "name") ?? (bare && /^[a-z0-9_]+$/.test(bare) ? bare : null) ?? (response.status === 404 ? "not_found" : "request_failed");
     const detail = str(payload, "message") ?? str(payload, "error");
     throw new BackendError(code, SERVER_MESSAGES[code] ?? `De lokale server weigerde dit verzoek (fout ${response.status}).`, response.status, detail);
   }

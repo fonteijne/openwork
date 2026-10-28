@@ -269,6 +269,24 @@
   }
 }
 
+/*
+ * Window chrome in the desktop shell. Its preload marks <html> with
+ * .openwork-electron and the platform; the window draws its own title bar:
+ * macOS traffic lights top-left (x 20, y 18), a 40px control overlay
+ * top-right elsewhere. Headers move the window; their controls stay clickable.
+ */
+.openwork-electron [data-titlebar] { app-region: drag; user-select: none; }
+.openwork-electron [data-titlebar] :is(a, button, input, select, textarea, label, [role="button"], [tabindex]) { app-region: no-drag; }
+.openwork-platform-mac:not([data-window-fullscreen="true"]) [data-titlebar="sidebar"] { padding-inline-start: 84px; }
+@media (max-width: 1023px) {
+  /* The sidebar is a drawer here, so the page header is top-left. */
+  .openwork-platform-mac:not([data-window-fullscreen="true"]) [data-titlebar="page"] { padding-inline-start: 84px; }
+}
+:is(.openwork-platform-windows, .openwork-platform-linux) [data-titlebar="sidecar"] { padding-inline-end: 148px; }
+/* The page header reaches the top-right corner, unless a pinned sidecar sits beside it. */
+:is(.openwork-platform-windows, .openwork-platform-linux) [data-titlebar="page"] { padding-inline-end: 148px; }
+:is(.openwork-platform-windows, .openwork-platform-linux) [data-sidecar-pinned] [data-titlebar="page"] { padding-inline-end: 1rem; }
+
 /* Project colors (a token, never a free hex: frontend-contract §7.1). */
 [data-project-color="sage"] { --project-solid: var(--ink-10); --project-soft: var(--ink-3); --project-ink: var(--ink-11); }
 [data-project-color="jade"] { --project-solid: var(--jade-9); --project-soft: var(--jade-3); --project-ink: var(--jade-11); }
