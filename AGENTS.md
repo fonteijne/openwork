@@ -22,11 +22,10 @@ The app consumes OpenWork server surfaces (self-hosted or hosted) rather than
 inventing parallel behavior. Anything OpenCode can do is available in OpenWork,
 even before a dedicated UI exists.
 
-OpenCode v2 is the only engine; OpenCode v1 is removed. Hosts copy existing v1
-chat history into v2 automatically on start (the original is only read), without
-a Den feature flag, Helm setting or engine choice. Never restore the retired
-`engineV2ForceUpgrade` gate or add an engine switch. See
-`docs/opencode-engine-migration.md`.
+OpenCode v2 is the default. Hosts automatically back up and migrate existing v1
+history when idle, without a Den feature flag or Helm setting. Respect explicit
+manual engine choices and local support/test overrides; never restore the retired
+`engineV2ForceUpgrade` gate. See `docs/opencode-engine-migration.md`.
 
 Customer-cloud managed installation architecture lives in
 `infra/managed-deployments/README.md` and `docs/managed-deployments.md`. AWS
@@ -70,10 +69,11 @@ Hooks never commit, push, or change CI/Warden policy; CI remains authoritative.
   100% necessary or instructed.
 * Prefer Tailwind, React, shadcn/ui (Base UI), TanStack Query, Zustand, Zod,
   Drizzle, Better-Auth. Reuse `@/components`; end users are non-technical.
-* New feature or a change users would notice? Declare it, off, in
-  `packages/features/src/registry.ts` before writing the code, make it safe
-  to turn off, then roll it out from `/admin`. Follow
-  `.opencode/skills/add-a-feature`.
+* Feature flags are the exception, not the default: ship directly unless the
+  change is big (new product area, engine, or rewrite of a core flow) and
+  turning it off without a deploy would actually matter. Never flag `/admin`
+  tooling, additive UI, polish, fixes or refactors. When unsure, don't flag.
+  If one is warranted, follow `.opencode/skills/add-a-feature`.
 * Any user-facing UI (desktop app, Den web, MCP Apps, artifact views) follows
   `DESIGN.md`: read it before designing, cite its rule ids in PRs, and attach
   screenshots of new UI. The optional

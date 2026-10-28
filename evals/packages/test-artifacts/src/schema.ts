@@ -1,4 +1,4 @@
-import { checkpointSchema } from "@openwork/review";
+import { checkpointSchema, evidenceFocusSchema, screenChangeSchema } from "@openwork/review";
 import type { ReviewEvidence } from "@openwork/review";
 type ImageEvidence = Extract<ReviewEvidence, { kind: "image" }>;
 
@@ -30,6 +30,12 @@ export interface TestArtifact {
   checkpoint?: ImageEvidence["checkpoint"];
   checkpointMatch?: ImageEvidence["checkpointMatch"];
   checkpointError?: string;
+  /** The step this was recorded in; harnesses before it was added leave it out. */
+  step?: string;
+  change?: ImageEvidence["change"];
+  focus?: ImageEvidence["focus"];
+  settle?: { ms: number; settled: boolean };
+  failure?: boolean;
 }
 
 export interface TestRunSummary {
@@ -47,8 +53,7 @@ export interface TestRunSummary {
 export type TraceStage = "world" | "body";
 export type TraceChannel = "seed" | "seed:raw" | "user" | "agent" | "probe" | "probe:raw" | "vision" | "step";
 export type TestOutcome = "passed" | "failed" | "skipped" | "unknown";
-/** Engine label kept only so records written before OpenCode v1 was removed still parse. */
-export type LegacyEvalEngine = "v1" | "v2";
+export type EvalEngine = "v1" | "v2";
 
 export interface TraceEntry {
   seq: number;
@@ -80,8 +85,7 @@ export interface TestRunRecord {
   closedAt: string;
   gitSha?: string;
   sandboxRef?: string;
-  /** Only present on records written before OpenCode v1 was removed. */
-  engine?: LegacyEvalEngine;
+  engine: EvalEngine;
   branch?: string;
   summary: TestRunSummary;
   artifacts: TestArtifact[];
@@ -172,7 +176,19 @@ function parseArtifact(value: unknown): TestArtifact | null {
   if (checkpoint && (!checkpoint.success || checkpoint.data.imageHash !== value.hash)) return null;
   if (value.checkpointError !== undefined && typeof value.checkpointError !== "string") return null;
   if (value.checkpointMatch !== undefined && (!checkpoint?.success || (value.checkpointMatch !== "exact" && value.checkpointMatch !== "approximate"))) return null;
+  // What a newer harness measured about the image. Optional and read leniently: a
+  // malformed measurement drops out instead of rejecting the whole run.
+  const change = screenChangeSchema.safeParse(value.change);
+  const focus = evidenceFocusSchema.array().max(8).safeParse(value.focus);
+  const settle = isRecord(value.settle) && typeof value.settle.ms === "number" && typeof value.settle.settled === "boolean"
+    ? { ms: value.settle.ms, settled: value.settle.settled }
+    : undefined;
   return {
+    ...(typeof value.step === "string" ? { step: value.step } : {}),
+    ...(change.success ? { change: change.data } : {}),
+    ...(focus.success && focus.data.length > 0 ? { focus: focus.data } : {}),
+    ...(settle ? { settle } : {}),
+    ...(value.failure === true ? { failure: true } : {}),
     ...(checkpoint?.success ? { checkpoint: checkpoint.data } : {}),
     ...(value.checkpointMatch === "exact" || value.checkpointMatch === "approximate" ? { checkpointMatch: value.checkpointMatch } : {}),
     ...(typeof value.checkpointError === "string" ? { checkpointError: value.checkpointError } : {}),
@@ -318,9 +334,12 @@ function parseRecord(value: unknown, legacy: boolean): TestRunRecord | null {
   const specFile = typeof value.specFile === "string" ? value.specFile : undefined;
   const gitSha = typeof value.gitSha === "string" ? value.gitSha : undefined;
   const sandboxRef = typeof value.sandboxRef === "string" ? value.sandboxRef : undefined;
-  // Records written before OpenCode v1 was removed may name the engine they ran on.
-  if (value.engine !== undefined && value.engine !== "v1" && value.engine !== "v2") return null;
-  const engine: LegacyEvalEngine | undefined = value.engine;
+  const engine: EvalEngine | null = value.engine === undefined || value.engine === "v1"
+    ? "v1"
+    : value.engine === "v2"
+      ? "v2"
+      : null;
+  if (engine === null) return null;
   const branch = typeof value.branch === "string" ? value.branch : undefined;
   const trace: TraceEntry[] = [];
   if (value.trace !== undefined) {

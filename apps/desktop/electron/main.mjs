@@ -63,6 +63,7 @@ import {
   createLinuxDesktopIntegration,
 } from "./linux-desktop-integration.mjs";
 import { automationRunnerDisabledReason, createComputerDescriber, createDesktopAutomationRunner, normalizeRunnerBaseUrl } from "./automation-runner.mjs";
+import { applyDesktopEngineForcePolicy } from "./engine-force-policy.mjs";
 import {
   desktopActivationRequired,
   enterprisePreactivationCommandAllowed,
@@ -300,6 +301,7 @@ const uiControlServer = createUiControlServer({
   computerTask: (args, options) => computerControl.execute(args, options),
   computerProgram: (args, options) => computerControl.program(args, options),
   computerScript: (args, options) => computerControl.script(args, options),
+  computerEnabled: () => computerControl.featureEnabled(),
   listWebMcpTools: (args, options) => browserPanel?.listWebMcpTools(args, options) ?? {
     ok: false,
     error: "The built-in browser is not ready.",
@@ -1171,6 +1173,10 @@ const IDLE_ENGINE_INFO = Object.freeze({
   projectDir: null,
   hostname: null,
   port: null,
+  opencodeUsername: null,
+  opencodePassword: null,
+  opencodeBinPath: null,
+  opencodeBinSource: null,
   pid: null,
   lastStdout: null,
   lastStderr: null,
@@ -1184,6 +1190,8 @@ const IDLE_OPENWORK_SERVER_INFO = Object.freeze({
   clientToken: null,
   ownerToken: null,
   hostToken: null,
+  managedOpencodeBinPath: null,
+  managedOpencodeBinSource: null,
   logFilePath: null,
   pid: null,
   lastStdout: null,
@@ -1206,6 +1214,8 @@ const pendingDeepLinks = [];
 const nativeContextMenus = createNativeContextMenus({ Menu, clipboard, getWindow: () => mainWindow });
 
 browserPanel = createBrowserPanel({
+  // A page gets files only after the person approves them in the chat, like a native file panel.
+  approveFiles: (sessionId, request, signal) => computerControl.approveFiles({ sessionId, app: request.app, files: request.files }, { signal }),
   showNativeContextMenu: nativeContextMenus.show,
   closeNativeContextMenu: nativeContextMenus.close,
   remoteDebugPort,
@@ -1465,6 +1475,9 @@ const desktopAutomationRunner = createDesktopAutomationRunner({
     const server = await runtimeManager.openworkServerInfo();
     return { baseUrl: server.baseUrl, token: server.clientToken ?? server.ownerToken };
   },
+  onEnginePolicy: (policy) => applyDesktopEngineForcePolicy(policy, {
+    getServerInfo: () => runtimeManager.openworkServerInfo(),
+  }),
   // Remote-session callers choose a computer by this label, then a workspace and model.
   describeComputer: createComputerDescriber({
     platform: process.platform,
@@ -2063,6 +2076,10 @@ const desktopCommandHandlers = {
       assertComputerSender(event);
       return computerControl.setRemoteEnabled(enabled === true);
   },
+  "computerSetBackgroundEnabled": async (event, enabled) => {
+      assertComputerSender(event);
+      return computerControl.setBackgroundEnabled(enabled === true);
+  },
   "computerResetPermission": async (event, permission) => {
       assertComputerSender(event);
       if (permission !== "accessibility" && permission !== "screenRecording") throw new Error("Choose Accessibility or Screen Recording.");
@@ -2295,6 +2312,9 @@ const desktopCommandHandlers = {
   "resetOpenworkState": async (event, ...args) => {
       return workspaceStore.resetOpenworkState();
   },
+  "opencodeMcpAuth": async (event, ...args) => {
+      return runtimeManager.opencodeMcpAuth(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
+  },
   "__openPath": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
       if (!target) return "Path is required.";
@@ -2477,7 +2497,7 @@ const desktopCommandHandlers = {
       };
       const method = (requestInit.method ?? "GET").toUpperCase();
       const cancellable = ["GET", "PATCH"].includes(method)
-        || (method === "POST" && /\/(?:session\/[^/]+\/(?:abort|interrupt)|permission\/[A-Za-z0-9_-]+\/reply)$/.test(new URL(url).pathname));
+        || (method === "POST" && /\/(?:session\/[^/]+\/abort|permission\/[A-Za-z0-9_-]+\/reply)$/.test(new URL(url).pathname));
       return cancellable && init.transferId
         ? desktopTransfers.run(event, init.transferId, fetchResponse)
         : fetchResponse(undefined);

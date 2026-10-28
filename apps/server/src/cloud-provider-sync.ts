@@ -3,10 +3,20 @@ import { readFile } from "node:fs/promises";
 import type { GatewayAuthorizationRequest, GatewayDesktopOauthStartResponse, GatewayUsableModel } from "@openwork/types/den/gateway";
 import { CLOUD_MODEL_CONFIG_VERSION } from "@openwork/types/cloud-model-fast";
 import { composeMemberPromptText, memberPromptsSchema } from "@openwork/types/den/prompts";
+import {
+  AUTO_ROUTER_MODEL_ID,
+  AUTO_ROUTER_MODEL_NAME,
+  AUTO_ROUTER_PROVIDER_ID,
+  autoRouterConnectSchema,
+  type AutoRouterConnect,
+} from "@openwork/types/den/auto-router";
 
+import { enginePoolForConfig, rolloverOutcomeApplied, type RolloverOutcome } from "./engine-pool.js";
 import type { EnvService } from "./env-file.js";
 import { ApiError } from "./errors.js";
+import { syncManagedProviderAuth } from "./managed-provider-auth.js";
 import { buildManagedProviderConfig, readProviderEnvNames, selectPrimaryCredentialEnvName } from "@openwork/types/managed-provider-config";
+import { writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
 import {
   hasOpenworkWorkspaceConfig,
   readOpenworkWorkspaceConfig,
@@ -23,6 +33,7 @@ import {
 } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import { openworkConfigPath } from "./workspace-files.js";
+import { findManagedEngineWorkspace } from "./workspaces.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -166,6 +177,10 @@ type DenProviderConnection = DenProvider & {
 };
 
 const gatewayProviderSource = "openwork_gateway";
+/** The organization's Auto Router: one runtime provider whose only model asks the Gateway to pick. */
+const autoRouterProviderSource = "openwork_auto_router";
+/** Not OPENWORK_-prefixed: the env store reserves that prefix for OpenWork internals. */
+export const AUTO_ROUTER_API_KEY_ENV = "OW_AUTO_ROUTER_API_KEY";
 
 type EnvEntry = {
   key: string;
@@ -224,11 +239,19 @@ export type CloudProviderSyncOptions = {
   config: ServerConfig;
   env: EnvService;
   /**
-   * Bring OpenCode v2 onto the materialized providers and credentials, live
-   * (no restart, no session interruption). Resolving clears the owed reload;
-   * a rejection leaves it pending and retried. The resolved value is ignored.
+   * Bring the engine onto the materialized config and credentials. The
+   * outcome decides whether the owed reload clears: only an applied action
+   * (`rolled_over`, `reloaded_in_place`) proves the engine read them. A
+   * `skipped` or `coalesced` answer leaves the reload pending and retried.
    */
-  reloadEngine: () => Promise<unknown>;
+  reloadEngine: () => Promise<RolloverOutcome>;
+  /**
+   * Reports whether the managed engine currently has non-idle sessions.
+   * When it returns true a pending engine reload is deferred to a later
+   * pass instead of disposing a live instance ("no auto-reload while
+   * sessions are running"). Absent means "unknown" and never blocks.
+   */
+  engineBusy?: () => Promise<boolean>;
   fetchImpl?: typeof globalThis.fetch;
   logger?: CloudProviderSyncLogger;
   intervalMs?: number;
@@ -600,6 +623,84 @@ async function fetchOrganizationPrompts(
   }
 }
 
+/**
+ * The organization's Auto Router for this member, from
+ * GET /v1/org/auto-router/connect. null when there is none: the feature is
+ * off, no router is configured, the member has no access (404), or Den
+ * answered something unusable. undefined when it could not be read right now,
+ * so the last known answer for this sign-in stays. Never fails the sync pass.
+ */
+async function fetchAutoRouter(
+  fetchImpl: typeof globalThis.fetch,
+  session: CloudProviderDenSession,
+  signal: AbortSignal,
+  logger?: CloudProviderSyncLogger,
+): Promise<AutoRouterConnect | null | undefined> {
+  let payload: unknown;
+  try {
+    payload = await requestJson(fetchImpl, session, "/v1/org/auto-router/connect", signal, { allowUnavailableResource: true });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    logger?.warn("auto router could not be read; keeping the last known state", {
+      message: error instanceof Error ? error.message : "den_auto_router_failed",
+    });
+    return undefined;
+  }
+  if (payload === undefined) return null;
+  const parsed = autoRouterConnectSchema.safeParse(payload);
+  if (!parsed.success || !parsed.data.apiKey.trim() || !isHttpUrl(parsed.data.baseURL)) {
+    logger?.warn("auto router connect response is invalid; Auto is not offered", {});
+    return null;
+  }
+  return parsed.data;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+/** Auto as a Den provider row, so it materializes, fingerprints and retires like every managed provider. */
+function autoRouterProvider(connect: AutoRouterConnect): DenProviderConnection {
+  const name = connect.model.name.trim() || AUTO_ROUTER_MODEL_NAME;
+  return {
+    id: AUTO_ROUTER_PROVIDER_ID,
+    providerId: AUTO_ROUTER_PROVIDER_ID,
+    name: AUTO_ROUTER_MODEL_NAME,
+    source: autoRouterProviderSource,
+    updatedAt: null,
+    providerConfig: {
+      npm: "@ai-sdk/openai-compatible",
+      env: [AUTO_ROUTER_API_KEY_ENV],
+      options: { baseURL: connect.baseURL.replace(/\/+$/, "") },
+    },
+    models: [{
+      id: AUTO_ROUTER_MODEL_ID,
+      name,
+      config: {
+        id: AUTO_ROUTER_MODEL_ID,
+        name,
+        attachment: true,
+        reasoning: false,
+        tool_call: true,
+        limit: { context: 200_000, output: 32_000 },
+        modalities: { input: ["text", "image"], output: ["text"] },
+      },
+    }],
+    pinnedModelIds: [],
+    apiKey: connect.apiKey.trim(),
+    apiKeys: null,
+    memberCredentialState: null,
+    declaredEnvNames: [],
+    credentialStatus: null,
+    authUrl: null,
+  };
+}
+
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!isRecord(value)) return value;
@@ -825,7 +926,8 @@ function configuredReloadRetryMs(): number {
 export class CloudProviderSync {
   private readonly config: ServerConfig;
   private readonly env: EnvService;
-  private readonly reloadEngine: () => Promise<unknown>;
+  private readonly reloadEngine: () => Promise<RolloverOutcome>;
+  private readonly engineBusy?: () => Promise<boolean>;
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly logger?: CloudProviderSyncLogger;
   private readonly intervalMs: number;
@@ -841,6 +943,8 @@ export class CloudProviderSync {
   private managedProviderIds = new Set<string>();
   private providerEnvHashes = new Map<string, Record<string, string>>();
   private importedAtByCloudProviderId = new Map<string, number>();
+  /** Last Auto Router answer, reused for the same sign-in when Den cannot be read. */
+  private autoRouter: { contextKey: string; connect: AutoRouterConnect | null } | null = null;
   private reloadPending = false;
   private queue: Promise<void> = Promise.resolve();
   private contextGeneration = 0;
@@ -857,6 +961,7 @@ export class CloudProviderSync {
     this.config = options.config;
     this.env = options.env;
     this.reloadEngine = options.reloadEngine;
+    this.engineBusy = options.engineBusy;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.logger = options.logger;
     this.intervalMs = options.intervalMs ?? configuredIntervalMs();
@@ -909,7 +1014,7 @@ export class CloudProviderSync {
       const ownedContextHash = this.materializationContextHash
         ?? (this.materializationContextKey === null ? null : hashString(this.materializationContextKey));
       if (ownedContextHash !== null && ownedContextHash !== hashString(contextKey)) {
-        await this.sweep();
+        await this.sweep({ forceReload: true });
         this.resetMaterializationState();
       }
       if (generation !== this.contextGeneration) return;
@@ -964,7 +1069,7 @@ export class CloudProviderSync {
     trailing?.resolve({ status: "no_session" });
     await this.enqueue(async () => {
       try {
-        await this.sweep();
+        await this.sweep({ forceReload: true });
       } catch (error) {
         this.logger?.error("cloud provider sweep failed", {
           message: error instanceof Error ? error.message : "cloud_provider_sweep_failed",
@@ -1060,6 +1165,16 @@ export class CloudProviderSync {
     return run;
   }
 
+  /**
+   * Whether there is an engine to write provider state into and reload: a
+   * managed engine (which runs before the first workspace exists) or a
+   * workspace attached to one.
+   */
+  private engineAvailable(): boolean {
+    return enginePoolForConfig(this.config) !== null
+      || Boolean(findManagedEngineWorkspace(this.config.workspaces) ?? this.config.workspaces[0]);
+  }
+
   private sessionContextKey(session: CloudProviderDenSession): string {
     return `${session.baseUrl}\u0000${session.orgId}\u0000${session.token}`;
   }
@@ -1075,6 +1190,7 @@ export class CloudProviderSync {
     this.managedProviderIds.clear();
     this.providerEnvHashes.clear();
     this.importedAtByCloudProviderId.clear();
+    this.autoRouter = null;
   }
 
   private createTrailingRun(request: CloudProviderSyncRequest): Promise<CloudProviderSyncRunResult> {
@@ -1129,10 +1245,11 @@ export class CloudProviderSync {
   }
 
   /**
-   * A failed reload must not wait for the next user gesture or the 5-minute
+   * A deferred reload must not wait for the next user gesture or the 5-minute
    * interval — and a reload parked by markReloadPending() may have no Den
-   * session at all, so no sync pass would ever retry it. Serialized on the
-   * same queue as sync passes.
+   * session at all, so no sync pass would ever retry it. Poll the (local,
+   * cheap) engine busy probe and land the reload moments after the last
+   * session idles. Serialized on the same queue as sync passes.
    */
   private scheduleReloadRetry(): void {
     if (this.suspended || this.pendingReloadRetry) return;
@@ -1142,8 +1259,19 @@ export class CloudProviderSync {
       if (!this.reloadPending) return;
       void this.enqueue(async () => {
         if (this.suspended || generation !== this.contextGeneration || !this.reloadPending) return;
+        const busy = await this.reloadDeferredByActivity();
+        if (this.suspended || generation !== this.contextGeneration) return;
+        if (busy) {
+          this.scheduleReloadRetry();
+          return;
+        }
         try {
-          await this.reloadEngine();
+          const outcome = await this.reloadEngine();
+          if (!rolloverOutcomeApplied(outcome)) {
+            // Still owed: the engine did not read the materialized config.
+            this.scheduleReloadRetry();
+            return;
+          }
           this.reloadPending = false;
           // A landed retry settles a previously failed run: without this the
           // status would stay "failed" forever even though the engine now
@@ -1177,6 +1305,20 @@ export class CloudProviderSync {
     this.pendingReloadRetry = null;
   }
 
+  /**
+   * A pending reload never disposes a live engine: sessions (including
+   * subagent children) would abort mid-turn. Unknown activity never blocks —
+   * a dead engine surfaces through the dispose call itself.
+   */
+  private async reloadDeferredByActivity(): Promise<boolean> {
+    if (!this.engineBusy) return false;
+    try {
+      return await this.engineBusy();
+    } catch {
+      return false;
+    }
+  }
+
   private async runPass(request: CloudProviderSyncRequest): Promise<CloudProviderSyncRunResult> {
     const { reason, session } = request;
     if (request.generation !== this.contextGeneration) return { status: "no_session" };
@@ -1186,16 +1328,17 @@ export class CloudProviderSync {
       const hadGatewayProviders = [...this.managedProviderIds].some((id) => /^ipr_/i.test(id));
       const matchesMaterializationContext = this.materializationContextHash === hashString(request.contextKey);
       if (hadGatewayProviders && this.materializationContextHash !== null && !matchesMaterializationContext) {
-        await this.sweep();
+        await this.sweep({ forceReload: true });
         this.resetMaterializationState();
       }
       if (request.generation !== this.contextGeneration) return { status: "no_session" };
       const liveProviderSync = await this.liveProviderSync?.() ?? false;
       if (request.generation !== this.contextGeneration) return { status: "no_session" };
-      const [{ llmProviders, inferenceProviders }, storedEnv, organizationPrompts] = await Promise.all([
+      const [{ llmProviders, inferenceProviders }, storedEnv, organizationPrompts, fetchedAutoRouter] = await Promise.all([
         fetchProviders(this.fetchImpl, session, this.providerFetchController.signal, liveProviderSync),
         this.env.list(),
         fetchOrganizationPrompts(this.fetchImpl, session, this.providerFetchController.signal, this.logger),
+        fetchAutoRouter(this.fetchImpl, session, this.providerFetchController.signal, this.logger),
       ]);
       if (request.generation !== this.contextGeneration) return { status: "no_session" };
       if (inferenceProviders === undefined && hadGatewayProviders && matchesMaterializationContext) {
@@ -1206,7 +1349,15 @@ export class CloudProviderSync {
       const localEnvNames = storedEnv
         .filter((entry) => entry.value.trim().length > 0 && this.ownedEnvKeys.get(entry.key) !== hashString(entry.value))
         .map((entry) => entry.key);
-      const prepared = prepareMaterialization([...llmProviders, ...(inferenceProviders ?? [])], localEnvNames);
+      const autoRouter = fetchedAutoRouter !== undefined
+        ? fetchedAutoRouter
+        : this.autoRouter?.contextKey === request.contextKey ? this.autoRouter.connect : null;
+      this.autoRouter = { contextKey: request.contextKey, connect: autoRouter };
+      const prepared = prepareMaterialization([
+        ...llmProviders,
+        ...(inferenceProviders ?? []),
+        ...(autoRouter ? [autoRouterProvider(autoRouter)] : []),
+      ], localEnvNames);
       // Ownership follows the apply that can write, not a pending session.
       // Retain it through suspension, including a partially completed apply.
       this.materializationContextKey = request.contextKey;
@@ -1245,6 +1396,7 @@ export class CloudProviderSync {
     const desiredProviders = desiredProviderMap(prepared);
     const globalRuntime = await readGlobalRuntimeOpencodeConfig(this.config);
     const currentManagedProviders = managedProviderMap(runtimeProviderMap(globalRuntime), this.managedProviderIds);
+    const retiredProviderIds = [...this.managedProviderIds].filter((id) => !(id in desiredProviders));
     const providerStateChanged = stableJson(currentManagedProviders) !== stableJson(desiredProviders);
     const storedEnv = new Map((await this.env.list()).map((entry) => [entry.key, entry.value]));
     for (const { provider, envEntries } of prepared.providers) {
@@ -1272,6 +1424,7 @@ export class CloudProviderSync {
     this.providerEnvHashes = providerEnvHashes;
     for (const entry of prepared.envEntries) this.ownedEnvKeys.set(entry.key, hashString(entry.value));
     if (this.materializationContextHash !== contextHash) this.materializationContextHash = null;
+    // Keep retired rows until auth removal has been persisted by its owner.
     await this.persistOwnership();
 
     if (providerStateChanged) {
@@ -1310,35 +1463,80 @@ export class CloudProviderSync {
       this.ownedEnvKeys.delete(key);
     }
 
-    // The organization's Prompts ride the same pass; OpenCode v2 sets them
-    // before each prompt.
+    // The organization's Prompts ride the same pass: v1 engines read them from
+    // the runtime config file (the reload below), v2 sets them before each prompt.
     const promptChanged = organizationPrompts === null
       ? false
       : (await writeManagedPrompt(this.config, organizationPrompts)).changed;
     const workspaceCleanup = await this.cleanupWorkspaceTakeovers();
-    // OpenCode v2 receives stored credentials through EnvService.onChange; a
-    // refresh still makes it rebuild provider clients on a rotated key.
-    const credentialsChanged = envUpserts.length > 0 || envDeletes.length > 0;
+    const engineAvailable = this.engineAvailable();
+    const runtimeFileChanged = engineAvailable
+      ? (await writeOpenworkRuntimeConfigFile(this.config)).changed
+      : false;
+    // Deliver credentials before disposing the current provider instances.
+    // OpenCode constructs and caches SDK clients from config + auth together;
+    // reloading first can cache a client without the just-synced credential,
+    // even though PUT /auth/{providerID} later reports success. Credential
+    // rotation therefore needs the same instance refresh as provider config.
+    const authResult = await syncManagedProviderAuth({
+      config: this.config,
+      env: this.env,
+      fetchImpl: this.fetchImpl,
+      logger: this.logger,
+      retiredProviderIds,
+    });
+    // Only a rotated value or a removal invalidates cached SDK clients.
+    // Re-seeding the same key to a replaced engine generation is not a
+    // change; counting it forced a standby after every rollover, and the
+    // next sync then re-seeded that generation, forever.
+    const authChanged = authResult.rotated.length > 0 || authResult.removed.length > 0;
 
-    // OpenCode v2 refreshes providers, credentials and prompts live, so the
-    // reload never interrupts a running session and is never deferred.
+    // Provider *config* (models, npm,
+    // options.baseURL) has no live path: the engine reads it from
+    // OPENCODE_CONFIG when it builds an instance, and the only write endpoint
+    // that accepts it, PATCH /config, performs the same instance dispose as
+    // POST /instance/dispose (verified against opencode 1.18.15 — both drop an
+    // open /event stream, GET /config and PUT /auth do not). So a config delta
+    // still reloads. Without a rollover-capable engine pool it is deferred
+    // while sessions are live; with one, reloadEngine flips generations.
     this.reloadPending = this.reloadPending
       || templateBindingsChanged
       || providerStateChanged
       || promptChanged
       || workspaceCleanup.runtimeChanged
-      || credentialsChanged;
+      || runtimeFileChanged
+      || authChanged;
     let reloadError: unknown;
-    if (this.reloadPending) {
-      try {
-        await this.reloadEngine();
-        this.reloadPending = false;
-      } catch (error) {
-        reloadError = error;
-        // Self-heal: without this, a failed reload waited for the next
-        // external trigger (user gesture or the 5-minute interval) while the
-        // status kept promising the providers.
+    let reloadDeferred = false;
+    if (engineAvailable && this.reloadPending) {
+      if (await this.reloadDeferredByActivity()) {
+        reloadDeferred = true;
         this.scheduleReloadRetry();
+      } else {
+        try {
+          const outcome = await this.reloadEngine();
+          if (rolloverOutcomeApplied(outcome)) {
+            this.reloadPending = false;
+          } else if (outcome.action === "coalesced") {
+            // Parked behind a drain or throttle inside the pool: it lands
+            // later, so keep it owed and visible rather than calling it done.
+            reloadDeferred = true;
+            this.scheduleReloadRetry();
+          } else {
+            // The engine answered "skipped" to a change it must apply (a
+            // rotated key never shows in its config fingerprint). Clearing
+            // reloadPending here is what reported "applied" while the engine
+            // still served the previous credential.
+            reloadError = new Error(`cloud_provider_engine_reload_skipped: ${outcome.reason}`);
+            this.scheduleReloadRetry();
+          }
+        } catch (error) {
+          reloadError = error;
+          // Self-heal like the busy-deferral path: without this, a failed
+          // reload waited for the next external trigger (user gesture or the
+          // 5-minute interval) while the status kept promising the providers.
+          this.scheduleReloadRetry();
+        }
       }
     }
     this.managedProviderIds = new Set(Object.keys(desiredProviders));
@@ -1352,9 +1550,8 @@ export class CloudProviderSync {
       envDeletes: envDeletes.length,
       cleanupChanged: workspaceCleanup.changed,
       cleanupRuntimeChanged: workspaceCleanup.runtimeChanged,
-      // OpenCode v2 reads no engine config file and never defers a reload.
-      fileChanged: false,
-      reloadDeferred: false,
+      fileChanged: runtimeFileChanged,
+      reloadDeferred,
     };
     const changed = detail.fingerprintChanged
       || promptChanged
@@ -1362,7 +1559,8 @@ export class CloudProviderSync {
       || providerStateChanged
       || envUpserts.length > 0
       || envDeletes.length > 0
-      || workspaceCleanup.changed;
+      || workspaceCleanup.changed
+      || runtimeFileChanged;
     return { changed, detail, reloadError };
   }
 
@@ -1405,7 +1603,8 @@ export class CloudProviderSync {
       if (!desiredCloudIds.has(cloudId)) this.importedAtByCloudProviderId.delete(cloudId);
     }
     const now = Date.now();
-    this.providers = prepared.providers.map((entry) => {
+    // Auto is a model, not an imported provider; Settings never lists it.
+    this.providers = prepared.providers.filter((entry) => entry.provider.source !== autoRouterProviderSource).map((entry) => {
       const importedAt = this.importedAtByCloudProviderId.get(entry.provider.id) ?? now;
       this.importedAtByCloudProviderId.set(entry.provider.id, importedAt);
       return {
@@ -1423,7 +1622,7 @@ export class CloudProviderSync {
     });
   }
 
-  private async sweep(): Promise<void> {
+  private async sweep(options: { forceReload?: boolean } = {}): Promise<void> {
     await this.restoreOwnership();
     const providerPatch = Object.fromEntries([...this.managedProviderIds].map((providerId) => [providerId, null]));
     let providerChanged = false;
@@ -1438,26 +1637,39 @@ export class CloudProviderSync {
     const promptCleared = (await writeManagedPrompt(this.config, "")).changed;
     providerChanged = providerChanged || promptCleared;
     const storedEnv = new Map((await this.env.list()).map((entry) => [entry.key, entry.value]));
-    let credentialsRemoved = false;
     for (const [key, hash] of this.ownedEnvKeys) {
       const value = storedEnv.get(key);
-      if (value !== undefined && hashString(value) === hash) {
-        await this.env.delete(key);
-        credentialsRemoved = true;
-      }
+      if (value !== undefined && hashString(value) === hash) await this.env.delete(key);
     }
-    const cleanup = await this.cleanupWorkspaceTakeovers();
+    await this.cleanupWorkspaceTakeovers();
+
+    if (this.engineAvailable()) {
+      const fileResult = await writeOpenworkRuntimeConfigFile(this.config);
+      this.reloadPending = this.reloadPending || providerChanged || fileResult.changed;
+    }
+    const authResult = await syncManagedProviderAuth({
+      config: this.config,
+      env: this.env,
+      fetchImpl: this.fetchImpl,
+      logger: this.logger,
+      retiredProviderIds: [...this.managedProviderIds],
+    });
     this.ownedEnvKeys.clear();
     this.managedProviderIds.clear();
     this.providerEnvHashes.clear();
     this.materializationContextHash = null;
     await this.persistOwnership();
-    this.reloadPending = this.reloadPending || providerChanged || credentialsRemoved || cleanup.runtimeChanged;
+    this.reloadPending = this.reloadPending
+      || authResult.delivered.length > 0
+      || authResult.removed.length > 0;
     let reloadError: unknown;
-    if (this.reloadPending) {
+    if (this.reloadPending && !options.forceReload && (await this.reloadDeferredByActivity())) {
+      this.scheduleReloadRetry();
+    } else if (this.reloadPending) {
       try {
-        await this.reloadEngine();
-        this.reloadPending = false;
+        const outcome = await this.reloadEngine();
+        if (rolloverOutcomeApplied(outcome)) this.reloadPending = false;
+        else this.scheduleReloadRetry();
       } catch (error) {
         reloadError = error;
         // Sign-out cleanup must still reach the engine once it recovers.

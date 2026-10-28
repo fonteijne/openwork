@@ -19,12 +19,12 @@ import type {
 } from "@opencode-ai/sdk/v2/client";
 
 import { createClient, createDesktopFetch, type FieldsResult } from "./opencode";
+import { AUTO_ROUTER_SESSION_ROUTES_KEY, autoRouterReplyRoutes } from "@openwork/types/den/auto-router";
 import type { OpenworkSessionHistory } from "./openwork-server";
 import { isDesktopRuntime } from "./runtime-env";
 import type { McpStatusMap, OpencodeEvent } from "../types";
 import { normalizeDirectoryPath } from "../utils";
 import { dispatchProviderCatalogChanged } from "./provider-events";
-import { mapV2McpStatuses } from "./opencode-v2-mcp-status";
 import { attachmentMarker, attachmentNoteFilenames, composeV2Prompt, splitV2Prompt, wrapPastedText, type PromptAttachment } from "./v2-prompt-context";
 import { readShowThinkingPreference } from "../../react-app/kernel/local-preferences-storage";
 import {
@@ -41,6 +41,7 @@ import {
   type BackgroundShellNotice,
   type EngineShell,
 } from "./background-shell-tasks";
+import { SUBAGENT_NOTICE_KEY, readSubagentCompletion, subagentNoticeLabel, type SubagentNotice } from "./subagent-notices";
 
 type RequestOptions = {
   signal?: AbortSignal;
@@ -181,6 +182,9 @@ type SessionUpdateParameters = SessionParameters & {
   title?: string;
   time?: { archived?: number };
 };
+
+/** The app's event for a session's recorded Auto routing decisions (`properties: { sessionID, routes }`). */
+export const AUTO_ROUTES_EVENT = "openwork.auto-routes.updated";
 
 export const V2_SESSION_ARCHIVE_UNAVAILABLE = "Archiving and unarchiving are not available in the OpenCode v2 preview.";
 
@@ -504,7 +508,9 @@ function mapV2Session(value: unknown, directory: string | undefined, eventCreate
     } : {}),
     ...(revertMessageID ? { revert: { messageID: revertMessageID } } : {}),
   };
-  return mapped;
+  // Auto replies' routing decisions ride along for the chat's "answered by" label.
+  const autoRoutes = autoRouterReplyRoutes(readRecord(source, "metadata")?.[AUTO_ROUTER_SESSION_ROUTES_KEY]);
+  return autoRoutes.length ? Object.assign(mapped, { [AUTO_ROUTER_SESSION_ROUTES_KEY]: autoRoutes }) : mapped;
 }
 
 function messageRole(value: Record<string, unknown>): V2MessageRole {
@@ -896,17 +902,27 @@ function mapV2UserPart(part: Part): Part[] {
  * sees one plain sentence, and the row keeps its details in part metadata.
  */
 function backgroundShellNoticeMessage(id: string, sessionID: string, created: number, notice: BackgroundShellNotice): V2MappedMessage {
+  return noticeMessage(id, sessionID, created, backgroundShellNoticeLabel(notice), { [BACKGROUND_SHELL_NOTICE_KEY]: notice });
+}
+
+/** A background sub-agent's completion notice, as one row that opens its chat. */
+function subagentNoticeMessage(id: string, sessionID: string, created: number, notice: SubagentNotice): V2MappedMessage {
+  return noticeMessage(id, sessionID, created, subagentNoticeLabel(notice), { [SUBAGENT_NOTICE_KEY]: notice });
+}
+
+function noticeMessage(id: string, sessionID: string, created: number, text: string, metadata: Record<string, unknown>): V2MappedMessage {
   return {
     info: { id, sessionID, role: "system", time: { created } },
-    parts: [{
-      id: `${id}:0`,
-      messageID: id,
-      sessionID,
-      type: "text",
-      text: backgroundShellNoticeLabel(notice),
-      metadata: { [BACKGROUND_SHELL_NOTICE_KEY]: notice },
-    }],
+    parts: [{ id: `${id}:0`, messageID: id, sessionID, type: "text", text, metadata }],
   };
+}
+
+/** The transcript row for an engine completion notice, if the message is one. */
+function completionNoticeMessage(id: string, sessionID: string, created: number, payload: unknown): V2MappedMessage | null {
+  const shell = readBackgroundShellCompletion(payload);
+  if (shell) return backgroundShellNoticeMessage(id, sessionID, created, shell);
+  const subagent = readSubagentCompletion(payload);
+  return subagent ? subagentNoticeMessage(id, sessionID, created, subagent) : null;
 }
 
 function mapV2Message(
@@ -917,14 +933,13 @@ function mapV2Message(
   if (!isRecord(value)) return null;
   // Native instruction/catalog updates belong to the model context, not the
   // visible conversation. Filter by role so identical user text is preserved.
-  // The one exception is a background command's completion notice, which the
-  // chat shows as a short row.
+  // The exceptions are a background command's or sub-agent's completion
+  // notice, which the chat shows as a short row.
   if (messageRole(value) === "system") {
-    const notice = readBackgroundShellCompletion(value);
     const id = readString(value, "id") ?? readString(value, "messageID");
-    if (!notice || !id) return null;
+    if (!id) return null;
     const created = readNumber(readRecord(value, "time"), "created") ?? readNumber(value, "timestamp") ?? 0;
-    return backgroundShellNoticeMessage(id, readString(value, "sessionID") ?? sessionID, created, notice);
+    return completionNoticeMessage(id, readString(value, "sessionID") ?? sessionID, created, value);
   }
   const id = readString(value, "id") ?? readString(value, "messageID");
   if (!id) return null;
@@ -1514,6 +1529,15 @@ export function translateV2Event(
         ] : []),
       ];
     }
+    const subagent = readString(item, "type") === "synthetic" ? readSubagentCompletion(payload) : null;
+    if (sessionID && messageID && subagent) {
+      const created = readNumber(value, "created") ?? readNumber(properties, "timestamp") ?? Date.now();
+      const notice = subagentNoticeMessage(messageID, sessionID, created, subagent);
+      return [
+        { type: "message.updated", properties: { info: notice.info } },
+        ...notice.parts.map((part): OpencodeEvent => ({ type: "message.part.updated", properties: { part } })),
+      ];
+    }
     if (!sessionID || !messageID || readString(item, "type") !== "user" || !payload) return null;
     // The inbox ID becomes the persisted user-message ID on delivery. Using
     // it here lets the live row reconcile with history without duplicating it.
@@ -1872,6 +1896,12 @@ export function translateV2Event(
     }];
   }
 
+  if (type === "session.metadata.updated") {
+    // Only the Auto Router's routing decisions are read from host metadata.
+    const routes = autoRouterReplyRoutes(readRecord(properties, "metadata")?.[AUTO_ROUTER_SESSION_ROUTES_KEY]);
+    return sessionID ? [{ type: AUTO_ROUTES_EVENT, properties: { sessionID, routes } }] : null;
+  }
+
   if (type === "session.renamed") {
     const title = readString(properties, "title");
     if (!sessionID || title === undefined) return null;
@@ -2120,7 +2150,27 @@ function failedResult<T>(transport: TransportResult): FieldsResult<T> {
   };
 }
 
-export { mapV2McpStatuses } from "./opencode-v2-mcp-status";
+/**
+ * Map the native v2 `/api/mcp` catalog (`[{ name, status: { status, error? } }]`)
+ * onto the v1 name-keyed status map the rest of the app consumes. `pending`
+ * servers are omitted so callers treat them as not-yet-known instead of failed.
+ */
+export function mapV2McpStatuses(payload: unknown): McpStatusMap | null {
+  const entries = responseData(payload);
+  if (!Array.isArray(entries)) return null;
+  const statuses: McpStatusMap = {};
+  for (const entry of entries) {
+    const name = readString(entry, "name");
+    const detail = isRecord(entry) ? entry.status : undefined;
+    const status = readString(detail, "status");
+    if (!name || !status) continue;
+    const error = readString(detail, "error") ?? "MCP connection failed";
+    if (status === "connected" || status === "disabled" || status === "needs_auth") statuses[name] = { status };
+    else if (status === "failed" || status === "needs_client_registration") statuses[name] = { status, error };
+    else if (status !== "pending") statuses[name] = { status: "failed", error: `Unknown MCP status: ${status}` };
+  }
+  return statuses;
+}
 
 type SessionCommandParameters = SessionParameters & {
   command: string;
@@ -2182,15 +2232,18 @@ function unsupportedResult<T>(baseUrl: string, operation: string, message?: stri
   };
 }
 
-/** The OpenWork server's `{ all: [{ id, name, env }] }` catalog of providers that accept an API key. */
-function readConnectableProviders(payload: unknown): Provider[] {
-  const all = isRecord(payload) && Array.isArray(payload.all) ? payload.all : [];
-  return all.flatMap((item): Provider[] => {
-    const id = readString(item, "id");
-    if (!id || !isRecord(item)) return [];
-    const env = Array.isArray(item.env) ? item.env.filter((entry): entry is string => typeof entry === "string") : [];
-    return [{ id, name: readString(item, "name") ?? id, source: "api", env, options: {}, models: {} }];
-  });
+export function isOpencodeV2BaseUrl(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).pathname.replace(/\/+$/, "").endsWith("/opencode2");
+  } catch {
+    return baseUrl.replace(/\/+$/, "").endsWith("/opencode2");
+  }
+}
+
+const v2Clients = new WeakSet<ReturnType<typeof createClient>>();
+
+export function isOpencodeV2Client(client: ReturnType<typeof createClient>): client is OpencodeV2Client {
+  return v2Clients.has(client);
 }
 
 export type SetSessionModelParameters = {
@@ -2683,6 +2736,8 @@ export function createClientV2(
         `/api/session/${encodeURIComponent(parameters.sessionID)}/prompt`,
         {
           text,
+          ...(parameters.messageID ? { id: parameters.messageID } : {}),
+          delivery: "steer",
           ...(skills.length ? { skills } : {}),
           // Settings › Show model reasoning. The engine plugin asks the provider
           // for readable reasoning only while this is on.
@@ -2883,33 +2938,6 @@ export function createClientV2(
     });
   };
 
-  /**
-   * Every provider that can be connected, for the Connect-a-provider catalog:
-   * usable providers first, then the OpenWork server's catalog of providers
-   * that accept an API key (`GET /provider` under the engine mount). Only
-   * usable providers count as connected.
-   */
-  const listProviderCatalog = async (
-    parameters: DirectoryParameters = {},
-    options?: RequestOptions,
-  ): Promise<FieldsResult<ProviderListResponse>> => {
-    const [usable, catalog] = await Promise.all([
-      listProviders(parameters, options),
-      request("GET", "/provider", undefined, options?.signal).catch(() => null),
-    ]);
-    if (!usable.data) return usable;
-    const known = new Set(usable.data.all.map((provider) => provider.id));
-    const connectable = catalog?.response.ok ? readConnectableProviders(catalog.payload) : [];
-    return {
-      ...usable,
-      data: {
-        all: [...usable.data.all, ...connectable.filter((provider) => !known.has(provider.id))],
-        connected: usable.data.connected,
-        default: usable.data.default,
-      },
-    };
-  };
-
   const adapter = {
     global: {
       health: async (options?: RequestOptions): Promise<FieldsResult<{ healthy: boolean; version: string }>> => {
@@ -2925,7 +2953,8 @@ export function createClientV2(
     session,
     config: {
       get: async (): Promise<FieldsResult<Record<string, never>>> => localResult(baseUrl, "/api/config", {}),
-      // Usable providers only: these are the connected providers.
+      // v2 only lists usable providers, so the connected list and the full
+      // provider list are the same read.
       providers: async (
         parameters: DirectoryParameters = {},
         options?: RequestOptions,
@@ -2936,7 +2965,7 @@ export function createClientV2(
       },
     },
     provider: {
-      list: (parameters?: DirectoryParameters, options?: RequestOptions) => listProviderCatalog(parameters, options),
+      list: (parameters?: DirectoryParameters, options?: RequestOptions) => listProviders(parameters, options),
     },
     app: {
       agents: async (
@@ -3025,6 +3054,7 @@ export function createClientV2(
   Object.assign(compatibilityClient.find, adapter.find);
   Object.assign(compatibilityClient.mcp, adapter.mcp);
   Object.assign(compatibilityClient.event, adapter.event);
+  v2Clients.add(compatibilityClient);
   /**
    * Commands still running in this engine location, across conversations.
    * Exited commands are not listed, so this is the truth to resync against

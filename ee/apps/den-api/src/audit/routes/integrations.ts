@@ -65,6 +65,7 @@ const APP = "app.management"
 export const integrationsAuditRoutes: readonly AuditRouteDeclaration[] = [
   support(`${GW}/*`, "capabilities_google_workspace", "app.use contextStorage so token resolvers can read signed internal capability headers; concrete handlers are declared."),
   support(`${MS}/*`, "capabilities_microsoft_365", "app.use contextStorage for the Microsoft token resolver; concrete handlers are declared."),
+  support("/v1/documents/microsoft-365/*", "documents_microsoft_365", "app.use contextStorage for the Microsoft token resolver on OneDrive document routes; concrete handlers are declared."),
   support("/v1/direct-uploads/google-workspace/*", "direct_uploads_google_workspace", "app.use contextStorage for direct-upload handlers; concrete handlers are declared."),
   support("/v1/direct-downloads/google-workspace/*", "direct_downloads_google_workspace", "app.use contextStorage for direct-download handlers; concrete handlers are declared."),
   support("/v1/direct-uploads/microsoft-365/*", "direct_uploads_microsoft_365", "app.use contextStorage for the Microsoft token resolver on direct-upload handlers; concrete handlers are declared."),
@@ -115,6 +116,10 @@ export const integrationsAuditRoutes: readonly AuditRouteDeclaration[] = [
   access("POST", `${GW}/drive-download-links`, "capability.google_drive.download_link.create", GWK, res("google_drive_file"), `${CAP} Returns a five-minute signed link to one file; the link is not audit evidence.`),
   handlerRoute("tenant_access", "GET", "/v1/direct-downloads/google-workspace/drive-link", "capability.google_drive.download_link.use", GWK, res("google_drive_file"), { notes: "Signed five-minute link bound to one member, connection, file and format; attributed to that member after verification, with organization access rechecked. Bytes are not audit evidence." }),
   external("POST", "/v1/direct-uploads/google-workspace/gmail-drafts", "capability.gmail.draft.attachments.create", GWK, res("gmail_draft"), GOOGLE, "cloudTransportRoute (MCP OAuth token, org from token); creates a draft with attachments, never sends. Conditional token refresh write."),
+  access("GET", `${GW}/chat-spaces`, "capability.google_chat.space.list", GWK, res("google_chat_space"), `${CAP} Response lists conversation names.`),
+  access("GET", `${GW}/chat-direct-message`, "capability.google_chat.direct_message.find", GWK, res("google_chat_space"), `${CAP} The looked-up email is not audit evidence.`),
+  access("GET", `${GW}/chat-spaces/:spaceId/messages`, "capability.google_chat.message.list", GWK, res("google_chat_space", "spaceId"), CAP_CONTENT),
+  external("POST", `${GW}/chat-spaces/:spaceId/messages`, "capability.google_chat.message.send", GWK, res("google_chat_space", "spaceId"), GOOGLE, `${CAP} Posts a Google Chat message.`),
 
   // Microsoft 365 capabilities
   access("GET", `${MS}/mail-messages`, "capability.outlook_mail.message.search", MSK, res("outlook_message"), CAP_CONTENT),
@@ -122,6 +127,9 @@ export const integrationsAuditRoutes: readonly AuditRouteDeclaration[] = [
   external("PATCH", `${MS}/mail-message/:messageId`, "capability.outlook_mail.message.update", MSK, res("outlook_message", "messageId"), GRAPH, CAP),
   external("POST", `${MS}/mail-message/:messageId/move`, "capability.outlook_mail.message.move", MSK, res("outlook_message", "messageId"), GRAPH, CAP),
   external("POST", `${MS}/mail-message/:messageId/reply-draft`, "capability.outlook_mail.reply_draft.create", MSK, res("outlook_message", "messageId"), GRAPH, CAP),
+  access("GET", `${MS}/mail-attachments/:messageId`, "capability.outlook_mail.attachment.list", MSK, res("outlook_message", "messageId"), `${CAP} Response lists attachment names.`),
+  access("GET", `${MS}/mail-attachment/:messageId/:attachmentId`, "capability.outlook_mail.attachment.download", MSK, res("outlook_attachment", "attachmentId"), `${CAP} Response carries attachment bytes.`),
+  external("POST", "/v1/direct-uploads/microsoft-365/mail-drafts", "capability.outlook_mail.draft.attachments.create", MSK, res("outlook_message"), GRAPH, "cloudTransportRoute (MCP OAuth token, org from token); creates a draft or reply draft with attachments, never sends. Conditional token refresh write."),
   external("POST", `${MS}/mail-drafts`, "capability.outlook_mail.draft.create", MSK, res("outlook_message"), GRAPH, CAP),
   external("POST", `${MS}/mail-drafts/:messageId/send`, "capability.outlook_mail.draft.send", MSK, res("outlook_message", "messageId"), GRAPH, `${CAP} Sends email.`),
   access("GET", `${MS}/calendar-events`, "capability.outlook_calendar.event.list", MSK, res("outlook_calendar_event"), CAP_CONTENT),

@@ -41,6 +41,10 @@ export type EngineInfo = {
   projectDir: string | null;
   hostname: string | null;
   port: number | null;
+  opencodeUsername: string | null;
+  opencodePassword: string | null;
+  opencodeBinPath: string | null;
+  opencodeBinSource: string | null;
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;
@@ -97,12 +101,27 @@ export type OpenworkServerInfo = {
   clientToken: string | null;
   ownerToken: string | null;
   hostToken: string | null;
+  managedOpencodeBinPath: string | null;
+  managedOpencodeBinSource: string | null;
   /** Structured server log on disk, or null when the server runs without a file sink. */
   logFilePath: string | null;
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;
   managedOpencodeExecution: OpencodeExecutionSnapshot | null;
+};
+
+export type EngineDoctorResult = {
+  found: boolean;
+  inPath: boolean;
+  resolvedPath: string | null;
+  resolvedSource: string | null;
+  version: string | null;
+  supportsServe: boolean;
+  notes: string[];
+  serveHelpStatus: number | null;
+  serveHelpStdout: string | null;
+  serveHelpStderr: string | null;
 };
 
 export type WorkspaceList = {
@@ -336,8 +355,8 @@ export type ComputerPermission = "accessibility" | "screenRecording";
 /** The agent needs computer use this chat does not have yet: setup, or the person's allowance. */
 export type ComputerRequest = {
   id: string;
-  /** setup: macOS permissions or a remote connection; script: an app script waiting for the person's approval. */
-  reason: "setup" | "script";
+  /** setup: macOS permissions or a remote connection; script: an app script waiting for the person's approval; files: files an app or page is about to receive. */
+  reason: "setup" | "script" | "files";
   /** The computer the chat uses, e.g. "This Mac" or "Freestyle VM". */
   computer: string;
   placement: "local" | "remote";
@@ -347,6 +366,8 @@ export type ComputerRequest = {
   purpose?: string;
   /** The exact script that runs if the person approves it. */
   script?: { app: "applescript" | "jxa" | "blender"; code: string };
+  /** The files handed over if the person approves: names or full paths, and the app or site receiving them. */
+  files?: { app: string; names: string[] };
 };
 
 /** One chat's computer use state, as the broker reports it. */
@@ -469,6 +490,7 @@ export type DesktopCommandMap = {
   computerAnswerRequest: { args: [input: { sessionId: string; answer: "dismiss" | "allow" | "always"; id?: string }]; result: ComputerSnapshot };
   computerSetFeatureEnabled: { args: [enabled: boolean]; result: boolean };
   computerSetRemoteEnabled: { args: [enabled: boolean]; result: boolean };
+  computerSetBackgroundEnabled: { args: [enabled: boolean]; result: boolean };
   computerResetPermission: { args: [permission: ComputerPermission]; result: { setupId: string } };
   computerEndTurn: { args: [sessionId: string]; result: boolean };
 
@@ -552,6 +574,7 @@ export type DesktopCommandMap = {
    * whether "onboarding" should preserve desktop workspace state.
    */
   resetOpenworkState: { args: [mode?: "onboarding" | "all"]; result: unknown };
+  opencodeMcpAuth: { args: [action: string, name: string]; result: ExecResult };
 
   // Window / OS utilities (dunder commands)
   __showContextMenu: { args: [request: NativeContextMenuRequest]; result: string | null };
