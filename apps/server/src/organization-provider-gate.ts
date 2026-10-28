@@ -1,4 +1,5 @@
 import { desktopCapabilityConfig, type DesktopConfig } from "@openwork/types/den/desktop-policies-runtime";
+import { downstreamProviderGate } from "./downstream-hooks.js";
 
 /** Providers an organization owns: Den-imported (lpr_), Gateway (ipr_), hosted OpenWork Models and the Auto Router. */
 export const ORGANIZATION_PROVIDER_ID = /^(?:lpr_|ipr_|openwork$|openwork-auto$)/i;
@@ -10,6 +11,8 @@ export const ORGANIZATION_PROVIDER_ID = /^(?:lpr_|ipr_|openwork$|openwork-auto$)
  * receives it as `enabled_providers`, the v2 provider mirror skips the rest.
  */
 export function organizationProviderGate(policy: DesktopConfig | undefined): ((providerId: string) => boolean) | null {
+  const downstream = downstreamProviderGate();
+  if (downstream) return downstream;
   const effective = policy ? desktopCapabilityConfig(policy) : undefined;
   if (effective?.allowCustomProviders !== false) return null;
   const zen = effective.allowZenModel !== false;

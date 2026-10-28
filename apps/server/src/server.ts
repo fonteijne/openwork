@@ -114,6 +114,7 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
 import { registerSessionGroupRoutes } from "./routes/session-groups.js";
+import { addDownstreamRoutes, loadDownstreamServerHooks, startDownstreamServerHooks } from "./downstream-hooks.js";
 import { registerWorkspaceDefaultModelRoutes } from "./routes/workspace-default-model.js";
 import { createNativeClaudeImportEngine, registerClaudeImportRoutes } from "./routes/claude-import.js";
 import { registerUiControlRoutes } from "./routes/ui-control.js";
@@ -798,6 +799,7 @@ export async function startServer(
   const env = new EnvService();
   envServicesByConfig.set(config, env);
   const logger = createServerLogger(config);
+  await loadDownstreamServerHooks();
   try {
     await reconcileLocalManagedMcpRuntimeEntries(config);
   } catch (error) {
@@ -1275,6 +1277,7 @@ export async function startServer(
     anonymousInference.stop();
     logger.log("warn", "Desktop free access could not be initialized.");
   }
+  await startDownstreamServerHooks({ config, port: server.port, engine: engineV2Preview, markReloadPending: () => cloudProviderSync.markReloadPending(), logger });
   // Policy hooks must receive the listener that actually bound, including
   // ephemeral ports and retries after a port collision.
   engineV2Preview.start();
@@ -2767,6 +2770,7 @@ function createRoutes(
   liveProviderSyncAvailable: () => boolean,
 ): Route[] {
   const routes: Route[] = [];
+  addDownstreamRoutes(routes);
   addRoute(routes, "GET", "/anonymous-inference/status", "client", async () =>
     jsonResponse(await anonymousInference.status()));
   for (const action of ["preflight", "refresh"]) {

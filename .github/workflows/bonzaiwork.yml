@@ -1,0 +1,92 @@
+name: BonzaiWork
+
+# BonzaiWork's own CI (docs/bonzaiwork/README.md, "CI"). Runs on every push and
+# PR, including upstream-sync/<tag> merge branches: typecheck of what we build
+# on, our unit tests, the engine end-to-end check of the LiteLLM-only policy,
+# and a packaged Linux build that starts and answers one chat turn.
+
+on:
+  push:
+    # Feature branches run through pull_request; pushing them too ran every commit twice.
+    branches: [main, "upstream-sync/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: bonzaiwork-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # check-patches.mjs diffs against the upstream commit in bonzaiwork.upstream.json.
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openwork/types build
+
+      - name: Typecheck (upstream surfaces we patch or import, and our code)
+        run: |
+          pnpm --filter openwork-server typecheck
+          pnpm --filter @openwork/app typecheck
+          pnpm --filter @bonzaiwork/policy typecheck
+          pnpm --filter @bonzaiwork/litellm typecheck
+          pnpm --filter @bonzaiwork/app typecheck
+
+      - name: Unit tests
+        run: |
+          pnpm --filter @bonzaiwork/policy test
+          pnpm --filter @bonzaiwork/litellm test
+          cd apps/server && bun test test/downstream-hooks.test.ts
+
+      - name: Engine end-to-end (LiteLLM-only, per-workspace keys, no key leaks)
+        run: pnpm --filter @bonzaiwork/litellm e2e
+
+      - name: PATCHES.md lists every changed upstream file
+        run: node scripts/bonzaiwork/check-patches.mjs
+
+  package-linux:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: pnpm install --frozen-lockfile
+      - name: Package (unpacked Linux app)
+        env:
+          # The smoke test's stand-in LiteLLM; real builds bake the customer's URL (O3).
+          BONZAIWORK_LITELLM_BASE_URL: http://127.0.0.1:4010
+        run: node apps/bonzaiwork/scripts/package.mjs --dir --linux
+      - name: Smoke test (starts, links a key, one chat turn via LiteLLM, no openworklabs.com traffic)
+        run: xvfb-run -a node apps/bonzaiwork/scripts/smoke-packaged.mjs
+      - name: Keep smoke-test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bonzaiwork-smoke
+          path: apps/bonzaiwork/dist-electron/*.png
+          if-no-files-found: ignore
