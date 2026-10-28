@@ -3,7 +3,7 @@
 > **Voor wie.** Designers die de BonzaiWork-schermen ontwerpen, en de developers die ze bouwen.
 > **Wat.** Per scherm en per functie: wat de backend (de lokale OpenWork-server en de engine) nu al kan, hoe de UI
 > het aanroept en wat we zelf nog moeten bouwen.
-> **Stand.** Upstream `dev` op `2aa4481` (`v0.18.63` + t/m #6620), OpenCode v2. Gecontroleerd tegen de code op 28-10-2026.
+> **Stand.** Upstream `dev` op `2aa4481` (`v0.18.63` + t/m #6620), OpenCode v2 (v1 draait mee, onze UI gebruikt hem niet). Gecontroleerd tegen de code op 28-10-2026.
 > Achtergrond: [`referentie.md`](./referentie.md) (opdracht) en [`README.md`](./README.md) (wat de spike opleverde).
 
 ## Statuslegenda
@@ -77,7 +77,7 @@ BonzaiWork UI (React, in Electron)
   ▼                                    ▼
 Lokale OpenWork-server (http://127.0.0.1:<poort>)
   ├─ /workspaces, /workspace/:id/...      projecten, skills, MCP, bestanden, groepen, model
-  ├─ /workspace/:id/opencode/api/...              de engine (OpenCode v2): chats, berichten, live events
+  ├─ /workspace/:id/opencode2/api/...     de engine (OpenCode v2): chats, berichten, live events
   └─ /bonzaiwork/...                      onze eigen routes: keys, modellen, status (+ alles uit §7)
         └─ LiteLLM (enige provider, key wordt per project toegevoegd door de server)
 ```
@@ -85,14 +85,14 @@ Lokale OpenWork-server (http://127.0.0.1:<poort>)
 | Laag | Basis-URL | Client in code |
 |---|---|---|
 | OpenWork-server | `<baseUrl>` | `createOpenworkServerClient` (`apps/app/src/app/lib/openwork-server.ts`) |
-| Engine per project | `<baseUrl>/workspace/<workspaceId>/opencode` | `createClientV2` (`apps/app/src/app/lib/opencode-v2-adapter.ts`) |
+| Engine per project | `<baseUrl>/workspace/<workspaceId>/opencode2` | `createClientV2` (`apps/app/src/app/lib/opencode-v2-adapter.ts`). **Altijd `/opencode2`**: `/opencode` is de v1-engine, die LiteLLM-only niet afdwingt. |
 | BonzaiWork | `<baseUrl>/bonzaiwork` | `bonzaiworkApi` (`apps/bonzaiwork/src/lib/bonzaiwork-api.ts`) |
 
 **Twee soorten rechten.** Gewone acties gebruiken het client-token. Beheeracties (project aanmaken, hernoemen,
 verwijderen; keys koppelen) vragen het **host-token**. In de desktop-app heeft de UI beide; voor het ontwerp
 betekent dit alleen dat die acties bij een alleen-lezen-installatie uitgegrijsd kunnen zijn (`read_only`).
 
-**Live bijwerken.** De engine levert een live eventstream (`GET /workspace/:id/opencode/api/event`, SSE) voor streaming
+**Live bijwerken.** De engine levert een live eventstream (`GET /workspace/:id/opencode2/api/event`, SSE) voor streaming
 tekst, toolactiviteit, toestemmingsvragen en status. De huidige spike pollt nog; de nieuwe UI gebruikt de stream.
 Projectwijzigingen (groepen) hebben een eigen eventlijst (`/workspace/:id/session-groups/events`).
 
@@ -141,8 +141,8 @@ Doel: alle projecten in één oogopslag, en het startpunt voor "nieuw project".
 | Map (pad) | ✅ | `path` |
 | Key gekoppeld ja/nee + hint | ✅ | `GET /bonzaiwork/status` → `workspaces[{ id, hasKey, keyHint }]` |
 | Standaardmodel | ✅ | `GET /workspace/:id/default-model` |
-| Aantal chats, laatste activiteit | 🟡 | Per project de chatlijst ophalen (`GET /workspace/:id/opencode/api/session`). Bij veel projecten traag: aggregatie in §7.2 (🔨). |
-| "Er draait nu iets" (agent bezig) | ✅ | `GET /workspace/:id/opencode/api/session/active` |
+| Aantal chats, laatste activiteit | 🟡 | Per project de chatlijst ophalen (`GET /workspace/:id/opencode2/api/session`). Bij veel projecten traag: aggregatie in §7.2 (🔨). |
+| "Er draait nu iets" (agent bezig) | ✅ | `GET /workspace/:id/opencode2/api/session/active` |
 | Beschrijving, kleur/icoon | 🔨 | §7.1 projectmetadata |
 | Pinnen / archiveren van een project | 🔨 | §7.1 |
 | Verbruik deze maand (kosten) | 🔨 | §7.3, uit LiteLLM per key |
@@ -181,7 +181,7 @@ chat (en, zonder geopende chat, over het project).
 
 | Functie | Status | Backend |
 |---|---|---|
-| Alle chats van het project, nieuwste eerst, met paginering | ✅ | `GET /workspace/:id/opencode/api/session?limit=&cursor=` → `nextCursor` |
+| Alle chats van het project, nieuwste eerst, met paginering | ✅ | `GET /workspace/:id/opencode2/api/session?limit=&cursor=` → `nextCursor` |
 | Per chat: titel, aangemaakt, laatst bijgewerkt, model | ✅ | velden `title`, `time.created`, `time.updated`, `model` |
 | Titel wordt automatisch gezet | ✅ | De engine geeft een titel; tot dan is er een tijdelijke titel. |
 | Indicator "bezig" | ✅ | `api/session/active` of de eventstream |
