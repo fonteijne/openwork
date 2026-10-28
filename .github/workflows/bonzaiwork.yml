@@ -52,6 +52,7 @@ jobs:
         run: |
           pnpm --filter @bonzaiwork/policy test
           pnpm --filter @bonzaiwork/litellm test
+          pnpm --filter @bonzaiwork/app test
           cd apps/server && bun test test/downstream-hooks.test.ts
 
       - name: Engine end-to-end (LiteLLM-only, per-workspace keys, no key leaks)
