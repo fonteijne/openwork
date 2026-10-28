@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isAllowedProvider, liteLLMProviderEntry, pickDefaultModel, readSettings, trimTrailingSlashes } from "../src/index.ts";
+import { isAllowedProvider, liteLLMProviderEntry, pickDefaultModel, readSettings, SERVER_ENVIRONMENT_DEFAULTS, trimTrailingSlashes } from "../src/index.ts";
 
 describe("provider policy", () => {
   test("only litellm is allowed", () => {
@@ -17,6 +17,11 @@ describe("provider policy", () => {
       options: { baseURL: "http://127.0.0.1:8787/bonzaiwork/litellm/v1", apiKey: "bwk_local_abc" },
       models: { "gpt-4o-mini": { name: "gpt-4o-mini" } },
     });
+  });
+
+  test("the engines' model catalog stays on this machine", () => {
+    expect(SERVER_ENVIRONMENT_DEFAULTS.OPENCODE_DISABLE_MODELS_FETCH).toBe("1");
+    expect(new URL(SERVER_ENVIRONMENT_DEFAULTS.OPENCODE_MODELS_URL ?? "").hostname).toBe("127.0.0.1");
   });
 
   test("settings require HTTPS except for a loopback LiteLLM", () => {

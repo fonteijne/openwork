@@ -36,7 +36,11 @@ const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 // Stand-in LiteLLM.
 const litellm = createServer(async (req, res) => {
   let body = "";
-  for await (const chunk of req) body += chunk;
+  try {
+    for await (const chunk of req) body += chunk;
+  } catch {
+    return; // the client went away mid-request
+  }
   litellmCalls.push({ url: req.url, authorization: req.headers.authorization ?? "" });
   if (req.headers.authorization !== `Bearer ${KEY}`) {
     res.writeHead(401, { "content-type": "application/json" }).end(JSON.stringify({ error: { message: "invalid key" } }));
@@ -57,17 +61,21 @@ const litellm = createServer(async (req, res) => {
   }
   res.writeHead(404).end();
 });
+litellm.on("clientError", (_error, socket) => socket.destroy());
 await new Promise((done) => litellm.listen(Number(litellmUrl.port), litellmUrl.hostname, done));
 
-// Recording proxy: logs every destination and forwards nothing.
+// Recording proxy: logs every destination and forwards nothing. Clients that
+// give up on a refused tunnel reset the socket; that must never crash the test.
 const proxy = createServer((req, res) => {
-  outbound.push(new URL(req.url).host);
+  outbound.push(URL.canParse(req.url ?? "") ? new URL(req.url ?? "").host : String(req.headers.host ?? req.url));
   res.writeHead(502).end();
 });
 proxy.on("connect", (req, socket) => {
   outbound.push(req.url);
+  socket.on("error", () => undefined);
   socket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
 });
+proxy.on("clientError", (_error, socket) => socket.destroy());
 await new Promise((done) => proxy.listen(0, "127.0.0.1", done));
 const proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
 

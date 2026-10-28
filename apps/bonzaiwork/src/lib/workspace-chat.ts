@@ -46,10 +46,19 @@ export async function createWorkspace(connection: ServerConnection, folderPath: 
   return listWorkspaces(connection);
 }
 
-function engineClient(connection: ServerConnection, workspace: Workspace) {
+/**
+ * The workspace's OpenCode v2 engine. `/opencode` is upstream's v1 mount;
+ * only v2 enforces the LiteLLM-only policy, so chat never goes there.
+ */
+function engineBaseUrl(connection: ServerConnection, workspace: Workspace): string | null {
   const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
-  if (!endpoint) throw new Error("De workspace is niet bereikbaar.");
-  return createClientV2(endpoint.opencodeBaseUrl, workspace.path, { token: connection.token });
+  return endpoint ? `${endpoint.mountedBaseUrl}/opencode2` : null;
+}
+
+function engineClient(connection: ServerConnection, workspace: Workspace) {
+  const baseUrl = engineBaseUrl(connection, workspace);
+  if (!baseUrl) throw new Error("De workspace is niet bereikbaar.");
+  return createClientV2(baseUrl, workspace.path, { token: connection.token });
 }
 
 function readError(error: unknown): string {
@@ -101,9 +110,9 @@ export async function sendMessage(connection: ServerConnection, workspace: Works
 
 /** The newest engine entry says whether the run is still going: an `idle` entry closes it. */
 async function readRunState(connection: ServerConnection, workspace: Workspace, sessionId: string): Promise<{ busy: boolean; failed: boolean }> {
-  const endpoint = resolveWorkspaceEndpoint(workspace, { baseUrl: connection.baseUrl, token: connection.token });
-  if (!endpoint) return { busy: false, failed: false };
-  const response = await fetch(`${endpoint.opencodeBaseUrl}/api/session/${encodeURIComponent(sessionId)}/message?limit=1`, {
+  const baseUrl = engineBaseUrl(connection, workspace);
+  if (!baseUrl) return { busy: false, failed: false };
+  const response = await fetch(`${baseUrl}/api/session/${encodeURIComponent(sessionId)}/message?limit=1`, {
     headers: { Authorization: `Bearer ${connection.token}` },
   });
   const payload: unknown = await response.json().catch(() => null);
