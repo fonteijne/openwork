@@ -19,7 +19,7 @@ Stand: upstream `dev` op `2aa4481` (`v0.18.63` + upstream `dev` t/m #6620), geme
 
 ```
 apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electron-entry
-  src/                           onboarding, workspaces, chat, instellingen
+  src/                           projecten, chats, routines, instellingen (zie apps/bonzaiwork/README.md)
   desktop-main/main.ts           zet env + keychain-store, laadt daarna de ONGEWIJZIGDE upstream main.mjs
   scripts/package.mjs            verpakken; smoke-packaged.mjs: smoketest van de verpakte app
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
@@ -97,9 +97,9 @@ Spike opgebouwd op `v0.18.58` (de drie commits geport zoals een ontwikkelaar dat
 interessantste (upstream verplaatst de gate) is precies het soort wijziging dat een upstream-PR voor
 `downstream-hooks.ts` zou wegnemen.
 
-Wat de test niet meet: upstream-wijzigingen in hun UI-clients (`apps/app/src/app/lib/*`) die wij importeren.
-Bij deze merge leverde dat 0 fouten op, maar die bestanden veranderen vaak. Daarom houdt de UI het aantal
-geïmporteerde modules bewust klein (desktop-IPC, server-client, v2-client, enkele UI-primitives).
+Wat de test niet meet: upstream-wijzigingen in hun UI-clients (`apps/app/src/app/lib/*`). Bij deze merge
+leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI importeert daarom niets meer uit
+`apps/app`: de server- en engineclient zijn eigen code (`apps/bonzaiwork/src/backend/live/`).
 
 ## Afwijkingen van de referentie (bewust)
 
@@ -109,17 +109,16 @@ geïmporteerde modules bewust klein (desktop-IPC, server-client, v2-client, enke
    basiscommit vast, zodat de PATCHES-check ook nu klopt.
 2. **Geen import van `domains/session` (§6.A3).** Gemeten: hun `session-page.tsx` sleept 499 bronbestanden
    mee, waaronder 19 Den-modules, 26 uit `domains/cloud`, analytics en telemetrie, plus hun complete
-   provider-stack. Dat botst met E6 (geen verkeer naar de OpenWork-cloud, geen telemetrie). De UI gebruikt daarom alleen hun
-   framework-vrije clients (`desktop.ts`, `openwork-server.ts`, `opencode-v2-adapter.ts`,
-   `workspace-endpoint.ts`: samen 22 bestanden, geen Den of telemetrie) en hun `@/components`-primitives,
-   met een smalle eigen chatweergave.
+   provider-stack. Dat botst met E6 (geen verkeer naar de OpenWork-cloud, geen telemetrie). De eerste spike
+   gebruikte daarom alleen hun framework-vrije clients en `@/components`-primitives; de huidige UI heeft
+   een eigen client voor de server, de v2-engine en de desktop-bridge, en importeert niets uit `apps/app`.
 3. **Server-routes via een nieuw aanhaakpunt, niet via `apps/server/src/extensions/` (§6.B3).** Dat
    mechanisme is actie-gebaseerd (JSON in, JSON uit) en kan geen streaming-proxy dragen.
    `OPENWORK_SERVER_HOOKS` is generiek genoeg om upstream aan te bieden.
 4. **Alleen v2 dwingt LiteLLM-only af.** Upstream heeft OpenCode v1 teruggezet (revert #6559): de server
    start bij het opstarten weer een v1-engine en `/workspace/:id/opencode/*` gaat naar v1; v2 zit op
    `/opencode2/*`. Afdwinging zit in de mirror-gate en in de engine-policies (v2), dus de UI praat
-   uitsluitend met `/opencode2` (`apps/bonzaiwork/src/lib/workspace-chat.ts`).
+   uitsluitend met `/opencode2` (`apps/bonzaiwork/src/backend/live/engine.ts`).
 5. **`model` in de runtime-config (§6.B1)** bestaat niet in v2. De UI kiest het model per gesprek uit
    `/bonzaiwork/status.defaultModel` (ingebakken `BONZAIWORK_DEFAULT_MODEL`, anders het eerste model).
 6. **Builder-config is `.mjs`, geen `.yml` (§6.A5).** electron-builder voegt arrays samen bij `extends`;
@@ -223,7 +222,8 @@ Gebruik voor development een lokale LiteLLM (§7: geen tweede provider, ook niet
 2. Werkstroom C afmaken: updater-hook, CDP-poort, Den-/docs-URL's, branding (O5).
 3. Upstream-PR's voorstellen: `downstream-hooks.ts` + de drie hooks, en los daarvan de
    `experimental.policies`-afdwinging voor hun eigen "Only models you provide" (zelfde gat).
-4. UI: markdown-weergave en tool-activiteit in de chat (eventueel hun `components/chat/*`-primitives, na
-   een meting zoals hierboven), streaming via `/api/event` in plaats van pollen.
+4. De §7-routes uit het frontend-contract in de server (projectmetadata, overzicht en zoeken, verbruik,
+   routines). De UI detecteert ze zelf (`/bonzaiwork/projects`, `/bonzaiwork/routines`) en zet routines,
+   verbruik en metadata op de server dan aan.
 5. Werkstroom D (meetings), achter een eigen feature-flag (eigen registry, zodat `registry.ts` niet
    gepatcht hoeft te worden).
