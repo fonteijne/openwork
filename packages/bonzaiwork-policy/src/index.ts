@@ -15,11 +15,26 @@ export const HIDDEN_PROVIDER_IDS: readonly string[] = ["openwork", "opencode", "
 /** Loopback route on openwork-server through which the engine reaches LiteLLM. */
 export const LOCAL_ROUTE_PREFIX = "/bonzaiwork/litellm";
 
-/** Server environment that turns off OpenWork's hosted and free models (see apps/server/src/free-auto/settings.ts). */
+/**
+ * A catalog address that never leaves the machine (TCP discard port). The
+ * engines then keep their bundled model catalog; LiteLLM's models come from
+ * the provider entry, not from the catalog.
+ */
+export const OFFLINE_MODELS_URL = "http://127.0.0.1:9/";
+
+/**
+ * Server environment that turns off OpenWork's hosted and free models (see
+ * apps/server/src/free-auto/settings.ts) and the engines' model-catalog
+ * download, which upstream points at models.openworklabs.com
+ * (apps/server/src/opencode-models-url.ts). The v1 engine inherits the whole
+ * environment; the v2 engine reads only OPENCODE_MODELS_URL from it.
+ */
 export const SERVER_ENVIRONMENT_DEFAULTS: Readonly<Record<string, string>> = {
   OPENWORK_DISABLE_FREE_INFERENCE: "1",
   OPENWORK_DISABLE_HOSTED_MODELS: "1",
   VITE_DISABLE_OPENWORK_MODELS: "1",
+  OPENCODE_DISABLE_MODELS_FETCH: "1",
+  OPENCODE_MODELS_URL: OFFLINE_MODELS_URL,
 };
 
 /** Drops trailing slashes without a regex, which backtracks quadratically on long runs of "/" (CodeQL js/polynomial-redos). */

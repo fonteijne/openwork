@@ -116,8 +116,10 @@ geïmporteerde modules bewust klein (desktop-IPC, server-client, v2-client, enke
 3. **Server-routes via een nieuw aanhaakpunt, niet via `apps/server/src/extensions/` (§6.B3).** Dat
    mechanisme is actie-gebaseerd (JSON in, JSON uit) en kan geen streaming-proxy dragen.
    `OPENWORK_SERVER_HOOKS` is generiek genoeg om upstream aan te bieden.
-4. **v1 bestaat niet meer.** `openwork-runtime-config.ts` (v1 `enabled_providers`) is in deze stand
-   alleen nog debugweergave; afdwinging zit in de mirror-gate en in de engine-policies (v2).
+4. **Alleen v2 dwingt LiteLLM-only af.** Upstream heeft OpenCode v1 teruggezet (revert #6559): de server
+   start bij het opstarten weer een v1-engine en `/workspace/:id/opencode/*` gaat naar v1; v2 zit op
+   `/opencode2/*`. Afdwinging zit in de mirror-gate en in de engine-policies (v2), dus de UI praat
+   uitsluitend met `/opencode2` (`apps/bonzaiwork/src/lib/workspace-chat.ts`).
 5. **`model` in de runtime-config (§6.B1)** bestaat niet in v2. De UI kiest het model per gesprek uit
    `/bonzaiwork/status.defaultModel` (ingebakken `BONZAIWORK_DEFAULT_MODEL`, anders het eerste model).
 6. **Builder-config is `.mjs`, geen `.yml` (§6.A5).** electron-builder voegt arrays samen bij `extends`;
@@ -137,6 +139,17 @@ geïmporteerde modules bewust klein (desktop-IPC, server-client, v2-client, enke
 - **Branding**: upstream maakt bij de eerste start een workspace "OpenWork Chat" aan, en iconen en
   `NS*UsageDescription`-teksten komen van upstream (die laatste vervangt de builder-config). Dit hangt
   samen met O5 (juridische check op naam en logo).
+- **Modelcatalogus**: upstream laat beide engines `models.openworklabs.com` ophalen
+  (`apps/server/src/opencode-models-url.ts`). De v1-engine erft de volledige procesomgeving, inclusief
+  proxy; de v2-engine leest alleen `OPENCODE_MODELS_URL`. `SERVER_ENVIRONMENT_DEFAULTS` zet daarom
+  `OPENCODE_DISABLE_MODELS_FETCH=1` en `OPENCODE_MODELS_URL` op een loopback-adres dat nergens heen gaat;
+  de engines houden hun meegeleverde catalogus, en de LiteLLM-modellen komen uit de provider-entry.
+- **v1-engine draait mee**: zie afwijking 4. Niet nagelopen is of v1 via `/opencode` nog andere providers
+  kan gebruiken. Onze UI komt er niet, maar elk proces met het owner-token wel. Een hook die de v1-start
+  overslaat, of een v1-providerfilter, ligt voor de hand.
+- **Smoketest ziet engineverkeer niet**: de v2-engine krijgt geen proxyvariabelen, dus wat die zelf
+  ophaalt gaat buiten de opnemende proxy om. De smoketest bewijst E6 voor Electron, de server en v1.
+  Chromium haalt verder `redirector.gvt1.com` op (component updater van Google, geen OpenWork).
 - Nog niet gecontroleerd: `DEFAULT_DEN_BASE_URL`/`DOCS_PAGE_URL` in `main.mjs` en
   `workspace-store.mjs` worden in de smoketest niet aangeroepen, maar zijn niet omgeleid.
 

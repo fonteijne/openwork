@@ -19,6 +19,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { SERVER_ENVIRONMENT_DEFAULTS } from "@bonzaiwork/policy";
+
 const repoRoot = resolve(import.meta.dir, "../../..");
 const KEY_A = "sk-e2e-workspace-a-11111111";
 const KEY_B = "sk-e2e-workspace-b-22222222";
@@ -121,7 +123,8 @@ async function main() {
         OPENWORK_TOKEN: OWNER,
         OPENWORK_HOST_TOKEN: HOST,
         OPENWORK_DEV_MODE: "1",
-        OPENWORK_DISABLE_FREE_INFERENCE: "1",
+        // What the desktop entry sets, including the offline model catalog.
+        ...SERVER_ENVIRONMENT_DEFAULTS,
         OPENWORK_SERVER_HOOKS: hooks,
         BONZAIWORK_LITELLM_BASE_URL: litellm.url,
         BONZAIWORK_KEY_MODE: "workspace",
