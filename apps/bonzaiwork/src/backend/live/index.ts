@@ -17,6 +17,7 @@ import {
   type RoutineSchedule,
   type RunMode,
   type Usage,
+  type EngineState,
 } from "../types";
 
 import { hasDesktopBridge, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
@@ -167,7 +168,8 @@ const AGENT_NAMES: Record<string, { name: string; description: string }> = {
 };
 
 export async function createLiveBackend(): Promise<Backend> {
-  const connection = await resolveConnection();
+  // whenStarting: a request that meets "engine not running" waits for engineReady() (below).
+  const connection: Connection = { ...(await resolveConnection()), whenStarting: () => engineReady() };
   const [metaOnServer, routinesOnServer] = await Promise.all([probe(connection, "/bonzaiwork/projects"), probe(connection, "/bonzaiwork/routines")]);
   const meta: MetaStore = metaOnServer ? serverMetaStore(connection) : deviceMetaStore(new URL(connection.baseUrl).host);
   const desktop = hasDesktopBridge();
@@ -191,6 +193,61 @@ export async function createLiveBackend(): Promise<Backend> {
   const host = { host: true };
   const req = (path: string, options: Parameters<typeof request>[2] = {}) => request(connection, path, options);
   const unsupported = (what: string) => new BackendError("unsupported", `${what} is in deze versie van de app nog niet beschikbaar.`, 501);
+
+  // -------------------------------------------------------------------------
+  // Engine readiness
+  // -------------------------------------------------------------------------
+
+  /**
+   * Chats run on the OpenCode v2 engine. On a profile that still has OpenWork
+   * v1 history, the server may keep v2 off, or copy that history first; until
+   * then every engine request answers 503. BonzaiWork only uses v2, so it
+   * switches the v2 process on (nothing else: no chat routing, no migration)
+   * and waits until it serves. A migration in progress is waited out.
+   */
+  let engineState: EngineState = "ready";
+  const engineListeners = new Set<() => void>();
+  const setEngineState = (next: EngineState) => {
+    if (next === engineState) return;
+    engineState = next;
+    for (const listener of engineListeners) listener();
+  };
+  let readiness: Promise<void> | null = null;
+  function engineReady(): Promise<void> {
+    readiness ??= waitForEngine().finally(() => {
+      readiness = null;
+    });
+    return readiness;
+  }
+
+  async function waitForEngine(): Promise<void> {
+    const direct: Connection = { ...connection, whenStarting: undefined };
+    const begun = Date.now();
+    let switchedOn = false;
+    try {
+      for (;;) {
+        const status = await request(direct, "/experimental/engine-v2-preview/status", { timeoutMs: 10_000 });
+        const migrating = str(field(status, "migration"), "state") === "running";
+        if (field(status, "running") === true && !migrating) {
+          setEngineState("ready");
+          return;
+        }
+        setEngineState(migrating ? "migrating" : "starting");
+        if (!migrating && field(status, "enabled") !== true && !switchedOn) {
+          switchedOn = true;
+          await request(direct, "/experimental/engine-v2-preview", { method: "PUT", body: { enabled: true }, timeoutMs: 10_000 }).catch(() => null);
+        }
+        const lastError = str(status, "lastError");
+        // Starting can install the engine binary first; give it time before calling it failed.
+        if (!migrating && lastError && Date.now() - begun > 20_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, lastError);
+        if (!migrating && Date.now() - begun > 120_000) throw new BackendError("engine_v2_preview_not_running", "De AI-engine start nog. Probeer het over een halve minuut opnieuw.", 503);
+        await wait(1_500);
+      }
+    } catch (failure) {
+      setEngineState("ready");
+      throw failure;
+    }
+  }
 
   /**
    * The server saves a connection change first and then waits for its tools.
@@ -335,6 +392,13 @@ export async function createLiveBackend(): Promise<Backend> {
   const backend: Backend = {
     mode: "live",
     capabilities,
+    engine: {
+      current: () => engineState,
+      subscribe(listener) {
+        engineListeners.add(listener);
+        return () => engineListeners.delete(listener);
+      },
+    },
 
     async status() {
       return (await fetchStatus()).app;
@@ -785,5 +849,7 @@ export async function createLiveBackend(): Promise<Backend> {
     },
   };
 
+  // Make sure the engine is on before the first chat needs it; failures surface on that request.
+  void engineReady().catch(() => undefined);
   return backend;
 }

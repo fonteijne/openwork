@@ -61,6 +61,7 @@ export function ProjectHome(props: { project: Project }) {
   const composer = useRef<ComposerHandle>(null);
   const [model, setModel] = useState<string | null>(null);
   const [agent, setAgent] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const { project } = props;
   const hasKey = projectHasKey(status.data, project);
   const effectiveModel = model ?? startModel(status.data, project);
@@ -79,6 +80,7 @@ export function ProjectHome(props: { project: Project }) {
 
   const submit = async (input: ComposerSubmit): Promise<boolean> => {
     if (!effectiveModel) return false;
+    setStarting(true);
     try {
       const chat = await backend.chats.create(project.id, { model: effectiveModel });
       runtime.upsertChat(chat);
@@ -91,6 +93,8 @@ export function ProjectHome(props: { project: Project }) {
     } catch (failure) {
       toast(`${copy.chat.newChatFailed} ${errorText(failure)}`, { tone: "error" });
       return false;
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -125,7 +129,13 @@ export function ProjectHome(props: { project: Project }) {
             blocked={hasKey ? undefined : <KeyBlocked projectId={project.id} />}
             autoFocus
             size="large"
+            keepUntilSent
           />
+          {starting ? (
+            <p role="status" className="mt-3 text-center text-xs text-muted-foreground">
+              {copy.chat.starting}
+            </p>
+          ) : null}
           {hasKey ? (
             <div className="mt-4 flex flex-wrap justify-center gap-2" aria-label={copy.chat.suggestions}>
               {commands.map((command) => (

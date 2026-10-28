@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Popover } from "@base-ui/react/popover";
-import { ArrowUp, BookOpen, Paperclip, Slash, Square, X } from "lucide-react";
+import { ArrowUp, BookOpen, LoaderCircle, Paperclip, Slash, Square, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
@@ -73,6 +73,8 @@ export const Composer = forwardRef<
     autoFocus?: boolean;
     placeholder?: string;
     size?: "default" | "large";
+    /** Keep the words in the composer until onSubmit succeeds: there is no chat yet to show them in. */
+    keepUntilSent?: boolean;
   }
 >(function Composer(props, ref) {
   const status = useStatus();
@@ -159,15 +161,20 @@ export const Composer = forwardRef<
     if (!canSend) return;
     const input: ComposerSubmit = { text: text.trim(), attachments, command, skills };
     setSending(true);
-    // Keep the person's words in view while the engine takes them (P11);
-    // they come back here if sending fails.
-    setText("");
-    setAttachments([]);
-    setCommand(null);
-    setSkills([]);
+    // Keep the person's words in view while the engine takes them (P11): in
+    // the chat as a pending message, or here until the chat exists. They come
+    // back here if sending fails.
+    const clear = () => {
+      setText("");
+      setAttachments([]);
+      setCommand(null);
+      setSkills([]);
+    };
+    if (!props.keepUntilSent) clear();
     const ok = await props.onSubmit(input).catch(() => false);
     setSending(false);
-    if (!ok) {
+    if (ok && props.keepUntilSent) clear();
+    if (!ok && !props.keepUntilSent) {
       setText(input.text);
       setAttachments(input.attachments);
       setCommand(input.command);
@@ -227,6 +234,7 @@ export const Composer = forwardRef<
       <textarea
         ref={textarea}
         data-testid="composer-input"
+        readOnly={sending && props.keepUntilSent}
         value={text}
         rows={large ? 3 : 1}
         onChange={(event) => setText(event.target.value)}
@@ -339,7 +347,7 @@ export const Composer = forwardRef<
         ) : (
           <Tooltip label={copy.chat.send} shortcut="⏎">
             <Button variant="primary" size="icon" className="rounded-full" aria-label={copy.chat.send} onClick={() => void submit()} disabled={!canSend} data-testid="composer-send">
-              <ArrowUp />
+              {sending ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
             </Button>
           </Tooltip>
         )}

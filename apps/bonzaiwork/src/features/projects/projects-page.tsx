@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, ChevronDown, Ellipsis, FolderPlus, Pencil, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 
@@ -227,7 +227,13 @@ export function ProjectsPage() {
   });
   const summaryById = new Map(list.map((project, index) => [project.id, summaries[index]?.data]));
   // Sorting by activity needs every summary; until then the order would jump.
-  const settling = sort === "activity" && summaries.some((entry) => entry.isPending);
+  // A slow summary (an engine still starting) never holds the list for long.
+  const [settleExpired, setSettleExpired] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettleExpired(true), 1_200);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const settling = sort === "activity" && !settleExpired && summaries.some((entry) => entry.isPending);
 
   const setSort = (value: Sort) => {
     setSortState(value);

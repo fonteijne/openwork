@@ -355,9 +355,14 @@ export type Versions = { app: string; server: string | null; engine: string | nu
 
 export type Page<T> = { items: T[]; nextCursor: string | null };
 
+/** The live engine behind chats: up, still starting, or copying older chats over first. */
+export type EngineState = "ready" | "starting" | "migrating";
+
 export interface Backend {
   readonly mode: "demo" | "live";
   readonly capabilities: Capabilities;
+  /** Live only: the engine's state, for a banner while it is not ready. */
+  readonly engine?: { current(): EngineState; subscribe(listener: () => void): () => void };
 
   status(): Promise<AppStatus>;
   keys: {

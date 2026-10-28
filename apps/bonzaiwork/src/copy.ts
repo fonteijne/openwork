@@ -14,6 +14,8 @@ export const copy = {
     retry: "Opnieuw proberen",
     demoBadge: "Demo",
     demoHint: "Voorbeeldgegevens in deze browser. Er gaat niets naar een server.",
+    engineStarting: "De AI-engine start op. De eerste keer duurt dat even.",
+    engineMigrating: "Je eerdere gesprekken worden overgezet naar de nieuwe engine. Daarna kun je verder.",
   },
 
   nav: {
@@ -219,6 +221,7 @@ export const copy = {
     loadFailed: "Deze chat kon niet worden geladen.",
     sendFailed: "Je bericht is niet verstuurd.",
     newChatFailed: "De chat kon niet worden gestart.",
+    starting: "Chat wordt gestart…",
     retry: "Opnieuw proberen",
     reconnecting: "Verbinding herstellen…",
     keyboardHint: "⏎ versturen · ⇧⏎ nieuwe regel",

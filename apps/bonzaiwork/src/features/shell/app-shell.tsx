@@ -1,4 +1,8 @@
-import { lazy, Suspense, useEffect, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { LoaderCircle } from "lucide-react";
+
+import { useBackend } from "~/backend/context";
+import type { Backend } from "~/backend/types";
 
 import { Sheet } from "~/components/ui/overlay";
 import { copy } from "~/copy";
@@ -11,6 +15,21 @@ import { useUi } from "./ui-store";
 
 const CommandPalette = lazy(() => import("./command-palette").then((module) => ({ default: module.CommandPalette })));
 const NewProjectDialog = lazy(() => import("../projects/new-project-dialog").then((module) => ({ default: module.NewProjectDialog })));
+
+const NO_ENGINE: NonNullable<Backend["engine"]> = { current: () => "ready", subscribe: () => () => undefined };
+
+/** While the live engine starts or copies older chats, say so instead of leaving screens empty (C6). */
+function EngineBanner() {
+  const engine = useBackend().engine ?? NO_ENGINE;
+  const state = useSyncExternalStore(engine.subscribe, engine.current);
+  if (state === "ready") return null;
+  return (
+    <div role="status" className="flex shrink-0 items-center justify-center gap-2 border-b border-border bg-electric-3 px-4 py-2 text-xs font-semibold text-electric-11">
+      <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+      {state === "migrating" ? copy.boot.engineMigrating : copy.boot.engineStarting}
+    </div>
+  );
+}
 
 /** Sidebar column on desktop, a drawer on phones and tablets; pages fill the rest. */
 export function AppShell(props: { route: Route; projectId: string | null; children: ReactNode }) {
@@ -53,7 +72,10 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
           <Sidebar route={props.route} projectId={props.projectId} />
         </Sheet>
       )}
-      <div className="flex min-w-0 flex-1 flex-col">{props.children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <EngineBanner />
+        {props.children}
+      </div>
       {paletteOpened ? (
         <Suspense fallback={null}>
           <CommandPalette route={props.route} projectId={props.projectId} />
