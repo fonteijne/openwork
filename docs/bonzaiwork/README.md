@@ -4,7 +4,7 @@ Eigen desktop-app op basis van OpenWork, met een eigen UI en LiteLLM als enige p
 De opdracht staat in [`referentie.md`](./referentie.md). Dit document beschrijft wat er gebouwd is,
 hoe het geverifieerd is, waar we van de referentie afwijken en wat er nog openstaat.
 
-Stand: upstream `dev` op `20ddd4b` (= `v0.18.63` + 22 commits), branch `claude/nifty-wozniak-iguy5r`.
+Stand: upstream `dev` op `2aa4481` (`v0.18.63` + upstream `dev` t/m #6620), gemerged in `main` via PR #1. Getest op Linux (CI, stand-in LiteLLM) en macOS arm64 (echte LiteLLM).
 
 ## Genomen beslissingen
 
@@ -160,6 +160,18 @@ Status in `fonteijne/openwork` (27-10-2026):
 
 De overige upstream-workflows draaien op `push` naar `dev`, een schema of releases. Loop ze na bij de
 eerste push naar `dev` en zet alles uit wat publiceert of hun secrets/runners nodig heeft.
+
+## Branches
+
+| Branch | Rol |
+|---|---|
+| `main` | BonzaiWork-productiebranch en default branch. Alleen via PR's, met de BonzaiWork-CI groen. |
+| `dev` | Pure spiegel van upstream `different-ai/openwork` `dev`. Nooit zelf committen; bijwerken met **Sync fork**. |
+| `upstream-sync/<tag>` | Tijdelijk: één upstream-release in `main` mergen (procedure hieronder). |
+| feature-branches | Werk, met een PR naar `main`. |
+
+In `main` mergen we upstream-release-tags, niet `dev` (referentie §5.2). `dev` dient als referentie voor "zo
+ziet upstream eruit". Tags komen niet mee met Sync fork: haal ze met `git fetch upstream --tags`.
 
 ## Upstream mergen (procedure)
 

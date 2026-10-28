@@ -367,7 +367,7 @@ importers:
         version: 1.3.14
       electron:
         specifier: ^43.7.5
-        version: 43.7.7
+        version: 43.8.1
       playwright-core:
         specifier: 1.63.0
         version: 1.63.0
