@@ -2,13 +2,15 @@ name: Upstream sync
 
 # Pull-only sync with upstream OpenWork (docs/bonzaiwork/README.md, "Upstream
 # automatisch syncen"):
-#   1. fast-forwards our dev to different-ai/openwork dev (never force, never our commits),
+#   1. fast-forwards our dev to different-ai/openwork dev (a mirror for reference;
+#      never forced, never our commits),
 #   2. keeps upstream's workflows off in the fork (scripts/bonzaiwork/fork-workflows.mjs),
-#   3. merges dev into an upstream-sync/dev-* branch from main and opens a PR to main
-#      with a report of what must change before the merge,
+#   3. merges upstream's latest release (not dev: it moves too fast to review)
+#      into an upstream-sync/<tag> branch from main and opens a PR to main with a
+#      report of what must change before the merge,
 #   4. optionally lets Claude assess that PR (needs the ANTHROPIC_API_KEY secret).
 # One sync PR at a time: while one is open, runs only fast-forward dev and note
-# on that PR how far upstream moved.
+# on that PR when a newer release is out.
 #
 # Secret UPSTREAM_SYNC_TOKEN (fine-grained PAT on this repo: Contents, Pull
 # requests and Workflows read/write) is needed because upstream changes workflow
@@ -19,6 +21,10 @@ on:
   schedule:
     - cron: "37 4 * * *"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream release tag to sync (empty: the latest release)"
+        required: false
 
 concurrency:
   group: upstream-sync
@@ -40,7 +46,8 @@ jobs:
     outputs:
       pr: ${{ steps.pr.outputs.number }}
       base: ${{ steps.prepare.outputs.base }}
-      head: ${{ steps.mirror.outputs.head }}
+      head: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
     env:
       GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
       HAS_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN != '' }}
@@ -102,52 +109,79 @@ jobs:
           sleep 30
           node scripts/bonzaiwork/fork-workflows.mjs --cancel-sha "${{ steps.mirror.outputs.head }}" --report "$RUNNER_TEMP/disabled.txt"
 
+      - name: Find the upstream release
+        id: release
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          # releases/latest skips drafts and pre-releases. A bare tag is not enough:
+          # upstream tags before its release build has passed.
+          tag=${REQUESTED_TAG:-$(gh api "repos/$UPSTREAM_REPO/releases/latest" --jq .tag_name)}
+          # The tag ends up in branch names and later run: scripts; accept plain versions only.
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected upstream release tag '$tag'"
+            exit 1
+          fi
+          git fetch --no-tags upstream "refs/tags/$tag:refs/tags/$tag"
+          sha=$(git rev-parse "refs/tags/$tag^{commit}")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Upstream release: $tag (${sha:0:9})" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Find an open sync PR
         id: open
         run: |
-          number=$(gh pr list --base main --state open --json number,headRefName \
-            --jq '[.[] | select(.headRefName | startswith("upstream-sync/"))][0].number // empty')
-          echo "number=$number" >> "$GITHUB_OUTPUT"
+          gh pr list --base main --state open --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("upstream-sync/"))][0] // empty | "number=\(.number)\nbranch=\(.headRefName)"' \
+            >> "$GITHUB_OUTPUT"
 
-      - name: Note upstream progress on the open sync PR
+      - name: Note a newer release on the open sync PR
         if: steps.open.outputs.number != ''
         run: |
           set -euo pipefail
           pr=${{ steps.open.outputs.number }}
-          head=${{ steps.mirror.outputs.head }}
-          pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
-          waiting=$(git rev-list --count --no-merges "$pr_head..$head" 2>/dev/null || echo "?")
+          tag=${{ steps.release.outputs.tag }}
+          echo "Sync PR #$pr is still open; dev was fast-forwarded only." >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.open.outputs.branch }}" = "upstream-sync/$tag" ]; then
+            exit 0
+          fi
           body=$(printf '%s\n' \
-            "Upstream \`$UPSTREAM_BRANCH\` staat nu op \`${head:0:9}\` ($(date -u +%Y-%m-%d)); $waiting upstream-commit(s) wachten op de volgende sync." \
+            "Upstream heeft intussen [\`$tag\`](https://github.com/$UPSTREAM_REPO/releases/tag/$tag) uitgebracht ($(date -u +%Y-%m-%d))." \
             "" \
-            "Deze PR wordt niet automatisch bijgewerkt. Merge of sluit hem; de eerstvolgende run maakt dan een nieuwe sync-PR vanaf de nieuwste \`dev\`.")
+            "Deze PR wordt niet automatisch bijgewerkt. Merge of sluit hem; de eerstvolgende run maakt dan een sync-PR voor de nieuwste release.")
           # One running comment instead of one per day.
           gh pr comment "$pr" --edit-last --body "$body" 2>/dev/null || gh pr comment "$pr" --body "$body"
-          echo "Sync PR #$pr is still open; dev was fast-forwarded only." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Merge dev into a sync branch from main
+      - name: Merge the release into a sync branch from main
         id: prepare
         if: steps.open.outputs.number == ''
         run: |
           set -euo pipefail
-          head=${{ steps.mirror.outputs.head }}
+          tag=${{ steps.release.outputs.tag }}
+          sha=${{ steps.release.outputs.sha }}
           base=$(node -p 'JSON.parse(require("fs").readFileSync("bonzaiwork.upstream.json", "utf8")).commit')
           echo "base=$base" >> "$GITHUB_OUTPUT"
-          if git merge-base --is-ancestor "$head" HEAD; then
-            echo "main already contains upstream ${head:0:9}" | tee -a "$GITHUB_STEP_SUMMARY"
+          if git merge-base --is-ancestor "$sha" HEAD; then
+            echo "main already contains $tag" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          branch="upstream-sync/dev-$(date -u +%Y%m%d)-${head:0:9}"
+          branch="upstream-sync/$tag"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            # A closed sync PR leaves its branch: that release was turned down, don't offer it again daily.
+            echo "$branch already exists; delete it to sync $tag again." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           git switch -c "$branch"
 
           : > "$RUNNER_TEMP/conflicts.txt"
-          if ! git merge --no-ff --no-edit -m "Merge upstream $UPSTREAM_BRANCH ${head:0:9} into main" "$head"; then
+          if ! git merge --no-ff --no-edit -m "Merge upstream $tag into main" "$sha"; then
             git diff --name-only --diff-filter=U | grep -vx pnpm-lock.yaml > "$RUNNER_TEMP/conflicts.txt" || true
             if [ -s "$RUNNER_TEMP/conflicts.txt" ]; then
-              # Not ours to resolve unattended: open the PR from upstream itself so GitHub shows the conflicts.
+              # Not ours to resolve unattended: open the PR from the release itself so GitHub shows the conflicts.
               git merge --abort
-              git reset --hard "$head"
+              git reset --hard "$sha"
               echo "conflicts=true" >> "$GITHUB_OUTPUT"
               git push origin "HEAD:refs/heads/$branch"
               exit 0
@@ -162,13 +196,13 @@ jobs:
             const fs = require("fs");
             const file = "bonzaiwork.upstream.json";
             const pin = JSON.parse(fs.readFileSync(file, "utf8"));
-            pin.ref = `${process.env.UPSTREAM_BRANCH} (up to ${process.argv[1].slice(0, 9)}, synced ${new Date().toISOString().slice(0, 10)})`;
-            pin.commit = process.argv[1];
+            pin.ref = `${process.argv[1]} (synced ${new Date().toISOString().slice(0, 10)})`;
+            pin.commit = process.argv[2];
             fs.writeFileSync(file, `${JSON.stringify(pin, null, 2)}\n`);
-          ' "$head"
+          ' "$tag" "$sha"
           pnpm install --lockfile-only --ignore-scripts
           git add bonzaiwork.upstream.json pnpm-lock.yaml
-          git commit -m "chore(bonzaiwork): pin upstream $UPSTREAM_BRANCH ${head:0:9}"
+          git commit -m "chore(bonzaiwork): pin upstream $tag"
 
           set +e
           node scripts/bonzaiwork/check-patches.mjs > "$RUNNER_TEMP/patches.txt" 2>&1
@@ -181,17 +215,18 @@ jobs:
         if: steps.prepare.outputs.branch != ''
         run: |
           set -euo pipefail
-          head=${{ steps.mirror.outputs.head }}
+          tag=${{ steps.release.outputs.tag }}
+          sha=${{ steps.release.outputs.sha }}
           node scripts/bonzaiwork/upstream-sync-report.mjs \
-            --base "${{ steps.prepare.outputs.base }}" --head "$head" --upstream "$UPSTREAM_REPO" \
+            --base "${{ steps.prepare.outputs.base }}" --head "$sha" --tag "$tag" --upstream "$UPSTREAM_REPO" \
             --conflicts "$RUNNER_TEMP/conflicts.txt" \
             --patches "$RUNNER_TEMP/patches.txt" --patches-exit "${{ steps.prepare.outputs.patches_exit }}" \
             --disabled "$RUNNER_TEMP/disabled.txt" > "$RUNNER_TEMP/body.md"
-          count=$(git rev-list --count --no-merges "${{ steps.prepare.outputs.base }}..$head")
+          count=$(git rev-list --count --no-merges "${{ steps.prepare.outputs.base }}..$sha")
           draft=()
           if [ "${{ steps.prepare.outputs.conflicts }}" = "true" ] || [ "${{ steps.prepare.outputs.patches_exit }}" != "0" ]; then draft=(--draft); fi
           url=$(gh pr create --base main --head "${{ steps.prepare.outputs.branch }}" "${draft[@]}" \
-            --title "Upstream-sync: $UPSTREAM_BRANCH tot ${head:0:9} ($count commits)" \
+            --title "Upstream-sync: $tag ($count commits)" \
             --body-file "$RUNNER_TEMP/body.md")
           echo "number=${url##*/}" >> "$GITHUB_OUTPUT"
           echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
@@ -223,7 +258,7 @@ jobs:
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(node scripts/bonzaiwork/check-patches.mjs)"
           prompt: |
             Beoordeel upstream-sync PR #${{ needs.sync.outputs.pr }} in ${{ github.repository }}: wat moet er veranderen voordat deze in main gemerged kan worden?
-            Upstream ${{ env.UPSTREAM_REPO }} ${{ env.UPSTREAM_BRANCH }} ging van ${{ needs.sync.outputs.base }} naar ${{ needs.sync.outputs.head }}.
+            Upstream ${{ env.UPSTREAM_REPO }} ging van ${{ needs.sync.outputs.base }} naar release ${{ needs.sync.outputs.tag }} (${{ needs.sync.outputs.head }}).
 
             1. Lees docs/bonzaiwork/README.md, PATCHES.md en de PR-beschrijving (`gh pr view ${{ needs.sync.outputs.pr }}`).
             2. Bekijk voor elk bestand onder "Gepatchte upstream-bestanden" en "Raakvlakken" de upstream-diff

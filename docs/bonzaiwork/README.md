@@ -106,7 +106,8 @@ leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI impor
 1. **Fork staat op `dev`, niet op een release-tag.** `main`/de fork komt van upstream `dev` (`v0.18.63` + 22
    commits, inclusief het verwijderen van OpenCode v1). §5.2 zegt alleen tags te mergen. Advies: zet de
    productiebranch bij de eerstvolgende sync op een tag (`v0.18.64`+); `bonzaiwork.upstream.json` legt de
-   basiscommit vast, zodat de PATCHES-check ook nu klopt.
+   basiscommit vast, zodat de PATCHES-check ook nu klopt. **Upstream sync** doet dat vanzelf: de eerste
+   release die `2aa4481` bevat wordt de eerste sync-PR; oudere releases slaat hij over.
 2. **Geen import van `domains/session` (§6.A3).** Gemeten: hun `session-page.tsx` sleept 499 bronbestanden
    mee, waaronder 19 Den-modules, 26 uit `domains/cloud`, analytics en telemetrie, plus hun complete
    provider-stack. Dat botst met E6 (geen verkeer naar de OpenWork-cloud, geen telemetrie). De eerste spike
@@ -182,25 +183,27 @@ eerst aan `ENABLED` toe, anders zet de volgende sync hem weer uit.
 |---|---|
 | `main` | BonzaiWork-productiebranch en default branch. Alleen via PR's, met de BonzaiWork-CI groen. |
 | `dev` | Pure spiegel van upstream `different-ai/openwork` `dev`. Nooit zelf committen; de workflow **Upstream sync** spoelt hem dagelijks door (alleen fast-forward). |
-| `upstream-sync/dev-<datum>-<sha>` | Tijdelijk, door **Upstream sync**: upstream `dev` gemerged in `main`, met een PR naar `main`. |
-| `upstream-sync/<tag>` | Tijdelijk, met de hand: één upstream-release in `main` mergen (procedure hieronder). |
+| `upstream-sync/<tag>` | Tijdelijk: één upstream-release gemerged in `main`, met een PR naar `main`. Maakt **Upstream sync** aan; met de hand kan ook (procedure hieronder). |
 | feature-branches | Werk, met een PR naar `main`. |
 
-Referentie §5.2 zegt alleen release-tags te mergen. De automatische sync merget upstream `dev`, net als de
-huidige stand van `main` (afwijking 1). Wie liever op een tag blijft, sluit de sync-PR en volgt de procedure
-met de hand. Tags komen niet mee naar `dev`: haal ze met `git fetch upstream --tags`.
+In `main` mergen we upstream-releases, niet `dev` (referentie §5.2): upstream `dev` krijgt tientallen commits
+per dag, een release komt ongeveer om de twee à drie dagen en is door upstream gebouwd en uitgebracht. `dev`
+dient als referentie voor "zo ziet upstream er nu uit". Tags komen niet mee naar `dev`: haal ze met
+`git fetch upstream --tags`.
 
 ## Upstream automatisch syncen
 
 `.github/workflows/upstream-sync.yml` draait dagelijks (04:37 UTC) en met de hand via **Run workflow**:
 
-1. **`dev` doorspoelen.** Alleen pull: `dev` gaat met een fast-forward naar upstream `dev`. Staat er op
+1. **`dev` doorspoelen** (alleen ter referentie). Alleen pull: `dev` gaat met een fast-forward naar upstream `dev`. Staat er op
    `dev` iets wat upstream niet heeft, dan stopt de run met een fout; er wordt nooit geforceerd.
 2. **Upstream-workflows uit.** `fork-workflows.mjs` (zie "CI") vóór de push, en daarna nog eens voor
    workflows die met de push binnenkwamen; runs die de push startte worden geannuleerd.
-3. **Sync-PR.** Een branch `upstream-sync/dev-<datum>-<sha>` vanaf `main`, met upstream `dev` erin gemerged,
-   `bonzaiwork.upstream.json` bijgewerkt en `pnpm-lock.yaml` geregenereerd. Een conflict alleen in de
-   lockfile lost de run zelf op. Bij andere conflicten wijst de branch naar upstream `dev` zelf en is de PR
+3. **Sync-PR voor de nieuwste release.** De nieuwste GitHub-release van upstream (geen draft of pre-release;
+   een kale tag niet, want upstream tagt vóór de releasebuild geslaagd is). Een branch `upstream-sync/<tag>`
+   vanaf `main`, met de release erin gemerged, `bonzaiwork.upstream.json` vastgezet op tag en commit en
+   `pnpm-lock.yaml` geregenereerd. Releases die al in `main` zitten worden overgeslagen. Een conflict alleen in de
+   lockfile lost de run zelf op. Bij andere conflicten wijst de branch naar de release zelf en is de PR
    een draft, zodat GitHub de conflicten toont. Oplossen: branch uitchecken, `git merge origin/main`.
 4. **Beoordeling.** De PR-beschrijving (`upstream-sync-report.mjs`) zet op een rij wat er moet gebeuren:
    gepatchte bestanden die upstream wijzigde, raakvlakken uit de watchlist in dat script (updater,
@@ -208,9 +211,10 @@ met de hand. Tags komen niet mee naar `dev`: haal ze met `git fetch upstream --t
    uitkomst van de PATCHES-check. De BonzaiWork-CI draait op de PR. Met het secret `ANTHROPIC_API_KEY`
    legt Claude daarnaast de upstream-diffs naast onze laag en zet een oordeel als PR-comment.
 
-Er staat steeds hooguit één sync-PR open. Zolang die open is, spoelt de run alleen `dev` door en houdt hij in
-één comment op die PR bij hoeveel upstream-commits er wachten. Na merge of sluiten maakt de volgende run een
-nieuwe PR vanaf de nieuwste `dev`.
+Er staat steeds hooguit één sync-PR open. Zolang die open is, spoelt de run alleen `dev` door en meldt hij in
+één comment op die PR als er een nieuwere release is. Na de merge maakt de volgende run een PR voor de nieuwste
+release. Een release afwijzen: sluit de PR en laat de branch staan; de run biedt die release dan niet opnieuw
+aan (verwijder de branch om dat wel te doen). Een bepaalde release syncen: **Run workflow** met `tag`.
 
 Eenmalig instellen (Settings → Secrets and variables → Actions):
 

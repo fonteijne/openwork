@@ -3,7 +3,7 @@
  * automatisch syncen"): what upstream changed since the last sync and what has
  * to happen before the merge into main. Plain git, no network.
  *
- *   node scripts/bonzaiwork/upstream-sync-report.mjs --base <sha> --head <sha>
+ *   node scripts/bonzaiwork/upstream-sync-report.mjs --base <sha> --head <sha> [--tag <release>]
  *     [--conflicts <file>] [--patches <file> --patches-exit <code>] [--disabled <file>]
  */
 import { execFileSync } from "node:child_process";
@@ -14,6 +14,7 @@ const { values: args } = parseArgs({
   options: {
     base: { type: "string" },
     head: { type: "string" },
+    tag: { type: "string" },
     upstream: { type: "string", default: "different-ai/openwork" },
     conflicts: { type: "string" },
     patches: { type: "string" },
@@ -77,8 +78,12 @@ const statusWord = { A: "nieuw", M: "gewijzigd", D: "verwijderd" };
 const out = [];
 const push = (...text) => out.push(...text);
 
+const target = args.tag
+  ? `release [\`${args.tag}\`](https://github.com/${args.upstream}/releases/tag/${args.tag}) (\`${short(args.head)}\`)`
+  : `\`${short(args.head)}\``;
+
 push(
-  `Upstream \`dev\` van \`${args.upstream}\` van \`${short(args.base)}\` naar \`${short(args.head)}\` ([vergelijken](${compare})).`,
+  `Upstream \`${args.upstream}\` van \`${short(args.base)}\` naar ${target} ([vergelijken](${compare})).`,
   "Automatisch aangemaakt door `.github/workflows/upstream-sync.yml`.",
   "",
   "| | |",
@@ -97,7 +102,7 @@ push("## Wat moet er gebeuren om te mergen", "");
 const todo = [];
 if (conflicts.length) {
   todo.push(
-    `Conflicten oplossen in ${conflicts.map((path) => `\`${path}\``).join(", ")}: check deze branch uit, \`git merge origin/main\`, los op, werk \`bonzaiwork.upstream.json\` bij naar \`${short(args.head)}\` en draai \`node scripts/bonzaiwork/check-patches.mjs\`.`,
+    `Conflicten oplossen in ${conflicts.map((path) => `\`${path}\``).join(", ")}: check deze branch uit, \`git merge origin/main\`, los op, werk \`bonzaiwork.upstream.json\` bij naar \`${args.tag ?? short(args.head)}\` en draai \`node scripts/bonzaiwork/check-patches.mjs\`.`,
   );
 }
 for (const path of patchedChanged) todo.push(`Onze patch in \`${path}\` naast de upstream-wijziging leggen (zie hieronder) en \`PATCHES.md\` bijwerken als de hook verschoof.`);
@@ -106,7 +111,7 @@ for (const [path, why] of watchChanged) todo.push(`\`${path}\` nalopen: ${why}.`
 if (workflows.some(([, status]) => status === "A")) todo.push("Nieuwe upstream-workflows: controleren of ze uit staan (zie \"Workflows\").");
 todo.push(
   "BonzaiWork-CI groen: typecheck, unit-tests, engine-E2E en de verpakte smoketest.",
-  "`Stand:` in `docs/bonzaiwork/README.md` bijwerken naar deze upstream-commit.",
+  `\`Stand:\` in \`docs/bonzaiwork/README.md\` bijwerken naar ${args.tag ? `\`${args.tag}\`` : "deze upstream-commit"}.`,
 );
 push(...todo.map((item) => `- [ ] ${item}`), "");
 
@@ -114,7 +119,7 @@ if (conflicts.length) {
   push(
     "## Conflicten",
     "",
-    "Deze branch staat op upstream `dev` zelf, zodat GitHub de conflicten toont. Na het oplossen bevat hij de merge-commit.",
+    "Deze branch staat op de upstream-stand zelf, zodat GitHub de conflicten toont. Na het oplossen bevat hij de merge-commit.",
     "",
     ...conflicts.map((path) => `- \`${path}\``),
     "",
