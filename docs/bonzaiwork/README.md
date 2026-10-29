@@ -213,6 +213,9 @@ dient als referentie voor "zo ziet upstream er nu uit". Tags komen niet mee naar
    daarnaast de upstream-diffs naast onze laag en zet een oordeel als PR-comment, één keer per PR-commit.
    Mergen doet altijd een mens.
 
+De workflow opent nooit een PR of comment op `different-ai/openwork`: alle `gh`-aanroepen gaan via
+`GH_REPO` naar deze repo, en het token heeft alleen rechten op `fonteijne/openwork`.
+
 Er staat steeds hooguit één sync-PR open. Zolang die open is, spoelt de run alleen `dev` door en meldt hij in
 één comment op die PR als er een nieuwere release is. Na de merge maakt de volgende run een PR voor de nieuwste
 release. Een release afwijzen: sluit de PR en laat de branch staan; de run biedt die release dan niet opnieuw

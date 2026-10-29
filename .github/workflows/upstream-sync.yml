@@ -45,6 +45,9 @@ jobs:
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      # Every gh command targets this repo. Without it gh prefers the "upstream"
+      # remote added below, and PRs or comments could land on different-ai/openwork.
+      GH_REPO: ${{ github.repository }}
       HAS_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v6
@@ -210,6 +213,11 @@ jobs:
         if: steps.prepare.outputs.branch != ''
         run: |
           set -euo pipefail
+          # Never a PR to upstream: this fork only pulls.
+          if [ "$GH_REPO" = "$UPSTREAM_REPO" ]; then
+            echo "::error::Refusing to open a PR on $UPSTREAM_REPO"
+            exit 1
+          fi
           tag=${{ steps.release.outputs.tag }}
           sha=${{ steps.release.outputs.sha }}
           node scripts/bonzaiwork/upstream-sync-report.mjs \
@@ -220,7 +228,7 @@ jobs:
           count=$(git rev-list --count --no-merges "${{ steps.prepare.outputs.base }}..$sha")
           draft=()
           if [ "${{ steps.prepare.outputs.conflicts }}" = "true" ] || [ "${{ steps.prepare.outputs.patches_exit }}" != "0" ]; then draft=(--draft); fi
-          url=$(gh pr create --base main --head "${{ steps.prepare.outputs.branch }}" "${draft[@]}" \
+          url=$(gh pr create --repo "$GH_REPO" --base main --head "${{ steps.prepare.outputs.branch }}" "${draft[@]}" \
             --title "Upstream-sync: $tag ($count commits)" \
             --body-file "$RUNNER_TEMP/body.md")
           echo "number=${url##*/}" >> "$GITHUB_OUTPUT"
