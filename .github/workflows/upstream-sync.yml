@@ -1,0 +1,240 @@
+name: Upstream sync
+
+# Pull-only sync with upstream OpenWork (docs/bonzaiwork/README.md, "Upstream
+# automatisch syncen"):
+#   1. fast-forwards our dev to different-ai/openwork dev (never force, never our commits),
+#   2. keeps upstream's workflows off in the fork (scripts/bonzaiwork/fork-workflows.mjs),
+#   3. merges dev into an upstream-sync/dev-* branch from main and opens a PR to main
+#      with a report of what must change before the merge,
+#   4. optionally lets Claude assess that PR (needs the ANTHROPIC_API_KEY secret).
+# One sync PR at a time: while one is open, runs only fast-forward dev and note
+# on that PR how far upstream moved.
+#
+# Secret UPSTREAM_SYNC_TOKEN (fine-grained PAT on this repo: Contents, Pull
+# requests and Workflows read/write) is needed because upstream changes workflow
+# files, which GITHUB_TOKEN may not push, and because PRs opened with
+# GITHUB_TOKEN do not start the BonzaiWork CI.
+
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+env:
+  UPSTREAM_REPO: different-ai/openwork
+  UPSTREAM_BRANCH: dev
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      pr: ${{ steps.pr.outputs.number }}
+      base: ${{ steps.prepare.outputs.base }}
+      head: ${{ steps.mirror.outputs.head }}
+    env:
+      GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      HAS_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+      - name: Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          if [ "$HAS_SYNC_TOKEN" != "true" ]; then
+            echo "::warning::UPSTREAM_SYNC_TOKEN is not set: pushes that change workflow files fail and the sync PR gets no CI run."
+          fi
+
+      - name: Keep upstream workflows off
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/bonzaiwork/fork-workflows.mjs --report "$RUNNER_TEMP/disabled.txt"
+
+      - name: Fast-forward dev to upstream dev
+        id: mirror
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+          git fetch --no-tags origin dev
+          head=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          if [ "$(git rev-parse origin/dev)" = "$head" ]; then
+            echo "dev is already at upstream $head"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor origin/dev "$head"; then
+            echo "::error::origin/dev has commits that upstream $UPSTREAM_BRANCH does not. dev is a pure mirror (README, \"Branches\"): move those commits to a feature branch and reset dev to upstream by hand."
+            exit 1
+          fi
+          # No --force: a push that is not a fast-forward is refused.
+          if ! git push origin "$head:refs/heads/dev"; then
+            echo "::error::Pushing dev failed. When upstream changed .github/workflows, the token needs the Workflows permission (UPSTREAM_SYNC_TOKEN)."
+            exit 1
+          fi
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Cancel upstream workflow runs started by the dev push
+        if: steps.mirror.outputs.pushed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # Runs show up a few seconds after the push; workflows new in this push register then too.
+          sleep 30
+          node scripts/bonzaiwork/fork-workflows.mjs --cancel-sha "${{ steps.mirror.outputs.head }}" --report "$RUNNER_TEMP/disabled.txt"
+
+      - name: Find an open sync PR
+        id: open
+        run: |
+          number=$(gh pr list --base main --state open --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("upstream-sync/"))][0].number // empty')
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Note upstream progress on the open sync PR
+        if: steps.open.outputs.number != ''
+        run: |
+          set -euo pipefail
+          pr=${{ steps.open.outputs.number }}
+          head=${{ steps.mirror.outputs.head }}
+          pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+          waiting=$(git rev-list --count --no-merges "$pr_head..$head" 2>/dev/null || echo "?")
+          body=$(printf '%s\n' \
+            "Upstream \`$UPSTREAM_BRANCH\` staat nu op \`${head:0:9}\` ($(date -u +%Y-%m-%d)); $waiting upstream-commit(s) wachten op de volgende sync." \
+            "" \
+            "Deze PR wordt niet automatisch bijgewerkt. Merge of sluit hem; de eerstvolgende run maakt dan een nieuwe sync-PR vanaf de nieuwste \`dev\`.")
+          # One running comment instead of one per day.
+          gh pr comment "$pr" --edit-last --body "$body" 2>/dev/null || gh pr comment "$pr" --body "$body"
+          echo "Sync PR #$pr is still open; dev was fast-forwarded only." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Merge dev into a sync branch from main
+        id: prepare
+        if: steps.open.outputs.number == ''
+        run: |
+          set -euo pipefail
+          head=${{ steps.mirror.outputs.head }}
+          base=$(node -p 'JSON.parse(require("fs").readFileSync("bonzaiwork.upstream.json", "utf8")).commit')
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor "$head" HEAD; then
+            echo "main already contains upstream ${head:0:9}" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="upstream-sync/dev-$(date -u +%Y%m%d)-${head:0:9}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git switch -c "$branch"
+
+          : > "$RUNNER_TEMP/conflicts.txt"
+          if ! git merge --no-ff --no-edit -m "Merge upstream $UPSTREAM_BRANCH ${head:0:9} into main" "$head"; then
+            git diff --name-only --diff-filter=U | grep -vx pnpm-lock.yaml > "$RUNNER_TEMP/conflicts.txt" || true
+            if [ -s "$RUNNER_TEMP/conflicts.txt" ]; then
+              # Not ours to resolve unattended: open the PR from upstream itself so GitHub shows the conflicts.
+              git merge --abort
+              git reset --hard "$head"
+              echo "conflicts=true" >> "$GITHUB_OUTPUT"
+              git push origin "HEAD:refs/heads/$branch"
+              exit 0
+            fi
+            # Only the lockfile: regenerated below, never merged by hand (PATCHES.md).
+            git checkout --theirs pnpm-lock.yaml
+            git add pnpm-lock.yaml
+            git commit --no-edit
+          fi
+
+          node -e '
+            const fs = require("fs");
+            const file = "bonzaiwork.upstream.json";
+            const pin = JSON.parse(fs.readFileSync(file, "utf8"));
+            pin.ref = `${process.env.UPSTREAM_BRANCH} (up to ${process.argv[1].slice(0, 9)}, synced ${new Date().toISOString().slice(0, 10)})`;
+            pin.commit = process.argv[1];
+            fs.writeFileSync(file, `${JSON.stringify(pin, null, 2)}\n`);
+          ' "$head"
+          pnpm install --lockfile-only --ignore-scripts
+          git add bonzaiwork.upstream.json pnpm-lock.yaml
+          git commit -m "chore(bonzaiwork): pin upstream $UPSTREAM_BRANCH ${head:0:9}"
+
+          set +e
+          node scripts/bonzaiwork/check-patches.mjs > "$RUNNER_TEMP/patches.txt" 2>&1
+          echo "patches_exit=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          git push origin "HEAD:refs/heads/$branch"
+
+      - name: Open the sync PR
+        id: pr
+        if: steps.prepare.outputs.branch != ''
+        run: |
+          set -euo pipefail
+          head=${{ steps.mirror.outputs.head }}
+          node scripts/bonzaiwork/upstream-sync-report.mjs \
+            --base "${{ steps.prepare.outputs.base }}" --head "$head" --upstream "$UPSTREAM_REPO" \
+            --conflicts "$RUNNER_TEMP/conflicts.txt" \
+            --patches "$RUNNER_TEMP/patches.txt" --patches-exit "${{ steps.prepare.outputs.patches_exit }}" \
+            --disabled "$RUNNER_TEMP/disabled.txt" > "$RUNNER_TEMP/body.md"
+          count=$(git rev-list --count --no-merges "${{ steps.prepare.outputs.base }}..$head")
+          draft=()
+          if [ "${{ steps.prepare.outputs.conflicts }}" = "true" ] || [ "${{ steps.prepare.outputs.patches_exit }}" != "0" ]; then draft=(--draft); fi
+          url=$(gh pr create --base main --head "${{ steps.prepare.outputs.branch }}" "${draft[@]}" \
+            --title "Upstream-sync: $UPSTREAM_BRANCH tot ${head:0:9} ($count commits)" \
+            --body-file "$RUNNER_TEMP/body.md")
+          echo "number=${url##*/}" >> "$GITHUB_OUTPUT"
+          echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
+
+  assess:
+    needs: sync
+    if: needs.sync.outputs.pr != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    steps:
+      - name: Skip without ANTHROPIC_API_KEY
+        if: env.HAS_ANTHROPIC_KEY != 'true'
+        run: echo "ANTHROPIC_API_KEY is not set; the PR report is the assessment." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v6
+        if: env.HAS_ANTHROPIC_KEY == 'true'
+        with:
+          ref: refs/pull/${{ needs.sync.outputs.pr }}/head
+          fetch-depth: 0
+      - name: Claude assesses what the merge needs
+        if: env.HAS_ANTHROPIC_KEY == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+          claude_args: >-
+            --max-turns 60
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(node scripts/bonzaiwork/check-patches.mjs)"
+          prompt: |
+            Beoordeel upstream-sync PR #${{ needs.sync.outputs.pr }} in ${{ github.repository }}: wat moet er veranderen voordat deze in main gemerged kan worden?
+            Upstream ${{ env.UPSTREAM_REPO }} ${{ env.UPSTREAM_BRANCH }} ging van ${{ needs.sync.outputs.base }} naar ${{ needs.sync.outputs.head }}.
+
+            1. Lees docs/bonzaiwork/README.md, PATCHES.md en de PR-beschrijving (`gh pr view ${{ needs.sync.outputs.pr }}`).
+            2. Bekijk voor elk bestand onder "Gepatchte upstream-bestanden" en "Raakvlakken" de upstream-diff
+               (`git diff ${{ needs.sync.outputs.base }} ${{ needs.sync.outputs.head }} -- <pad>`) en controleer of onze laag nog klopt:
+               apps/bonzaiwork, packages/bonzaiwork-*, apps/server/src/downstream-hooks.ts en de hooks uit PATCHES.md.
+               Let vooral op de LiteLLM-only-policy (geen tweede provider bereikbaar), keys die nergens lekken,
+               en geen verkeer naar *.openworklabs.com.
+            3. Zoek ook buiten die lijst naar upstream-wijzigingen die onze code raken (gewijzigde exports, env-variabelen, routes zoals /opencode2, engineversie).
+
+            Post precies één PR-comment met `gh pr comment ${{ needs.sync.outputs.pr }}`, in het Nederlands, met:
+            - een oordeel: "klaar om te mergen zodra CI groen is", "aanpassingen nodig" of "conflicten oplossen";
+            - per benodigde wijziging het bestand en de regel, wat er moet gebeuren en waarom;
+            - risico's die CI niet vangt.
+            Wijzig geen bestanden en push niets. Noem geen klanten of externe personen (de repo is openbaar).

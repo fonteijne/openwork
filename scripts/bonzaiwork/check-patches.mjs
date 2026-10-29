@@ -13,6 +13,7 @@ const OWN = [
   "docs/bonzaiwork/",
   "scripts/bonzaiwork/",
   ".github/workflows/bonzaiwork.yml",
+  ".github/workflows/upstream-sync.yml",
   "apps/desktop/electron-builder.bonzaiwork.mjs",
   "PATCHES.md",
   "bonzaiwork.upstream.json",
