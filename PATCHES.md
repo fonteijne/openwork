@@ -7,6 +7,7 @@ Goal: keep this short. Past ±10 patched files, stop and revisit the approach.
 
 Files under our own paths (`apps/bonzaiwork`, `packages/bonzaiwork-*`,
 `docs/bonzaiwork`, `scripts/bonzaiwork`, `.github/workflows/bonzaiwork.yml`,
+`.github/workflows/upstream-sync.yml`,
 `apps/desktop/electron-builder.bonzaiwork.mjs`) are not listed; `pnpm-lock.yaml`
 is regenerated with `pnpm install`, never merged by hand.
 

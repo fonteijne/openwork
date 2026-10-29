@@ -106,7 +106,8 @@ leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI impor
 1. **Fork staat op `dev`, niet op een release-tag.** `main`/de fork komt van upstream `dev` (`v0.18.63` + 22
    commits, inclusief het verwijderen van OpenCode v1). §5.2 zegt alleen tags te mergen. Advies: zet de
    productiebranch bij de eerstvolgende sync op een tag (`v0.18.64`+); `bonzaiwork.upstream.json` legt de
-   basiscommit vast, zodat de PATCHES-check ook nu klopt.
+   basiscommit vast, zodat de PATCHES-check ook nu klopt. **Upstream sync** doet dat vanzelf: de eerste
+   release die `2aa4481` bevat wordt de eerste sync-PR; oudere releases slaat hij over.
 2. **Geen import van `domains/session` (§6.A3).** Gemeten: hun `session-page.tsx` sleept 499 bronbestanden
    mee, waaronder 19 Den-modules, 26 uit `domains/cloud`, analytics en telemetrie, plus hun complete
    provider-stack. Dat botst met E6 (geen verkeer naar de OpenWork-cloud, geen telemetrie). De eerste spike
@@ -170,20 +171,64 @@ Status in `fonteijne/openwork` (27-10-2026):
 | Build and core checks | `ci-tests.yml` | **uit** | draait op Blacksmith-runners van upstream |
 | PR change proof | `pr-proof.yml` | **uit** | draait op Blacksmith-runners van upstream |
 
-De overige upstream-workflows draaien op `push` naar `dev`, een schema of releases. Loop ze na bij de
-eerste push naar `dev` en zet alles uit wat publiceert of hun secrets/runners nodig heeft.
+Alle andere upstream-workflows draaien op `push` naar `dev`, een schema of releases, en publiceren, hebben
+hun secrets nodig of wachten eindeloos op hun Blacksmith-runners. `scripts/bonzaiwork/fork-workflows.mjs`
+zet ze bij elke upstream-sync uit, ook workflows die upstream nieuw toevoegt. Alleen de lijst `ENABLED` in
+dat script blijft aan (de tabel hierboven plus `upstream-sync.yml`). Een workflow weer aanzetten: voeg hem
+eerst aan `ENABLED` toe, anders zet de volgende sync hem weer uit.
 
 ## Branches
 
 | Branch | Rol |
 |---|---|
 | `main` | BonzaiWork-productiebranch en default branch. Alleen via PR's, met de BonzaiWork-CI groen. |
-| `dev` | Pure spiegel van upstream `different-ai/openwork` `dev`. Nooit zelf committen; bijwerken met **Sync fork**. |
-| `upstream-sync/<tag>` | Tijdelijk: één upstream-release in `main` mergen (procedure hieronder). |
+| `dev` | Pure spiegel van upstream `different-ai/openwork` `dev`. Nooit zelf committen; de workflow **Upstream sync** spoelt hem dagelijks door (alleen fast-forward). |
+| `upstream-sync/<tag>` | Tijdelijk: één upstream-release gemerged in `main`, met een PR naar `main`. Maakt **Upstream sync** aan; met de hand kan ook (procedure hieronder). |
 | feature-branches | Werk, met een PR naar `main`. |
 
-In `main` mergen we upstream-release-tags, niet `dev` (referentie §5.2). `dev` dient als referentie voor "zo
-ziet upstream eruit". Tags komen niet mee met Sync fork: haal ze met `git fetch upstream --tags`.
+In `main` mergen we upstream-releases, niet `dev` (referentie §5.2): upstream `dev` krijgt tientallen commits
+per dag, een release komt ongeveer om de twee à drie dagen en is door upstream gebouwd en uitgebracht. `dev`
+dient als referentie voor "zo ziet upstream er nu uit". Tags komen niet mee naar `dev`: haal ze met
+`git fetch upstream --tags`.
+
+## Upstream automatisch syncen
+
+`.github/workflows/upstream-sync.yml` draait dagelijks (04:37 UTC) en met de hand via **Run workflow**:
+
+1. **`dev` doorspoelen** (alleen ter referentie). Alleen pull: `dev` gaat met een fast-forward naar upstream `dev`. Staat er op
+   `dev` iets wat upstream niet heeft, dan stopt de run met een fout; er wordt nooit geforceerd.
+2. **Upstream-workflows uit.** `fork-workflows.mjs` (zie "CI") vóór de push, en daarna nog eens voor
+   workflows die met de push binnenkwamen; runs die de push startte worden geannuleerd.
+3. **Sync-PR voor de nieuwste release.** De nieuwste GitHub-release van upstream (geen draft of pre-release;
+   een kale tag niet, want upstream tagt vóór de releasebuild geslaagd is). Een branch `upstream-sync/<tag>`
+   vanaf `main`, met de release erin gemerged, `bonzaiwork.upstream.json` vastgezet op tag en commit en
+   `pnpm-lock.yaml` geregenereerd. Releases die al in `main` zitten worden overgeslagen. Een conflict alleen in de
+   lockfile lost de run zelf op. Bij andere conflicten wijst de branch naar de release zelf en is de PR
+   een draft, zodat GitHub de conflicten toont. Oplossen: branch uitchecken, `git merge origin/main`.
+4. **Beoordeling.** De PR-beschrijving (`upstream-sync-report.mjs`) zet op een rij wat er moet gebeuren:
+   gepatchte bestanden die upstream wijzigde, raakvlakken uit de watchlist in dat script (updater,
+   `main.mjs`, builder-config, modelcatalogus, engineversie), gewijzigde manifests en workflows en de
+   uitkomst van de PATCHES-check. De BonzaiWork-CI draait op de PR. Een geplande Claude-sessie
+   (claude.ai → Claude Code → geplande taken, "Upstream-sync PR beoordelen", dagelijks 07:43 Amsterdam) legt
+   daarnaast de upstream-diffs naast onze laag en zet een oordeel als PR-comment, één keer per PR-commit.
+   Mergen doet altijd een mens.
+
+De workflow opent nooit een PR of comment op `different-ai/openwork`: alle `gh`-aanroepen gaan via
+`GH_REPO` naar deze repo, en het token heeft alleen rechten op `fonteijne/openwork`.
+
+Er staat steeds hooguit één sync-PR open. Zolang die open is, spoelt de run alleen `dev` door en meldt hij in
+één comment op die PR als er een nieuwere release is. Na de merge maakt de volgende run een PR voor de nieuwste
+release. Een release afwijzen: sluit de PR en laat de branch staan; de run biedt die release dan niet opnieuw
+aan (verwijder de branch om dat wel te doen). Een bepaalde release syncen: **Run workflow** met `tag`.
+
+Eenmalig instellen (Settings → Secrets and variables → Actions):
+
+| Secret | Nodig | Waarvoor |
+|---|---|---|
+| `UPSTREAM_SYNC_TOKEN` | ja | Fine-grained PAT op alleen `fonteijne/openwork`, met Contents, Pull requests en Workflows op read/write. `GITHUB_TOKEN` mag geen workflowbestanden pushen (upstream wijzigt die bijna elke dag), en PR's die met `GITHUB_TOKEN` zijn gemaakt starten de BonzaiWork-CI niet. |
+
+Daarnaast moet onder Settings → Actions → General "Allow GitHub Actions to create and approve pull requests"
+aan staan als je zonder PAT test.
 
 ## Upstream mergen (procedure)
 
@@ -196,7 +241,7 @@ git checkout --theirs pnpm-lock.yaml && pnpm install                    # bij ee
 # bonzaiwork.upstream.json → commit van v0.18.64
 node scripts/bonzaiwork/check-patches.mjs                              # werkt PATCHES.md bij
 pnpm --filter @bonzaiwork/litellm e2e
-# GitHub → Actions: workflows die upstream sinds de vorige sync toevoegde staan aan; zet ze uit (zie "CI")
+# workflows die upstream sinds de vorige sync toevoegde: de volgende Upstream sync-run zet ze uit (zie "CI")
 BONZAIWORK_LITELLM_BASE_URL=http://127.0.0.1:4010 node apps/bonzaiwork/scripts/package.mjs --dir --linux
 xvfb-run -a node apps/bonzaiwork/scripts/smoke-packaged.mjs
 ```
