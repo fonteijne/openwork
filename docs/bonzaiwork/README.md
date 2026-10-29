@@ -208,8 +208,10 @@ dient als referentie voor "zo ziet upstream er nu uit". Tags komen niet mee naar
 4. **Beoordeling.** De PR-beschrijving (`upstream-sync-report.mjs`) zet op een rij wat er moet gebeuren:
    gepatchte bestanden die upstream wijzigde, raakvlakken uit de watchlist in dat script (updater,
    `main.mjs`, builder-config, modelcatalogus, engineversie), gewijzigde manifests en workflows en de
-   uitkomst van de PATCHES-check. De BonzaiWork-CI draait op de PR. Met het secret `ANTHROPIC_API_KEY`
-   legt Claude daarnaast de upstream-diffs naast onze laag en zet een oordeel als PR-comment.
+   uitkomst van de PATCHES-check. De BonzaiWork-CI draait op de PR. Een geplande Claude-sessie
+   (claude.ai → Claude Code → geplande taken, "Upstream-sync PR beoordelen", dagelijks 07:43 Amsterdam) legt
+   daarnaast de upstream-diffs naast onze laag en zet een oordeel als PR-comment, één keer per PR-commit.
+   Mergen doet altijd een mens.
 
 Er staat steeds hooguit één sync-PR open. Zolang die open is, spoelt de run alleen `dev` door en meldt hij in
 één comment op die PR als er een nieuwere release is. Na de merge maakt de volgende run een PR voor de nieuwste
@@ -221,7 +223,6 @@ Eenmalig instellen (Settings → Secrets and variables → Actions):
 | Secret | Nodig | Waarvoor |
 |---|---|---|
 | `UPSTREAM_SYNC_TOKEN` | ja | Fine-grained PAT op alleen `fonteijne/openwork`, met Contents, Pull requests en Workflows op read/write. `GITHUB_TOKEN` mag geen workflowbestanden pushen (upstream wijzigt die bijna elke dag), en PR's die met `GITHUB_TOKEN` zijn gemaakt starten de BonzaiWork-CI niet. |
-| `ANTHROPIC_API_KEY` | nee | De beoordeling door Claude. Zonder dit secret is de PR-beschrijving de beoordeling. |
 
 Daarnaast moet onder Settings → Actions → General "Allow GitHub Actions to create and approve pull requests"
 aan staan als je zonder PAT test.

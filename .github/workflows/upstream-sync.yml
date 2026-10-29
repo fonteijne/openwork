@@ -7,8 +7,8 @@ name: Upstream sync
 #   2. keeps upstream's workflows off in the fork (scripts/bonzaiwork/fork-workflows.mjs),
 #   3. merges upstream's latest release (not dev: it moves too fast to review)
 #      into an upstream-sync/<tag> branch from main and opens a PR to main with a
-#      report of what must change before the merge,
-#   4. optionally lets Claude assess that PR (needs the ANTHROPIC_API_KEY secret).
+#      report of what must change before the merge. Merging stays a person's call;
+#      a scheduled Claude session reviews open sync PRs (README, "Beoordeling").
 # One sync PR at a time: while one is open, runs only fast-forward dev and note
 # on that PR when a newer release is out.
 #
@@ -43,11 +43,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      pr: ${{ steps.pr.outputs.number }}
-      base: ${{ steps.prepare.outputs.base }}
-      head: ${{ steps.release.outputs.sha }}
-      tag: ${{ steps.release.outputs.tag }}
     env:
       GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
       HAS_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN != '' }}
@@ -230,46 +225,3 @@ jobs:
             --body-file "$RUNNER_TEMP/body.md")
           echo "number=${url##*/}" >> "$GITHUB_OUTPUT"
           echo "Opened $url" >> "$GITHUB_STEP_SUMMARY"
-
-  assess:
-    needs: sync
-    if: needs.sync.outputs.pr != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      HAS_ANTHROPIC_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
-    steps:
-      - name: Skip without ANTHROPIC_API_KEY
-        if: env.HAS_ANTHROPIC_KEY != 'true'
-        run: echo "ANTHROPIC_API_KEY is not set; the PR report is the assessment." >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/checkout@v6
-        if: env.HAS_ANTHROPIC_KEY == 'true'
-        with:
-          ref: refs/pull/${{ needs.sync.outputs.pr }}/head
-          fetch-depth: 0
-      - name: Claude assesses what the merge needs
-        if: env.HAS_ANTHROPIC_KEY == 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
-          claude_args: >-
-            --max-turns 60
-            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(node scripts/bonzaiwork/check-patches.mjs)"
-          prompt: |
-            Beoordeel upstream-sync PR #${{ needs.sync.outputs.pr }} in ${{ github.repository }}: wat moet er veranderen voordat deze in main gemerged kan worden?
-            Upstream ${{ env.UPSTREAM_REPO }} ging van ${{ needs.sync.outputs.base }} naar release ${{ needs.sync.outputs.tag }} (${{ needs.sync.outputs.head }}).
-
-            1. Lees docs/bonzaiwork/README.md, PATCHES.md en de PR-beschrijving (`gh pr view ${{ needs.sync.outputs.pr }}`).
-            2. Bekijk voor elk bestand onder "Gepatchte upstream-bestanden" en "Raakvlakken" de upstream-diff
-               (`git diff ${{ needs.sync.outputs.base }} ${{ needs.sync.outputs.head }} -- <pad>`) en controleer of onze laag nog klopt:
-               apps/bonzaiwork, packages/bonzaiwork-*, apps/server/src/downstream-hooks.ts en de hooks uit PATCHES.md.
-               Let vooral op de LiteLLM-only-policy (geen tweede provider bereikbaar), keys die nergens lekken,
-               en geen verkeer naar *.openworklabs.com.
-            3. Zoek ook buiten die lijst naar upstream-wijzigingen die onze code raken (gewijzigde exports, env-variabelen, routes zoals /opencode2, engineversie).
-
-            Post precies één PR-comment met `gh pr comment ${{ needs.sync.outputs.pr }}`, in het Nederlands, met:
-            - een oordeel: "klaar om te mergen zodra CI groen is", "aanpassingen nodig" of "conflicten oplossen";
-            - per benodigde wijziging het bestand en de regel, wat er moet gebeuren en waarom;
-            - risico's die CI niet vangt.
-            Wijzig geen bestanden en push niets. Noem geen klanten of externe personen (de repo is openbaar).
