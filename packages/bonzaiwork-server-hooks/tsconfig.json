@@ -9,5 +9,5 @@
     "allowImportingTsExtensions": true,
     "types": ["node", "bun-types"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "../bonzaiwork-brains/src/assets.d.ts"]
 }

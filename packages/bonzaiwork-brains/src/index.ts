@@ -14,7 +14,7 @@ export {
 export { BrainRegistry } from "./registry.ts";
 export {
   BASE_ENGINE_POLICIES, createBrainsServerHooks, type BrainsHooksOptions, type BrainsHost, type BrainsRoute, type BrainsServerHooks,
-  type EnginePolicy, type SessionActivity,
+  ENGINE_PERMISSIONS, type EnginePermission, type EnginePolicy, type SessionActivity,
 } from "./server-hooks.ts";
 export {
   appendLog, describeConcept, mergeLogs, parseConcept, planKnowledge, renderIndex, renderIndexes, withGenerated, withVerified,

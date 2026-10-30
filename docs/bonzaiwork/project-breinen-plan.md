@@ -980,6 +980,14 @@ Stand fase 1 (gebouwd):
   run, controlekaart en modelcontrole, "volgende stap" pas na `pass`, stappenbalk. Een werkwijze als
   routine (een controle door een persoon zet de routine op "wacht op jou", zoals R2).
 
+Stand fase 2 (bezig):
+- **Andere breinen raadplegen** gebouwd: `breinen_lijst`, `brein_zoeken`, `brein_lezen` in de
+  breinen-MCP (alleen lezen, alleen Markdown, eerst bijwerken als het brein rustig is). De engine vraagt
+  bij `brein_zoeken`/`brein_lezen` via een `ask`-regel uit `downstreamEnginePermissions()` (één regel extra
+  in het al gepatchte `managed-opencode-v2.ts`). De UI toont "Mag BonzaiWork in het brein Sales kijken?",
+  keurt automatisch één keer goed als de gebruiker het brein zelf noemde of het eerder in dit gesprek
+  toestond, en stuurt nooit "altijd" naar de engine. e2e: vraag en daarna lezen met bron, tegen de echte engine.
+
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een
   push op een beschermde branch faalt.

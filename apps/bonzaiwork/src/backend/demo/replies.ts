@@ -187,10 +187,29 @@ function answer(prompt: string): Plan {
   };
 }
 
+/** Another brain (plan §5.2): the AI lists the brains, then asks before it reads one the user did not name. */
+function otherBrain(prompt: string): Plan {
+  const brain = "Klantenservice";
+  return {
+    title: titleFrom(prompt),
+    steps: [
+      { kind: "tool", tool: "breinen_breinen_lijst", input: {}, output: "- Klantenservice: retouren, klachten en de toon van onze antwoorden.", ms: 400 },
+      { kind: "text", text: `Het brein ${brain} heeft het retourbeleid. Mag ik daar kijken?` },
+      {
+        kind: "tool", tool: "breinen_brein_lezen", input: { brein: brain, pad: "knowledge/beleid/retouren.md" },
+        output: "Retouren binnen 30 dagen, op kosten van de klant tenzij het product defect is.", ms: 600,
+        permission: { action: "breinen_brein_lezen", resources: ["*"] },
+      },
+      { kind: "text", text: `Volgens het brein ${brain} (\`knowledge/beleid/retouren.md\`): retouren binnen 30 dagen, op kosten van de klant, behalve bij een defect. Zal ik dat in de offertevoorwaarden van dit project zetten?` },
+    ],
+  };
+}
+
 export function planReply(prompt: string, context: PlanContext): Plan {
   const text = prompt.toLowerCase();
   if (text.includes("budget op") || text.includes("#budget")) return { title: titleFrom(prompt), steps: [{ kind: "error", error: "budget_exceeded" }] };
   if (text.includes("#fout")) return { title: titleFrom(prompt), steps: [{ kind: "error", error: "litellm_unreachable" }] };
+  if (/\bretour|#brein\b/.test(text)) return otherBrain(prompt);
   if (/\bofferte/.test(text)) return quote(prompt);
   if (/\b(e-?mail|mail|brief|bericht aan)\b/.test(text)) return mail(prompt);
   if (/\b(zoek|onderzoek|concurrent|markt|nieuws|vergelijk|web)\w*/.test(text)) return research(prompt, context);

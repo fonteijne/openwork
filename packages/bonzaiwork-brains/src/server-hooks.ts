@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import { createGit, type Git } from "./git.ts";
-import { handleMcpRequest, type PersonalAccess } from "./mcp.ts";
+import { handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
 import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
 import { applyTemplate } from "./template.ts";
 import { remoteProblemMessage } from "./messages.ts";
@@ -23,6 +23,16 @@ type Log = (level: "info" | "warn" | "error", message: string, fields?: Record<s
 
 export type SessionActivity = { workspaceId: string; sessionId: string; state: "running" | "idle"; outcome?: "succeeded" | "failed" | "interrupted" };
 export type EnginePolicy = { action: "provider.use" | "tool.use" | "integration.use"; resource: string; effect: "allow" | "deny" };
+/**
+ * Reading another brain asks first (plan §5.2, N2). The engine names the action
+ * `<server>_<tool>`; the resource is always `*`, so the UI reads the brain from
+ * the tool call (fase 0 §4.3).
+ */
+export type EnginePermission = { action: string; resource: string; effect: "allow" | "deny" | "ask" };
+export const ENGINE_PERMISSIONS: readonly EnginePermission[] = [
+  { action: "breinen_brein_zoeken", resource: "*", effect: "ask" },
+  { action: "breinen_brein_lezen", resource: "*", effect: "ask" },
+];
 
 export type BrainsHost = {
   port: number;
@@ -221,7 +231,23 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     }
   }
 
+  /** Name and first paragraph from a brain's AGENTS.md (the template writes both). */
+  async function describeBrain(sync: BrainSync): Promise<TeamBrain> {
+    const { id, path, lastSyncAt } = sync.snapshot;
+    const agents = await readFile(join(path, "AGENTS.md"), "utf8").catch(() => "");
+    const title = /^#\s+(.+)$/m.exec(agents)?.[1]?.trim();
+    const description = agents.replace(/^#\s+.+$/m, "").trim().split(/\n\s*\n/)[0]?.replace(/\s+/g, " ").trim() ?? "";
+    const folder = path.split(/[\\/]/).filter(Boolean).at(-1) ?? id;
+    return { id, name: title && !title.includes("{{") ? title : folder, description: description.startsWith("#") || description.startsWith("|") ? "" : description.slice(0, 300), root: path, lastSyncAt };
+  }
+
   const access: PersonalAccess = {
+    teamBrains: () => Promise.all([...syncs.values()].filter((sync) => sync.snapshot.kind === "project").map(describeBrain)),
+    refresh: async (id) => {
+      const sync = syncs.get(id);
+      if (!sync || (await host?.runningSessions(id))?.length) return;
+      await Promise.race([sync.prepareTurn(), new Promise((resolve) => setTimeout(resolve, 3_000))]);
+    },
     root: () => personal()?.snapshot.path ?? null,
     excluded: () => personal()?.snapshot.excluded ?? [],
     wrote: () => { personalDirty = true; },
@@ -624,6 +650,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   return {
     routes,
     enginePolicies,
+    enginePermissions: () => ENGINE_PERMISSIONS,
     /** Tests: the tools without the engine. */
     personalAccess: access,
     async start(next: BrainsHost) {

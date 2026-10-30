@@ -8,9 +8,11 @@ import { ALWAYS_EXCLUDED_FOLDERS } from "./trust.ts";
 /**
  * The local MCP server "breinen" (plan §5.2, §7.3), for the engine only:
  * loopback, a local token, Markdown only, writes only in the personal brain
- * and never in its instructions. Other brains (brein_zoeken, brein_lezen)
- * come in fase 2.
+ * and never in its instructions. Other brains on this laptop are read-only;
+ * brein_zoeken and brein_lezen ask the user first (engine `ask` rule).
  */
+export type TeamBrain = { id: string; name: string; description: string; root: string; lastSyncAt: number | null };
+
 export type PersonalAccess = {
   /** The personal brain's folder, or null when there is none yet. */
   root(): string | null;
@@ -18,6 +20,10 @@ export type PersonalAccess = {
   /** A tool changed this file: the next quiet moment records it as the AI's. */
   wrote(path: string): void;
   propose(preference: string, reason: string | null): Promise<string>;
+  /** The project brains on this laptop. */
+  teamBrains(): Promise<TeamBrain[]>;
+  /** Brings a brain up to date before it is read, when it is quiet; never waits long. */
+  refresh(id: string): Promise<void>;
 };
 
 type Json = Record<string, unknown>;
@@ -48,6 +54,21 @@ export const BRAIN_TOOLS = [
     name: "persoonlijk_brein_bewerken",
     description: "Vervang één passage in een bestaande notitie van het persoonlijke brein. Geef de versie mee die persoonlijk_brein_lezen gaf; is de notitie intussen veranderd, lees dan opnieuw.",
     inputSchema: { type: "object", properties: { pad: str, oud: { ...str, description: "De passage zoals hij nu precies staat" }, nieuw: str, versie: str }, required: ["pad", "oud", "nieuw", "versie"] },
+  },
+  {
+    name: "breinen_lijst",
+    description: "De gedeelde breinen op deze laptop: naam, waar ze over gaan, wanneer bijgewerkt. Kijk alleen in een ander brein als de gebruiker erom vraagt; denk je dat er een helpt, stel het dan in één zin voor en wacht.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "brein_zoeken",
+    description: "Zoek in een ander gedeeld brein (alleen lezen). Volgt knowledge/index.md en zoekt daarna op woorden. Gebruik wat je vindt in het huidige project, met de bron erbij.",
+    inputSchema: { type: "object", properties: { brein: { ...str, description: "Naam van het brein uit breinen_lijst" }, vraag: str }, required: ["brein", "vraag"] },
+  },
+  {
+    name: "brein_lezen",
+    description: "Lees één Markdown-bestand uit een ander gedeeld brein (alleen lezen). Neem over wat je nodig hebt in het huidige project, met bronvermelding (brein en pad).",
+    inputSchema: { type: "object", properties: { brein: { ...str, description: "Naam van het brein uit breinen_lijst" }, pad: str }, required: ["brein", "pad"] },
   },
   {
     name: "voorkeur_voorstellen",
@@ -109,10 +130,47 @@ async function search(root: string, excluded: readonly string[], query: string):
     .map((hit) => `- ${hit.title} (\`${hit.path}\`): …${hit.fragment}…`).join("\n");
 }
 
+/** A brain by name, folder or a clear part of either. */
+function findBrain(brains: TeamBrain[], wanted: string): TeamBrain | null {
+  const key = wanted.trim().toLowerCase().replace(/[-_]?brein$/, "").trim();
+  if (!key) return null;
+  const names = (brain: TeamBrain) => [brain.name, posix.basename(brain.root.replace(/\\/g, "/"))].map((name) => name.toLowerCase());
+  const exact = brains.filter((brain) => names(brain).some((name) => name === key || name.replace(/[-_]?brein$/, "").trim() === key));
+  if (exact.length === 1) return exact[0] ?? null;
+  const partial = brains.filter((brain) => names(brain).some((name) => name.includes(key)));
+  return partial.length === 1 ? partial[0] ?? null : null;
+}
+
+async function teamTool(access: PersonalAccess, name: string, text: (key: string) => string): Promise<ToolResult> {
+  const brains = await access.teamBrains();
+  if (name === "breinen_lijst") {
+    if (!brains.length) return ok("Er staan nog geen gedeelde breinen op deze laptop.");
+    return ok(brains.map((brain) => `- ${brain.name}${brain.description ? `: ${brain.description}` : ""}${brain.lastSyncAt ? ` (bijgewerkt ${new Date(brain.lastSyncAt).toISOString().slice(0, 16).replace("T", " ")})` : ""}`).join("\n"));
+  }
+  const brain = findBrain(brains, text("brein"));
+  if (!brain) return refuse(`Geen brein "${text("brein")}" gevonden. Kies een naam uit breinen_lijst.`);
+  await access.refresh(brain.id).catch(() => undefined);
+  if (name === "brein_zoeken") {
+    const query = text("vraag");
+    const index = await readFile(join(brain.root, "knowledge", "index.md"), "utf8").catch(() => null);
+    const found = await search(brain.root, [], query);
+    return ok(`Brein ${brain.name}${index ? ` (begin bij knowledge/index.md)` : ""}:\n${found}`);
+  }
+  const checked = await brainPath(brain.root, text("pad"), []);
+  if (!checked.ok) return refuse(checked.reason);
+  const content = await readFile(checked.absolute, "utf8").catch(() => null);
+  if (content === null) return refuse(`${checked.path} bestaat niet in ${brain.name}.`);
+  if (Buffer.byteLength(content) > MAX_READ) return refuse(`${checked.path} is te groot om in één keer te lezen.`);
+  return ok(`Uit het brein ${brain.name}, ${checked.path} (alleen lezen; noem deze bron als je het gebruikt):\n\n${content}`);
+}
+
+const TEAM_TOOLS = new Set(["breinen_lijst", "brein_zoeken", "brein_lezen"]);
+
 export async function callBrainTool(access: PersonalAccess, name: string, args: Json): Promise<ToolResult> {
+  const text = (key: string) => (typeof args[key] === "string" ? String(args[key]) : "");
+  if (TEAM_TOOLS.has(name)) return teamTool(access, name, text);
   const root = access.root();
   if (!root) return refuse("Er is nog geen persoonlijk brein ingesteld. De gebruiker kan dat doen in Mijn brein.");
-  const text = (key: string) => (typeof args[key] === "string" ? String(args[key]) : "");
   if (name === "persoonlijk_brein_zoeken") return ok(await search(root, access.excluded(), text("vraag")));
   if (name === "voorkeur_voorstellen") {
     const preference = text("voorkeur").trim();

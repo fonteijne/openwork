@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { callBrainTool, contentVersion, handleMcpRequest, type PersonalAccess } from "../src/mcp.ts";
+import { callBrainTool, contentVersion, handleMcpRequest, type PersonalAccess, type TeamBrain } from "../src/mcp.ts";
 import { brainPath, composeInstructions, isCloudFolder, PERSONAL_INSTRUCTIONS_LIMIT } from "../src/personal.ts";
 import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type SessionActivity } from "../src/server-hooks.ts";
 import { createGit } from "../src/git.ts";
@@ -73,8 +73,9 @@ describe("paden en instructies", () => {
 });
 
 describe("de breinen-MCP", () => {
-  const access = (root: string, wrote: string[] = [], proposed: string[] = []): PersonalAccess => ({
+  const access = (root: string, wrote: string[] = [], proposed: string[] = [], team: TeamBrain[] = [], refreshed: string[] = []): PersonalAccess => ({
     root: () => root, excluded: () => ["Dagboek"], wrote: (path) => wrote.push(path), propose: async (text) => { proposed.push(text); return "p"; },
+    teamBrains: async () => team, refresh: async (id) => { refreshed.push(id); },
   });
   const text = (result: { content: Array<{ text: string }> }) => result.content.map((part) => part.text).join("");
 
@@ -98,6 +99,32 @@ describe("de breinen-MCP", () => {
     expect(wrote).toEqual(["Projecten/offerte.md", "knowledge/nieuw.md"]);
     expect(text(await callBrainTool(tools, "persoonlijk_brein_zoeken", { vraag: "offerte klant" }))).toContain("Projecten/offerte.md");
     expect(text(await callBrainTool(tools, "persoonlijk_brein_zoeken", { vraag: "privé" }))).toContain("Niets gevonden");
+  });
+
+  test("andere breinen: lijst, zoeken en lezen, alleen lezen en alleen Markdown", async () => {
+    const sales = await vault();
+    await writeFile(join(sales, "AGENTS.md"), "# Sales\n\nOffertes en klanten.\n");
+    await mkdir(join(sales, "knowledge"), { recursive: true });
+    await writeFile(join(sales, "knowledge/offerteproces.md"), "---\ntype: Process\n---\n# Offerteproces\n\nEerst intake, dan opzet.\n");
+    const service = await vault();
+    const team: TeamBrain[] = [
+      { id: "w1", name: "Sales", description: "Offertes en klanten.", root: sales, lastSyncAt: Date.UTC(2026, 9, 30, 9, 0) },
+      { id: "w2", name: "Klantenservice", description: "", root: service, lastSyncAt: null },
+    ];
+    const refreshed: string[] = [];
+    const tools = access(await vault(), [], [], team, refreshed);
+    expect(text(await callBrainTool(tools, "breinen_lijst", {}))).toContain("- Sales: Offertes en klanten. (bijgewerkt 2026-10-30 09:00)");
+    const found = text(await callBrainTool(tools, "brein_zoeken", { brein: "sales-brein", vraag: "intake" }));
+    expect(found).toContain("knowledge/offerteproces.md");
+    expect(refreshed).toEqual(["w1"]);
+    const read = text(await callBrainTool(tools, "brein_lezen", { brein: "Sales", pad: "knowledge/offerteproces.md" }));
+    expect(read).toContain("Uit het brein Sales, knowledge/offerteproces.md");
+    expect(read).toContain("Eerst intake");
+    expect((await callBrainTool(tools, "brein_lezen", { brein: "Sales", pad: "plaatje.png" })).isError).toBe(true);
+    expect((await callBrainTool(tools, "brein_lezen", { brein: "Sales", pad: "../x.md" })).isError).toBe(true);
+    expect((await callBrainTool(tools, "brein_lezen", { brein: "Marketing", pad: "AGENTS.md" })).isError).toBe(true);
+    // No tool writes in another brain.
+    expect(text(await callBrainTool(tools, "brein_schrijven", { brein: "Sales", pad: "x.md", inhoud: "x" }))).toContain("Onbekend");
   });
 
   test("de instructiebestanden alleen via een voorstel", async () => {

@@ -22,6 +22,7 @@ import { useUi } from "../shell/ui-store";
 import { ChatActions } from "./chat-actions";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
+import { BrainPermissionCard, isBrainRead } from "~/features/brain/brain-permission";
 import { BrainCards } from "~/features/brain/cards";
 import { BrainPill } from "~/features/brain/status-pill";
 import { BrainTurnLine } from "~/features/brain/turn-line";
@@ -333,7 +334,21 @@ export function ChatView(props: { project: Project; chatId: string }) {
             </div>
           ) : null}
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-            {permission ? (
+            {permission && isBrainRead(permission) ? (
+              <BrainPermissionCard
+                key={permission.id}
+                request={permission}
+                messages={messages}
+                onReply={async (reply) => {
+                  try {
+                    await backend.interactions.replyPermission(project.id, props.chatId, permission.id, reply);
+                    runtime.dropPermission(props.chatId, permission.id);
+                  } catch (failure) {
+                    toast(errorText(failure), { tone: "error" });
+                  }
+                }}
+              />
+            ) : permission ? (
               <PermissionCard
                 key={permission.id}
                 request={permission}

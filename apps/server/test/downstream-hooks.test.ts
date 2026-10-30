@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
   addDownstreamRoutes,
+  downstreamEnginePermissions,
   downstreamEnginePolicies,
   engineConfigDirectory,
   startDownstreamServerHooks,
@@ -86,6 +87,18 @@ test("extra engine policies follow the provider allowlist; a hook cannot add pro
     { action: "provider.use", resource: "*", effect: "deny" },
     { action: "provider.use", resource: "litellm", effect: "allow" },
     { action: "tool.use", resource: "shell:git *", effect: "deny" },
+  ]);
+});
+
+test("engine permission rules from the hooks go first in the engine config", async () => {
+  const { renderOpencodeV2Config } = await import("../src/managed-opencode-v2.js");
+  assert.deepEqual(downstreamEnginePermissions(), []);
+  assert.equal(renderOpencodeV2Config({ providers: [], skills: [] }).permissions, undefined);
+  setDownstreamServerHooks({ enginePermissions: () => [{ action: "breinen_brein_lezen", resource: "*", effect: "ask" }] });
+  const rendered = renderOpencodeV2Config({ providers: [], skills: [], permissions: [{ action: "bash", resource: "*", effect: "deny" }] });
+  assert.deepEqual(rendered.permissions, [
+    { action: "breinen_brein_lezen", resource: "*", effect: "ask" },
+    { action: "bash", resource: "*", effect: "deny" },
   ]);
 });
 

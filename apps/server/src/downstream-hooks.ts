@@ -42,6 +42,8 @@ export type DownstreamSessionActivity = {
   outcome?: "succeeded" | "failed" | "interrupted";
 };
 
+export type DownstreamEnginePermission = { action: string; resource: string; effect: "allow" | "ask" | "deny" };
+
 export type DownstreamEnginePolicy = {
   action: "provider.use" | "tool.use" | "integration.use";
   resource: string;
@@ -83,6 +85,8 @@ export type DownstreamServerHooks = {
   routes?: readonly DownstreamRoute[];
   /** Extra engine policies, read on every engine config write; `reloadEngineProviders()` causes one. */
   enginePolicies?(): readonly DownstreamEnginePolicy[];
+  /** Extra engine permission rules (`allow`/`ask`/`deny` per tool action), written with the same config. */
+  enginePermissions?(): readonly DownstreamEnginePermission[];
   start?(host: DownstreamServerHost): Promise<void>;
 };
 
@@ -123,6 +127,15 @@ export function downstreamEnginePolicies(): Array<{ action: string; resource: st
   ];
 }
 
+/**
+ * Engine permission rules from the hooks. They go first: the engine applies
+ * the last matching rule, so OpenWork's own rules (agent permissions, the
+ * managed execution denials) still win.
+ */
+export function downstreamEnginePermissions(): DownstreamEnginePermission[] {
+  return (active?.enginePermissions?.() ?? []).map((rule) => ({ ...rule }));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -139,10 +152,11 @@ function isDownstreamRoute(value: unknown): value is DownstreamRoute {
 
 function isDownstreamServerHooks(value: unknown): value is DownstreamServerHooks {
   if (!isRecord(value)) return false;
-  const { allowedProviderIds, routes, start, enginePolicies } = value;
+  const { allowedProviderIds, routes, start, enginePolicies, enginePermissions } = value;
   return (allowedProviderIds === undefined || (Array.isArray(allowedProviderIds) && allowedProviderIds.every((id) => typeof id === "string")))
     && (routes === undefined || (Array.isArray(routes) && routes.every(isDownstreamRoute)))
     && (enginePolicies === undefined || typeof enginePolicies === "function")
+    && (enginePermissions === undefined || typeof enginePermissions === "function")
     && (start === undefined || typeof start === "function");
 }
 

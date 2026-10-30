@@ -65,7 +65,9 @@ async function startLiteLLM(): Promise<{ server: Server; url: string }> {
     if (tools.length) contexts.push(JSON.stringify(messages));
     if (last.role === "tool") toolResults.push(JSON.stringify(last.content));
     const personalTool = tools.find((name) => name.endsWith("persoonlijk_brein_schrijven"));
-    if (userText.includes("PERSOONLIJK") && personalTool) call(personalTool, { pad: "knowledge/geleerd.md", inhoud: "---\ntype: Analysis\ntitle: Geleerd\n---\n# Geleerd\n" });
+    const readTool = tools.find((name) => /(^|_)brein_lezen$/.test(name) && !name.includes("persoonlijk"));
+    if (userText.includes("ANDERBREIN") && readTool) call(readTool, { brein: "Sales", pad: "AGENTS.md" });
+    else if (userText.includes("PERSOONLIJK") && personalTool) call(personalTool, { pad: "knowledge/geleerd.md", inhoud: "---\ntype: Analysis\ntitle: Geleerd\n---\n# Geleerd\n" });
     else if (userText.includes("SCHRIJF") && tools.includes("write")) call("write", { path: "knowledge/e2e.md", content: "---\ntype: Process\n---\n# Uit de chat\n" });
     else if (userText.includes("GIT") && tools.includes("shell")) call("shell", { command: "git log -1" });
     else { chunk({ content: "Klaar." }); chunk({}, "stop"); }
@@ -234,6 +236,20 @@ async function main() {
     }, 30_000).catch(() => null);
     check("recorded in the personal brain under the chat title", recorded?.startsWith("Offerte vastleggen") ?? false, String(recorded));
     check("no .git in the personal folder", !existsSync(join(personalFolder, ".git")));
+
+    // 5. Another brain: reading it asks first (plan §5.2), then reads read-only.
+    await fetch(`${engine}/api/session/${sessionId}/prompt`, { method: "POST", headers: owner, body: JSON.stringify({ text: "ANDERBREIN lees het Sales-brein", delivery: "steer" }) });
+    const asked = await waitFor("permission for another brain", async () => {
+      const response = await fetch(`${engine}/api/session/${sessionId}/permission`, { headers: owner });
+      const pending = list(record(await response.json()).data).map(record);
+      return pending.find((item) => text(item.action) === "breinen_brein_lezen") ?? null;
+    }, 30_000).catch(() => null);
+    check("reading another brain asks first", asked !== null, JSON.stringify(asked).slice(0, 200));
+    if (asked) {
+      await fetch(`${engine}/api/session/${sessionId}/permission/${text(asked.id)}/reply`, { method: "POST", headers: owner, body: JSON.stringify({ decision: "once", reply: "once" }) });
+      const read = await waitFor("read from another brain", async () => toolResults.find((result) => result.includes("Uit het brein Sales")) ?? null, 30_000).catch(() => null);
+      check("after allowing, the brain is read with its source", read !== null, toolResults.slice(-1).join("").slice(0, 200));
+    }
     await log.flush();
   } finally {
     server?.kill("SIGTERM");

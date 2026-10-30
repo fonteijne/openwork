@@ -663,6 +663,11 @@ export const copy = {
     correct: "Klopt",
     correctDone: "Nagekeken",
     sources: "Bronnen",
+    // Reading another brain (§5.2).
+    readTitle: (brain: string) => `Mag BonzaiWork in het brein ${brain} kijken?`,
+    readBody: "Alleen lezen. Wat de AI gebruikt, komt met de bron erbij in dit project.",
+    readAlways: "Altijd in dit gesprek",
+    otherBrain: "een ander brein",
     locked: "Breinen hebben een nieuwere versie van de app nodig.",
   },
 

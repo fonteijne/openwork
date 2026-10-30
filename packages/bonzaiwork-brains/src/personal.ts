@@ -30,6 +30,7 @@ export const APP_RULES = `# Werken in BonzaiWork
 - Leer je een voorkeur van de gebruiker ("samenvattingen altijd in drie punten"), stel hem dan voor met \`voorkeur_voorstellen\`; schrijf hem niet zelf in \`_meta/voorkeuren.md\`.
 - Notities in het persoonlijke brein lees en schrijf je met de \`persoonlijk_brein_*\`-tools, alleen Markdown. Bewerk per passage en geef de versie mee die je las.
 - Kijk alleen in een ander brein als de gebruiker erom vraagt. Denk je dat een ander brein helpt, stel het dan in één zin voor en wacht op antwoord.
+- Uit een ander brein (\`breinen_lijst\`, \`brein_zoeken\`, \`brein_lezen\`) lees je alleen. Wat je gebruikt, zet je in het huidige project met de bron erbij (brein en pad); een ander brein pas je nooit aan.
 - Zet nooit wachtwoorden, sleutels of privégegevens van personen in een brein.
 `;
 

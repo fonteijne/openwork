@@ -1,4 +1,4 @@
-import { createBrainsServerHooks, type BrainsHooksOptions, type BrainsHost, type EnginePolicy } from "@bonzaiwork/brains";
+import { createBrainsServerHooks, type BrainsHooksOptions, type BrainsHost, type EnginePermission, type EnginePolicy } from "@bonzaiwork/brains";
 import { createServerHooks, type ServerHooksOptions, type ServerHost, type ServerRoute } from "@bonzaiwork/litellm";
 
 /**
@@ -12,6 +12,7 @@ export type CombinedHooks = {
   allowedProviderIds: readonly string[];
   routes: readonly ServerRoute[];
   enginePolicies(): readonly EnginePolicy[];
+  enginePermissions(): readonly EnginePermission[];
   start(host: Host): Promise<void>;
 };
 
@@ -25,6 +26,7 @@ export function createCombinedHooks(options: { litellm?: ServerHooksOptions; bra
     allowedProviderIds: litellm.allowedProviderIds,
     routes: [...litellm.routes, ...brains.routes],
     enginePolicies: () => brains.enginePolicies(),
+    enginePermissions: () => brains.enginePermissions(),
     async start(host) {
       // Each starts on its own: a failing brain store never takes the models away.
       await Promise.all([
