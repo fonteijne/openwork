@@ -302,7 +302,7 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
 - Vóór lezen werkt de tool dat brein bij als het rustig is (snelle fetch, max. ~3 s), zodat je de versie
   van het team ziet.
 - **Alleen lezen**: wil je iets uit brein A in brein B gebruiken, dan schrijft de AI het in het huidige
-  project (met bronvermelding "uit het Sales-brein, `wiki/concepten/offertes.md`"). Het andere brein verandert
+  project (met bronvermelding "uit het Sales-brein, `wiki/concepts/offertes.md`"). Het andere brein verandert
   nooit vanuit een andere chat; dat voorkomt verrassingen voor dat team.
 - In de chat ziet de gebruiker de stap in woorden: "Las *Offertes* in het Sales-brein".
 - **Alleen op verzoek, of na een voorstel (N2).** De AI kijkt in een ander brein als de gebruiker erom
@@ -339,29 +339,33 @@ raw/                      bronnen: onveranderlijk; de AI leest ze en wijzigt ze 
 wiki/                     door de AI bijgehouden pagina's
   index.md                catalogus: elke pagina met link en één regel; de AI leest hem eerst
   log.md                  chronologisch, alleen toevoegen
-  overzicht.md            het grote plaatje van dit brein
-  samenvattingen/         één pagina per bron
-  entiteiten/             producten, systemen, teams, organisaties, rollen
-  concepten/              begrippen, werkwijzen, beslissingen
-  vergelijkingen/         analyses en afwegingen, vaak ontstaan uit een goede vraag
-.opencode/skills/         wiki-verwerken, wiki-vastleggen, wiki-onderhoud, plus eigen teamworkflows
-.opencode/commands/       /verwerk, /vastleggen, /onderhoud
+  overview.md             het grote plaatje van dit brein
+  summaries/              één pagina per bron
+  entities/               producten, systemen, teams, organisaties, rollen
+  concepts/               begrippen, werkwijzen, beslissingen
+  comparisons/            analyses en afwegingen, vaak ontstaan uit een goede vraag
+.opencode/skills/         wiki-ingest, wiki-query, wiki-lint, plus eigen teamworkflows
+.opencode/commands/       /verwerk, /vastleggen, /onderhoud (Nederlands: die typt de gebruiker)
 .gitattributes            wiki/log.md merge=union
 opencode.json             alleen: permission.bash "git *" → deny
 ```
 
-We houden Karpathy's namen aan (`raw/`, `wiki/`, `index.md`, `log.md`), zodat het patroon herkenbaar
-blijft en skills van anderen die het volgen hier ook werken. De submappen en paginasoorten zijn Nederlands.
+Alles op bestandsniveau is **Engels**, in Karpathy's termen: mappen (`raw/`, `wiki/`, `summaries/`,
+`entities/`, `concepts/`, `comparisons/`), bestanden (`index.md`, `log.md`, `overview.md`), paginasoorten,
+frontmatter-sleutels, logsoorten (`ingest`, `query`, `lint`) en skillnamen. Zo blijft het patroon herkenbaar
+en werken skills van anderen die het volgen hier ook. Wat de gebruiker ziet of typt, blijft Nederlands: de
+commando's (`/verwerk`, `/vastleggen`, `/onderhoud`), de UI-teksten, de tekst van het schema en de inhoud
+van de pagina's.
 
 Elke wiki-pagina heeft frontmatter, en pagina's linken met `[[wikilinks]]` (de Obsidian-graph toont dan
 knooppunten en wezen):
 
 ```yaml
 ---
-type: concept            # samenvatting | entiteit | concept | vergelijking | overzicht
-samenvatting: Hoe we een offerte opbouwen en wie hem goedkeurt.   # één regel, voor de index
-bronnen: [raw/2026-10-30-kickoff-notulen.md]
-bijgewerkt: 2026-10-30
+type: concept            # summary | entity | concept | comparison | overview
+summary: Hoe we een offerte opbouwen en wie hem goedkeurt.   # één regel, voor de index
+sources: [raw/2026-10-30-kickoff-notulen.md]
+updated: 2026-10-30
 tags: [offertes]
 ---
 ```
@@ -370,12 +374,12 @@ tags: [offertes]
 
 | Werkwijze | Wanneer | Wat de AI doet |
 |---|---|---|
-| **Verwerken** (ingest, `/verwerk`) | De gebruiker sleept een bestand in de chat, plakt een tekst, of zet een `.md` in `raw/` | Bron als Markdown in `raw/` (een bijlage uit de chat wordt omgezet; alleen `.md` blijft bewaard, N5). Kort de belangrijkste punten bespreken met de gebruiker. Een samenvattingspagina schrijven, en de entiteit- en conceptpagina's bijwerken die de bron raakt ("a single source might touch 10–15 wiki pages"). Eén regel in `log.md` |
-| **Vragen** (query) | Elke gewone vraag in de chat | Eerst `wiki/index.md`, dan de relevante pagina's; antwoord met links naar die pagina's. Is het antwoord blijvend waardevol, dan vraagt hij "Zal ik dit vastleggen?" en maakt met `/vastleggen` een pagina (vaak in `vergelijkingen/`) |
-| **Onderhoud** (lint, `/onderhoud`) | Op verzoek, of als wekelijkse routine | Zoekt tegenstrijdigheden, beweringen die nieuwere bronnen achterhaald hebben, weespagina's, begrippen die vaak terugkomen maar geen pagina hebben, ontbrekende links en gaten in de kennis. Kleine dingen lost hij zelf op, de rest meldt hij. Eén regel in `log.md` |
+| **Ingest** (`/verwerk`, skill `wiki-ingest`) | De gebruiker sleept een bestand in de chat, plakt een tekst, of zet een `.md` in `raw/` | Bron als Markdown in `raw/` (een bijlage uit de chat wordt omgezet; alleen `.md` blijft bewaard, N5). Kort de belangrijkste punten bespreken met de gebruiker. Een pagina in `summaries/` schrijven, en de pagina's in `entities/` en `concepts/` bijwerken die de bron raakt ("a single source might touch 10–15 wiki pages"). Eén regel in `log.md` |
+| **Query** (skill `wiki-query`; vastleggen met `/vastleggen`) | Elke gewone vraag in de chat | Eerst `wiki/index.md`, dan de relevante pagina's; antwoord met links naar die pagina's. Is het antwoord blijvend waardevol, dan vraagt hij "Zal ik dit vastleggen?" en maakt met `/vastleggen` een pagina (vaak in `comparisons/`) |
+| **Lint** (`/onderhoud`, skill `wiki-lint`) | Op verzoek, of als wekelijkse routine | Zoekt tegenstrijdigheden, beweringen die nieuwere bronnen achterhaald hebben, weespagina's, begrippen die vaak terugkomen maar geen pagina hebben, ontbrekende links en gaten in de kennis. Kleine dingen lost hij zelf op, de rest meldt hij. Eén regel in `log.md` |
 
 In een **gedeeld** brein zou de wekelijkse onderhoudsroutine bij elk teamlid draaien. Daarom kijkt de
-routine eerst in `log.md`: staat er de afgelopen 7 dagen al een `onderhoud`-regel (van wie dan ook), dan
+routine eerst in `log.md`: staat er de afgelopen 7 dagen al een `lint`-regel (van wie dan ook), dan
 slaat hij over.
 
 ### 6.3 Wat BonzaiWork zelf doet, niet de AI
@@ -385,19 +389,19 @@ problemen: iedereen schrijft bij elke verwerking in dezelfde twee bestanden (dus
 vergeet weleens een regel. Daarom, net als bij git (§2), deterministisch in de sync-machine
 (`packages/bonzaiwork-brains/src/wiki.ts`), vlak vóór elke commit:
 
-- **`index.md` wordt gegenereerd** uit de frontmatter (`type`, `samenvatting`), gegroepeerd per soort en
+- **`index.md` wordt gegenereerd** uit de frontmatter (`type`, `summary`), gegroepeerd per soort en
   alfabetisch. De AI leest hem, maar bewerkt hem nooit (dat staat in het schema). Geeft een rebase een
   conflict in `index.md`, dan maakt de sync hem opnieuw en gaat verder; dat conflict komt nooit bij de
   gebruiker.
 - **`log.md` voegt samen zonder conflict**: `.gitattributes` zet `wiki/log.md merge=union` (ingebouwd in
   git), zodat twee toevoegingen tegelijk allebei blijven staan. De AI schrijft regels in Karpathy's vaste
   vorm, zodat `grep "^## \[" wiki/log.md` werkt:
-  `## [2026-10-30] ingest | Kickoff-notulen` (soorten: `ingest`, `vastleggen`, `onderhoud`). Veranderden
-  er wiki-pagina's zonder logregel, dan voegt de sync `## [datum] wijziging | <chattitel>` toe.
+  `## [2026-10-30] ingest | Kickoff-notulen` (soorten: `ingest`, `query` voor een vastgelegd antwoord, `lint`). Veranderden
+  er wiki-pagina's zonder logregel, dan voegt de sync `## [datum] update | <chattitel>` toe.
 - **`raw/` blijft onveranderlijk**: een commit die een bestaand bestand in `raw/` wijzigt of verwijdert,
   weigert de sync; dat bestand gaat terug naar de vorige versie, met een melding. Nieuwe bronnen toevoegen
   mag altijd.
-- **Ontbrekende frontmatter**: een pagina zonder `samenvatting` staat in de index als "(geen samenvatting)",
+- **Ontbrekende frontmatter**: een pagina zonder `summary` staat in de index als "(no summary)",
   en `/onderhoud` pakt hem op.
 
 ### 6.4 Het schema (`AGENTS.md`)
@@ -415,12 +419,13 @@ model" laat groeien:
 Dit is een LLM-wiki. Mensen voegen bronnen toe en stellen vragen; jij houdt de wiki bij.
 
 - `raw/` bevat de bronnen. Lees ze; wijzig of verwijder ze nooit. Een nieuwe bron voeg je toe als Markdown.
-- `wiki/` is van jou: samenvattingen, entiteiten, concepten, vergelijkingen en `overzicht.md`. Elke pagina
-  heeft frontmatter met `type`, `samenvatting` (één regel), `bronnen` en `bijgewerkt`. Link met
+- `wiki/` is van jou: `summaries/` (één per bron), `entities/`, `concepts/`, `comparisons/` en
+  `overview.md`. Elke pagina heeft frontmatter met `type` (summary, entity, concept, comparison of
+  overview), `summary` (één regel), `sources` en `updated`. Link met
   [[wikilinks]]. Werk bestaande pagina's bij in plaats van een tweede over hetzelfde te maken.
 - Lees bij elke vraag eerst `wiki/index.md`. Bewerk `index.md` nooit; BonzaiWork maakt hem.
 - Voeg na elke verwerking, vastgelegde vraag of onderhoudsronde één regel toe onderaan `wiki/log.md`:
-  `## [JJJJ-MM-DD] ingest|vastleggen|onderhoud | Titel`.
+  `## [JJJJ-MM-DD] ingest|query|lint | Titel`.
 - Spreekt een nieuwe bron een pagina tegen, zet dat dan op de pagina, met beide bronnen. Kies niet
   stilzwijgend.
 - Werkwijzen: /verwerk (bron verwerken), /vastleggen (antwoord als pagina bewaren), /onderhoud (controle).
@@ -447,7 +452,7 @@ Dezelfde drie lagen en werkwijzen, met twee verschillen:
   een geleerde voorkeur meteen overal. Kennis gaat in `wiki/`, waar de AI in zoekt; zo blijft het schema
   klein.
 - **Bestaand second brain (§5.1.1).** BonzaiWork voegt `AGENTS.md`, `raw/`, `wiki/` (met `index.md`,
-  `log.md`, `overzicht.md`) en de skills toe. De bestaande notities blijven waar ze staan: de AI leest ze en
+  `log.md`, `overview.md`) en de skills toe. De bestaande notities blijven waar ze staan: de AI leest ze en
   mag ze bijwerken (N4), maar ze zijn geen bron (ze mogen veranderen) en geen wikipagina (ze zijn van de
   gebruiker). Met **"Inrichten als wiki"** (`/inrichten`, fase 2) verwerkt de AI ze map voor map tot
   wikipagina's, als bron ervan; de originele notities blijven staan. De gebruiker start dat zelf, per map,
