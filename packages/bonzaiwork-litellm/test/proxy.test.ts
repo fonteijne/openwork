@@ -154,7 +154,7 @@ describe("server hooks", () => {
   }
 
   test("routes wait until the hooks have started", async () => {
-    const hooks = createServerHooks({ settings: { litellmBaseUrl: baseUrl, defaultModel: null, keyMode: "workspace" }, keyStore: new MemoryKeyStore(), localToken: LOCAL });
+    const hooks = createServerHooks({ settings: { litellmBaseUrl: baseUrl, defaultModel: null, keyMode: "workspace", preferredModels: [] }, keyStore: new MemoryKeyStore(), localToken: LOCAL });
     const putKey = hooks.routes.find((route) => route.method === "PUT" && route.path === "/bonzaiwork/keys/workspace/:workspaceId")!;
     const early = putKey.handle(new Request("http://x", { method: "PUT", body: JSON.stringify({ key: WORKSPACE_KEY }) }), { workspaceId: "ws_a" });
     await hooks.start(fakeHost([]));
@@ -164,7 +164,7 @@ describe("server hooks", () => {
   test("allows only litellm and writes the provider entry with LiteLLM's models", async () => {
     const updates: unknown[] = [];
     const store = new MemoryKeyStore();
-    const hooks = createServerHooks({ settings: { litellmBaseUrl: baseUrl, defaultModel: null, keyMode: "user" }, keyStore: store, localToken: LOCAL });
+    const hooks = createServerHooks({ settings: { litellmBaseUrl: baseUrl, defaultModel: null, keyMode: "user", preferredModels: ["glm-5", "gpt-4o-mini"] }, keyStore: store, localToken: LOCAL });
     expect(hooks.allowedProviderIds).toEqual(["litellm"]);
     await hooks.start(fakeHost(updates));
     const putKey = hooks.routes.find((route) => route.method === "PUT" && route.path === "/bonzaiwork/keys/user")!;
@@ -179,6 +179,7 @@ describe("server hooks", () => {
     expect(JSON.stringify(status)).not.toContain(USER_KEY);
     expect(status.user).toEqual({ hasKey: true, keyHint: "…0001" });
     expect(status.defaultModel).toBe("gpt-4o-mini");
+    expect(status.preferredModels).toEqual(["glm-5", "gpt-4o-mini"]);
     expect(updates.at(-1)).toEqual({
       providers: { litellm: { npm: "@ai-sdk/openai-compatible", name: "LiteLLM", options: { baseURL: "http://127.0.0.1:9999/bonzaiwork/litellm/v1", apiKey: LOCAL }, models: { "gpt-4o-mini": { name: "gpt-4o-mini" } } } },
       disabledProviders: ["openwork", "opencode", "openwork-free"],

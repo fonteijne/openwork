@@ -179,6 +179,7 @@ export function createServerHooks(options: ServerHooksOptions = {}): ServerHooks
       workspaces,
       models,
       defaultModel: pickDefaultModel(models, settings.defaultModel),
+      preferredModels: settings.preferredModels,
       lastError,
     });
   }

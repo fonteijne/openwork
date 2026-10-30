@@ -1,6 +1,6 @@
 # Implementatieplan: voorkeursmodellen in projectinstellingen
 
-Issue: [fonteijne/openwork#7](https://github.com/fonteijne/openwork/issues/7) · Stand: plan, nog niet gebouwd. Open vragen beantwoord op 2026-10-30.
+Issue: [fonteijne/openwork#7](https://github.com/fonteijne/openwork/issues/7) · Stand: gebouwd op 2026-10-30 (zie "Wat er afwijkt van het plan" onderaan).
 
 ## Doel
 
@@ -104,16 +104,16 @@ De drie toestanden van de lijst:
 
 - **Schakelaar aan → `setAllowed(null)`**, zoals nu. Alle vinkjes staan aan en zijn vergrendeld. Ook modellen die de key later krijgt, doen mee.
 - **Schakelaar uit → `setAllowed([])`** in plaats van alle id's: alles uitgevinkt.
-- **Knop "Voorkeursmodellen aanzetten"**: een `quiet`-knop rechts in een rij onder de schakelaar. Alleen zichtbaar als de schakelaar uit staat (P3).
+- **Knop "Voorkeursmodellen aanzetten"**: een `secondary`-knop rechts in een rij onder de schakelaar. Het label van die rij toont de stand ("5 van 9 modellen aan", P1). Alleen zichtbaar als de schakelaar uit staat (P3).
   - Klikken → `setAllowed(preferredIn(status))`. Dat **vervangt** de selectie: de vijf voorkeursmodellen gaan aan, alle andere uit.
-  - Uitgeschakeld met een tooltip "Deze key biedt geen voorkeursmodellen" als de key er geen van biedt (P4). Biedt de key er maar een paar, dan gaan alleen die aan.
+  - Uitgeschakeld als de key er geen van biedt, met onder het label `Locked` "Deze key biedt geen voorkeursmodellen" (P4, C5). Een tooltip werkt niet op een uitgeschakelde knop. Biedt de key er maar een paar, dan gaan alleen die aan.
   - Na het klikken een toast "Voorkeursmodellen aangezet" (C2).
 - Er komt geen knop "Alles uitvinken" en geen knop "Alles aanvinken" (V5, V6). Opnieuw beginnen gaat via schakelaar aan en weer uit.
 - Het vinkje mag nu ook het laatste model uitzetten: de guard `if (next.length)` gaat weg.
-- **Lege selectie** (`allowed` is `[]` of de doorsnede is leeg): onder de lijst één regel in neutrale inkt, "Nog geen model gekozen. Vink minstens één model aan om te chatten." (C5/C6, geen rood).
+- **Lege selectie** (`allowed` is `[]` of de doorsnede is leeg): de rij met de knop heet dan "Geen model aan", met als hint "Vink minstens één model aan om te chatten" (C5/C6, neutrale inkt, geen rood).
 - **Voorkeursmodellen herkenbaar maken:** een klein label "Voorkeur" rechts naast de naam (neutrale token, geen kleuraccent). Het model-id blijft verborgen op smalle schermen, zoals nu. De volgorde van de lijst blijft die van de key, zodat er niets verspringt.
 - De `Select` voor het standaardmodel blijft filteren op de gekozen modellen. Als het huidige standaardmodel wegvalt, toont de select "Eerste beschikbare model" (bestaand gedrag van `startModel`).
-- Copy in `copy.ts` (`settings`): `allowedPreferred` ("Voorkeursmodellen aanzetten"), `allowedPreferredUnavailable`, `allowedPreferredDone`, `allowedEmpty`, `preferredBadge`.
+- Copy in `copy.ts` (`settings`): `allowedCount`, `allowedNone`, `allowedNoneHint`, `allowedPreferred` ("Voorkeursmodellen aanzetten"), `allowedPreferredDone`, `allowedPreferredUnavailable`, `preferredBadge`.
 
 ### 6. Nieuw project (`features/projects/new-project-dialog.tsx`)
 
@@ -155,3 +155,13 @@ De drie toestanden van de lijst:
 
 | V5 | Is een knop "Alles aanvinken" nodig? | Nee. Schakelaar aan zet alles aan en vergrendelt de vinkjes. |
 | V6 | Hoe werken schakelaar en knop samen? | Aan: alles aan en vergrendeld. Uit: alles uit, met de hand aan te vinken. "Voorkeursmodellen aanzetten": alleen de vijf aan. Geen knop "Alles uitvinken". |
+
+## Wat er afwijkt van het plan
+
+- **Rij met de knop**: de lege-selectie-melding staat niet onder de lijst. Ze staat in de rij met de knop: als label ("Geen model aan") met een hint. Bij een keuze toont het label de stand ("5 van 9 modellen aan").
+- **Geen tooltip**: de reden waarom de knop uit staat, staat als `Locked`-hint in de rij.
+- **Geblokkeerde staat**: `KeyBlocked`, `ModelsBlocked` en `chatBlocked` staan in `features/chat/blocked.tsx`, zodat de routine-editor niet het hele chatscherm laadt.
+- **Composer**: als de key wel modellen heeft maar er geen aan staat, toont de modelkeuze "Geen model aan" in plaats van "Geen modellen beschikbaar voor deze key".
+- **Standaardmodel-select**: staat het standaardmodel van het project uit, dan toont de select "Eerste beschikbare model" in plaats van het kale model-id.
+- **Demo**: de demo-opslag gaat naar versie 4, zodat de nieuwe modellen ook verschijnen voor wie de demo al eerder opende.
+

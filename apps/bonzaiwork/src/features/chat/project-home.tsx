@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { KeyRound, PanelRight } from "lucide-react";
+import { PanelRight } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { projectHasKey, startModel, useComposerEntries, useStatus } from "~/backend/queries";
+import { startModel, useComposerEntries, useStatus } from "~/backend/queries";
 import type { Project } from "~/backend/types";
 import { ProjectIcon } from "~/components/project-icon";
 import { PageTitle, TopBar } from "~/components/top-bar";
@@ -19,25 +19,8 @@ import { useMediaQuery, WIDE } from "~/lib/use-media";
 import { useProjectState, useRuntime } from "../project/runtime";
 import { FOCUS_COMPOSER_EVENT } from "../shell/sidebar";
 import { useUi } from "../shell/ui-store";
+import { chatBlocked } from "./blocked";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
-
-/** C5: blocked is not an error. Neutral, with what to do and where. */
-export function KeyBlocked(props: { projectId: string }) {
-  const status = useStatus();
-  const userMode = status.data?.keyMode === "user";
-  return (
-    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-      <KeyRound className="size-4 shrink-0" />
-      <span>{userMode ? copy.keys.userMissing : copy.keys.projectMissing}</span>
-      <a
-        className="font-medium text-foreground underline underline-offset-2"
-        href={userMode ? href({ name: "settings" }) : href({ name: "project-settings", projectId: props.projectId, section: "key" })}
-      >
-        {copy.keys.link}
-      </a>
-    </span>
-  );
-}
 
 function suggestionsFor(project: Project): string[] {
   return [
@@ -63,7 +46,7 @@ export function ProjectHome(props: { project: Project }) {
   const [agent, setAgent] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const { project } = props;
-  const hasKey = projectHasKey(status.data, project);
+  const blocked = chatBlocked(status.data, project);
   const effectiveModel = model ?? startModel(status.data, project);
 
   useEffect(() => {
@@ -126,7 +109,7 @@ export function ProjectHome(props: { project: Project }) {
             onAgentChange={setAgent}
             onSubmit={submit}
             onStop={() => {}}
-            blocked={hasKey ? undefined : <KeyBlocked projectId={project.id} />}
+            blocked={blocked}
             autoFocus
             size="large"
             keepUntilSent
@@ -136,7 +119,7 @@ export function ProjectHome(props: { project: Project }) {
               {copy.chat.starting}
             </p>
           ) : null}
-          {hasKey ? (
+          {!blocked ? (
             <div className="mt-4 flex flex-wrap justify-center gap-2" aria-label={copy.chat.suggestions}>
               {commands.map((command) => (
                 <Button key={command.name} variant="secondary" size="sm" className="rounded-full" onClick={() => composer.current?.setText(`/${command.name}`)}>

@@ -253,6 +253,7 @@ Voorstel: één pagina met secties of tabs. Volg DESIGN.md S2 (compacte rijen: l
 | **Key & modellen:** gekoppelde key (hint), vervangen, ontkoppelen | ✅ | `PUT` / `DELETE /bonzaiwork/keys/workspace/:id` (host). Gebruik het `secret-input`-patroon. |
 | Key & modellen: beschikbare modellen voor deze key, verversen | 🟡 | `GET /bonzaiwork/status` → `models`, `POST /bonzaiwork/models/refresh`. **Nu één lijst voor alle keys samen**; per project filteren is 🔨 (§7.1). |
 | Key & modellen: standaardmodel | ✅ | `GET/PUT /workspace/:id/default-model` |
+| Key & modellen: voorkeursmodellen (schakelaar uit → alles uit; knop "Voorkeursmodellen aanzetten"; nieuwe projecten starten ermee) | ✅ | `GET /bonzaiwork/status` → `preferredModels` (ingebakken, `BONZAIWORK_PREFERRED_MODELS`); keuze in `allowedModels` (§7.1) |
 | Key & modellen: budget en verbruik van de key | 🔨 | §7.3 (budget beheren blijft in LiteLLM; de app toont het) |
 | **Instructies:** vaste instructies voor de agent in dit project | 🟡 | `AGENTS.md` in de projectmap lezen/schrijven (`/workspace/:id/files/content`). **[VERIFIEER]** dat v2 `AGENTS.md` in de workspace-root laadt. Een eigen veld los van de map is 🔨. |
 | **Skills:** lijst, openen, aanmaken/bewerken, verwijderen | ✅ | `GET /workspace/:id/skills`, `GET .../skills/:name`, `POST .../skills` (aanmaken/bijwerken), verwijderen |
@@ -351,7 +352,7 @@ type ProjectMeta = {
   pinnedChatIds: string[];
   archivedChatIds: string[];
   chatNotes: Record<string, string>;
-  allowedModels: string[] | null; // null = alle modellen van de key
+  allowedModels: string[] | null; // null = alle modellen van de key; [] = nog geen model gekozen
 };
 ```
 

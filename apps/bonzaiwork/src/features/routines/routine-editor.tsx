@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, projectModels, useProjects, useStatus } from "~/backend/queries";
+import { hasNoModels, keys, projectModels, useProjects, useStatus } from "~/backend/queries";
 import type { Routine, RoutineSchedule } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Field, Input, Textarea } from "~/components/ui/field";
@@ -14,6 +14,8 @@ import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatDateTime } from "~/lib/format";
 import { dayShort, describeSchedule, localTimezone, nextOccurrences, WEEK_ORDER, WEEKDAYS } from "~/lib/schedule";
+
+import { ModelsBlocked } from "../chat/blocked";
 
 type Kind = RoutineSchedule["kind"];
 
@@ -305,7 +307,11 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
         </div>
         <Field label={copy.routines.prompt}>{(id) => <Textarea id={id} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={copy.routines.promptPlaceholder} rows={4} />}</Field>
         <Field label={copy.routines.model} className="sm:max-w-sm">
-          {(id) => (
+          {(id) => project && hasNoModels(status.data, project) ? (
+            <div id={id} className="text-sm">
+              <ModelsBlocked projectId={project.id} />
+            </div>
+          ) : (
             <Select
               id={id}
               label={copy.routines.model}

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Download, Ellipsis, FileText, FolderOpen, LogOut, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, modelName, projectHasKey, useProject, useStatus, useUsage } from "~/backend/queries";
+import { keys, modelName, preferredIn, projectHasKey, useProject, useStatus, useUsage } from "~/backend/queries";
 import { PROJECT_COLORS, PROJECT_ICONS, type Command, type Connection, type NewConnectionInput, type Project, type RunMode, type Skill } from "~/backend/types";
 import { PromptDialog } from "~/components/prompt-dialog";
 import { PROJECT_ICON_COMPONENTS, ProjectIcon } from "~/components/project-icon";
@@ -251,15 +251,18 @@ function KeySection(props: { project: Project }) {
   const userMode = status.data?.keyMode === "user";
   const models = status.data?.models ?? [];
   const allowed = project.allowedModels;
+  const preferred = preferredIn(status.data);
+  const preferredSet = new Set(status.data?.preferredModels);
+  const chosen = allowed === null ? models.length : models.filter((model) => allowed.includes(model.id)).length;
 
   const afterKeyChange = async () => {
     await Promise.all([client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.status })]);
   };
-  const setAllowed = (next: string[] | null) =>
+  const setAllowed = (next: string[] | null, success?: string) =>
     attempt(async () => {
       await backend.projects.update(project.id, { allowedModels: next });
       await client.invalidateQueries({ queryKey: keys.projects });
-    });
+    }, success);
 
   return (
     <div className="flex flex-col gap-10">
@@ -322,7 +325,7 @@ function KeySection(props: { project: Project }) {
           action={
             <Select
               label={copy.settings.defaultModel}
-              value={project.defaultModel ?? "__first"}
+              value={project.defaultModel && (!allowed || allowed.includes(project.defaultModel)) ? project.defaultModel : "__first"}
               onValueChange={(value) =>
                 void attempt(async () => {
                   await backend.projects.setDefaultModel(project.id, value === "__first" ? null : value);
@@ -334,7 +337,18 @@ function KeySection(props: { project: Project }) {
             />
           }
         />
-        <Row label={copy.settings.allowedAll} action={<Switch checked={allowed === null} onCheckedChange={(checked) => void setAllowed(checked ? null : models.map((model) => model.id))} label={copy.settings.allowedAll} />} />
+        <Row label={copy.settings.allowedAll} action={<Switch checked={allowed === null} onCheckedChange={(checked) => void setAllowed(checked ? null : [])} label={copy.settings.allowedAll} />} />
+        {allowed !== null && models.length > 0 ? (
+          <Row
+            label={chosen ? copy.settings.allowedCount(chosen, models.length) : copy.settings.allowedNone}
+            hint={preferred.length === 0 ? <Locked>{copy.settings.allowedPreferredUnavailable}</Locked> : chosen ? undefined : copy.settings.allowedNoneHint}
+            action={
+              <Button variant="secondary" size="sm" disabled={preferred.length === 0} onClick={() => void setAllowed(preferred, copy.settings.allowedPreferredDone)}>
+                {copy.settings.allowedPreferred}
+              </Button>
+            }
+          />
+        ) : null}
         {models.length === 0 ? (
           <p className="py-3 text-sm text-muted-foreground">{copy.settings.modelsEmpty}</p>
         ) : (
@@ -348,10 +362,13 @@ function KeySection(props: { project: Project }) {
                 onChange={(event) => {
                   const current = allowed ?? models.map((entry) => entry.id);
                   const next = event.target.checked ? [...current, model.id] : current.filter((id) => id !== model.id);
-                  if (next.length) void setAllowed(next);
+                  void setAllowed(next);
                 }}
               />
-              <span className="flex-1 text-sm">{model.name}</span>
+              <span className="flex flex-1 items-center gap-2 text-sm">
+                {model.name}
+                {preferredSet.has(model.id) ? <span className="rounded-full bg-muted px-2 py-px text-xs text-muted-foreground">{copy.settings.preferredBadge}</span> : null}
+              </span>
               <span className="font-mono text-xs text-subtle-foreground max-sm:hidden">{model.id}</span>
             </label>
           ))

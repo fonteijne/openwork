@@ -10,6 +10,7 @@ Stand: upstream `dev` op `2aa4481` (`v0.18.63` + upstream `dev` t/m #6620), geme
 
 | # | Beslissing | Bron |
 |---|---|---|
+| M1 | **Voorkeursmodellen** (`gpt-6-luna`, `glm-5`, `glm-4.7-flash`, `qwen3.8-27b`, `gemini-3.8-flash`) zitten in de build: `PREFERRED_MODEL_IDS` in `@bonzaiwork/policy`, te overschrijven met `BONZAIWORK_PREFERRED_MODELS` (komma-gescheiden). Nieuwe projecten starten met alleen deze modellen. Zie [`plan-voorkeursmodellen.md`](./plan-voorkeursmodellen.md). | gebruiker (fonteijne/openwork#7) |
 | O4 | App-naam **BonzaiWork**, mapnaam/prefix `bonzaiwork` (zoals `openwork`). `appId` voorlopig `nl.bonzaiwork.desktop`; signing en updater-host staan nog open. | gebruiker / voorlopig |
 | O3 | De LiteLLM-URL wordt **in de build ingebakken** (`BONZAIWORK_LITELLM_BASE_URL` bij het bouwen). Onboarding vraagt alleen de key. | gebruiker |
 | O2 | Transcriptie loopt **via een Whisper-model in LiteLLM** (`/v1/audio/transcriptions`). Whisper doet geen diarization: de splitsing "ik versus de anderen" komt uit de aparte sporen (mic en systeemaudio). Echte sprekerherkenning vraagt een model met diarization achter LiteLLM of een aparte stap. De proxyroute stuurt `audio/transcriptions` al door. | gebruiker |

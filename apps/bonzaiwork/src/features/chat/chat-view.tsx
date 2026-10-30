@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowDown, ChevronLeft, Ellipsis, PanelRight, RotateCcw, WifiOff } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { projectHasKey, startModel, useStatus } from "~/backend/queries";
+import { startModel, useStatus } from "~/backend/queries";
 import type { ChatError, Message, Project } from "~/backend/types";
 import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
@@ -19,11 +19,11 @@ import { useMediaQuery, WIDE } from "~/lib/use-media";
 import { useProjectState, useRuntime } from "../project/runtime";
 import { isOptimistic } from "../project/store";
 import { useUi } from "../shell/ui-store";
+import { chatBlocked } from "./blocked";
 import { ChatActions } from "./chat-actions";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
 import { AssistantTurn, UserMessage, type TurnActions } from "./message-view";
-import { KeyBlocked } from "./project-home";
 
 type Item = { kind: "user"; message: Message } | { kind: "turn"; key: string; messages: Message[] };
 
@@ -80,7 +80,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
   const lastItem = items.at(-1);
   const liveTurn = running && lastItem?.kind === "turn" ? lastItem.key : null;
   const awaitingFirstStep = running && lastItem?.kind === "user";
-  const hasKey = projectHasKey(status.data, project);
+  const blocked = chatBlocked(status.data, project);
   const model = modelOverride ?? chat?.model ?? startModel(status.data, project);
 
   // Follow the answer while it streams, unless the person scrolled up to read.
@@ -374,7 +374,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
               onAgentChange={setAgent}
               onSubmit={send}
               onStop={stop}
-              blocked={hasKey ? undefined : <KeyBlocked projectId={project.id} />}
+              blocked={blocked}
               decisionPending={Boolean(permission ?? question)}
               autoFocus
             />
