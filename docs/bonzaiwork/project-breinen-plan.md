@@ -88,9 +88,12 @@ GitHub en GitLab (ook een eigen GitLab-server). Iedereen heeft al een SSH-sleute
   `%WINDIR%\System32\OpenSSH\ssh.exe`, Linux `ssh`), zodat precies dezelfde sleutels, `~/.ssh/config` en
   ssh-agent (inclusief de macOS-sleutelhanger) gebruikt worden als in de terminal. Altijd met
   `-o BatchMode=yes`: nooit een vraag waar niemand op kan antwoorden.
+- **Alleen SSH, in alle fases**: clone, fetch en push gaan altijd via SSH met de sleutels die al op de
+  laptop staan. Geen HTTPS, geen toegangstokens, geen inloggen via de browser; de app vraagt en bewaart
+  nooit een wachtwoord of token voor git.
 - **Links**: de gebruiker mag de link uit de browser plakken (`https://gitlab.com/team/brein`); de app
-  maakt daar `git@gitlab.com:team/brein.git` van. Ook `git@…` en `ssh://…` werken. HTTPS-clones doen we
-  niet.
+  zet die alleen om naar `git@gitlab.com:team/brein.git` en maakt nooit een HTTPS-verbinding. Ook `git@…`
+  en `ssh://…` werken.
 - **Host-sleutels**: de gepubliceerde sleutels van `github.com` en `gitlab.com` gaan mee in de app (eigen
   `known_hosts`, naast die van de gebruiker). Een onbekende host (eigen GitLab) toont bij het toevoegen de
   vingerafdruk en vraagt één keer bevestiging; daarna staat hij in de `known_hosts` van BonzaiWork.
