@@ -49,6 +49,8 @@ export type BrainsHost = {
   setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
   /** OPENCODE_CONFIG_DIR: the global instructions; closed to the ordinary tools like a brain. */
   engineConfigDirectory?: string;
+  /** Rebuilds the engine's loaded folders with the current config and registers their MCPs again. */
+  reloadEngineFolders?(): Promise<void>;
   /** A call to a workspace's engine through the server's own proxy (downstream-hooks.ts). */
   engineRequest?(workspaceId: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   log: Log;
@@ -172,6 +174,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   /** The closed folders the open engine folders were built with; null until the first write. */
   let appliedFolders: string | null = null;
   let folderReloadTimer: ReturnType<typeof setInterval> | null = null;
+  let reloading: Promise<void> | null = null;
   let readsTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -179,22 +182,46 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
    * change (a brain added or removed), the loaded folders are rebuilt with
    * `/api/location/reload`, but only when no chat runs: the rebuild cancels open questions.
    */
-  async function reloadFoldersWhenQuiet(): Promise<void> {
-    if (!host?.engineRequest || appliedFolders === JSON.stringify(closedFolders())) return;
-    const workspaces = host.workspaces();
-    for (const workspace of workspaces) {
-      const running = await host.runningSessions(workspace.id);
-      if (running === null || running.length) return;
-    }
-    const target = workspaces[0];
-    if (!target) return;
-    const wanted = JSON.stringify(closedFolders());
-    const reloaded = await host.engineRequest(target.id, "POST", "/api/location/reload").catch(() => null);
-    if (reloaded && reloaded.status < 300) {
+  /** Rebuilds when the closed folders changed and no chat runs except `except` (the turn about to start). */
+  function reloadFoldersWhenQuiet(except: string | null = null): Promise<void> {
+    if (reloading) return reloading;
+    if (!host?.reloadEngineFolders || appliedFolders === JSON.stringify(closedFolders())) return Promise.resolve();
+    const current = host;
+    const run = (async () => {
+      for (const workspace of current.workspaces()) {
+        const running = await current.runningSessions(workspace.id);
+        if (running === null || running.some((id) => id !== except)) return;
+      }
+      const wanted = JSON.stringify(closedFolders());
+      await current.reloadEngineFolders?.();
       appliedFolders = wanted;
+      await brainToolsBack(current);
       log("info", "engine folders rebuilt for the closed brain folders", {});
-    }
+    })().catch((error: unknown) => log("warn", "engine folders not rebuilt", { error: String(error) }))
+      .finally(() => { reloading = null; });
+    reloading = run;
+    return run;
   }
+
+  /** After a rebuild: the brain tools are connected again in every folder (at most ~10 s). */
+  async function brainToolsBack(current: BrainsHost): Promise<void> {
+    if (!current.engineRequest) return;
+    const deadline = Date.now() + 10_000;
+    await Promise.all(current.workspaces().map(async (workspace) => {
+      while (Date.now() < deadline) {
+        const listed = await current.engineRequest?.(workspace.id, "GET", "/api/mcp").catch(() => null);
+        const body: unknown = listed?.body;
+        const data: unknown = typeof body === "object" && body !== null && !Array.isArray(body) ? Reflect.get(body, "data") : body;
+        const entries: unknown[] = Array.isArray(data) ? data : [];
+        const connected = entries.some((entry) => typeof entry === "object" && entry !== null && Reflect.get(entry, "name") === "breinen"
+          && JSON.stringify(Reflect.get(entry, "status") ?? null).includes('"connected"'));
+        if (connected) return;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }));
+  }
+
+
   let stopActivity: (() => void) | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let fetchTimer: ReturnType<typeof setInterval> | null = null;
@@ -680,11 +707,13 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   /** UserPromptSubmit (plan §2): waits at most ~5 s, then the turn goes on. */
   async function pull(request: Request, workspaceId: string): Promise<Response> {
+    const body = (await readBody(request)) ?? {};
+    const sessionId = text(body, "sessionId");
+    // A rebuild of the engine folders happens between turns, never into one: this turn waits for it.
+    await reloadFoldersWhenQuiet(sessionId);
     const sync = known(workspaceId);
     const own = personal();
     if (!sync && !own) return notABrain();
-    const body = (await readBody(request)) ?? {};
-    const sessionId = text(body, "sessionId");
     const others = (await host?.runningSessions(workspaceId))?.filter((id) => id !== sessionId) ?? [];
     // Never update while another chat in this project runs (plan §4.2); fetching is fine.
     const work = sync ? (others.length ? sync.fetchOnly() : sync.prepareTurn()) : Promise.resolve(null);

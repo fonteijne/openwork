@@ -23,7 +23,7 @@ is regenerated with `pnpm install`, never merged by hand.
 
 | Bestand | Reden | Soort | Upstream-PR | Sinds |
 |---|---|---|---|---|
-| `apps/server/src/downstream-hooks.ts` | Het aanhaakpunt zelf: types, loader, routes, gate en engine-policies, plus host-methodes voor sessie-activiteit, MCP-entries en de globale instructies/skills van de engine, en engine-toestemmingsregels van de hooks, `engineRequest` (een chat starten of een vraag beantwoorden via de eigen `/workspace/:id/opencode2`-proxy) en de config-map van de engine. Bevat geen BonzaiWork-logica | nieuw | – (kandidaat, samen met de drie hooks hierboven) | 20ddd4b |
+| `apps/server/src/downstream-hooks.ts` | Het aanhaakpunt zelf: types, loader, routes, gate en engine-policies, plus host-methodes voor sessie-activiteit, MCP-entries en de globale instructies/skills van de engine, en engine-toestemmingsregels van de hooks, `engineRequest` (een chat starten of een vraag beantwoorden via de eigen `/workspace/:id/opencode2`-proxy) de config-map van de engine, en `reloadEngineFolders` (geladen mappen herbouwen en de MCP's opnieuw registreren). Bevat geen BonzaiWork-logica | nieuw | – (kandidaat, samen met de drie hooks hierboven) | 20ddd4b |
 | `apps/server/test/downstream-hooks.test.ts` | Tests van het aanhaakpunt | nieuw | – | 20ddd4b |
 | `.github/ISSUE_TEMPLATE/bonzaiwork-bug.yml` | Issue-formulier voor "Feedback sturen" (fout), velden die de app via de URL invult (#9) | nieuw | – (alleen BonzaiWork) | 2aa4481 |
 | `.github/ISSUE_TEMPLATE/bonzaiwork-idee.yml` | Issue-formulier voor "Feedback sturen" (idee) (#9) | nieuw | – (alleen BonzaiWork) | 2aa4481 |

@@ -1050,7 +1050,9 @@ Stand fase 2 (bezig):
   absolute pad (op Windows met beide scheidingstekens). Een map die de engine al open had, houdt de
   policies waarmee hij werd gebouwd (gemeten): verandert de lijst, dan bouwt BonzaiWork de geladen mappen
   opnieuw met `POST /api/location/reload`, maar pas als geen chat loopt (die herbouw annuleert open
-  vragen). e2e: lezen en schrijven in Sales vanuit Mijn brein geblokkeerd, een chat in Sales zelf leest
+  vragen). De herbouw laat ook de MCP-verbindingen vallen die OpenWork per map registreerde; de host
+  registreert ze meteen opnieuw (`syncWorkspaceMcp`), en de pull vóór een beurt wacht op een herbouw tot de
+  breinen-tools weer verbonden zijn, zodat geen beurt zonder tools start. e2e: lezen en schrijven in Sales vanuit Mijn brein geblokkeerd, een chat in Sales zelf leest
   gewoon (ook met het volle pad), en Mijn brein is ook vanuit Sales dicht na de herbouw.
 - **"Breinen die dit project zonder vragen mag raadplegen"** (Projectinstellingen → Brein → Andere
   breinen, voor elk project): in `brains.json` per project. De server beantwoordt de vraag voor die breinen

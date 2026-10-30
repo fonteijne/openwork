@@ -83,6 +83,11 @@ export type DownstreamServerHost = {
   setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
   /** The engine's own config folder (OPENCODE_CONFIG_DIR), where the global instructions live. */
   engineConfigDirectory: string;
+  /**
+   * Rebuilds every folder the engine has loaded with the current config (new policies reach open
+   * folders), then registers OpenWork's MCP connections again. Pending questions are cancelled.
+   */
+  reloadEngineFolders(): Promise<void>;
   log(level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>): void;
 };
 
@@ -198,7 +203,12 @@ export function addDownstreamRoutes(routes: Route[]): void {
 export type DownstreamStartInput = {
   config: ServerConfig;
   port: number;
-  engine: { connection(): { url: string; password: string } | undefined; refreshProviders(): Promise<unknown> };
+  engine: {
+    connection(): { url: string; password: string } | undefined;
+    refreshProviders(): Promise<unknown>;
+    /** Registers a folder's MCP connections again; the engine forgets them when it rebuilds a folder. */
+    syncWorkspaceMcp?(workspaceId: string, directory: string): Promise<void>;
+  };
   markReloadPending(): void;
   logger: { log(level: "info" | "warn" | "error", message: string, attributes?: Record<string, unknown>): void };
 };
@@ -439,6 +449,18 @@ export async function startDownstreamServerHooks(input: DownstreamStartInput): P
       return changed;
     },
     engineConfigDirectory: engineConfigDirectory(config),
+    reloadEngineFolders: async () => {
+      const connection = engine.connection();
+      if (!connection) throw new Error("The engine is not running");
+      const response = await loopbackFetch(new URL("/api/location/reload", connection.url).toString(), {
+        method: "POST", headers: { authorization: engineAuthorization(connection) }, signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) throw new Error(`Engine returned HTTP ${response.status}`);
+      // The rebuild drops the MCP connections OpenWork registered per folder; the upkeep would only
+      // notice within its health interval, so a chat in between would miss tools.
+      await Promise.all(localWorkspaces().map((workspace) => engine.syncWorkspaceMcp?.(workspace.id, workspace.path)
+        .catch((error: unknown) => log("warn", "MCP not registered again after a folder rebuild", { workspace: workspace.id, error: error instanceof Error ? error.message : String(error) }))));
+    },
     setEngineGlobalContext: async ({ instructions, skillsDirectory }) => {
       const directory = engineConfigDirectory(config);
       await mkdir(directory, { recursive: true, mode: 0o700 });
