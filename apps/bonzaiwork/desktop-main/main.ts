@@ -2,9 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { registerDiagnosticsSource } from "@bonzaiwork/feedback";
 import { SERVER_ENVIRONMENT_DEFAULTS } from "@bonzaiwork/policy";
 import { registerKeyStore } from "@bonzaiwork/litellm/keys";
 
+import { ElectronDiagnosticsSource } from "./diagnostics-source";
 import { SafeStorageKeyStore } from "./safe-storage-key-store";
 
 /**
@@ -15,7 +17,8 @@ import { SafeStorageKeyStore } from "./safe-storage-key-store";
  *  - settings baked into the build (LiteLLM URL, default model, key mode);
  *  - OpenWork's hosted and free models off;
  *  - the openwork-server hooks module that installs the LiteLLM-only policy;
- *  - the OS-keychain key store, registered before the in-process server starts.
+ *  - the OS-keychain key store, registered before the in-process server starts;
+ *  - the window, logs and Downloads folder for feedback reports.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -49,6 +52,7 @@ for (const [name, value] of Object.entries(environment)) {
 }
 
 registerKeyStore(new SafeStorageKeyStore());
+registerDiagnosticsSource(new ElectronDiagnosticsSource());
 
 // Packaged: <asar>/bonzaiwork/main.mjs next to <asar>/electron/main.mjs.
 // Development: apps/bonzaiwork/dist-electron/main.mjs.

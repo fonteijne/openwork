@@ -1190,6 +1190,19 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       async revealPath() {
         // No file system in the browser.
       },
+      async openUrl(url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      },
+    },
+
+    feedback: {
+      // No window to capture and no logs in the browser: the dialog only opens GitHub.
+      async collect() {
+        return null;
+      },
+      async save() {
+        throw new BackendError("unsupported", "In de demo worden geen bestanden opgeslagen.", 501);
+      },
     },
   };
 

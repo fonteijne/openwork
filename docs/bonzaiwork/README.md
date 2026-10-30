@@ -24,6 +24,7 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
   scripts/package.mjs            verpakken; smoke-packaged.mjs: smoketest van de verpakte app
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
+packages/bonzaiwork-feedback/    "Feedback sturen": screenshot, opgeschoonde logs, opslaan in Downloads (feedback.md)
 apps/server/src/downstream-hooks.ts   het aanhaakpunt in de server (nieuw bestand)
 apps/desktop/electron-builder.bonzaiwork.mjs   builder-config (nieuw bestand)
 PATCHES.md, bonzaiwork.upstream.json, scripts/bonzaiwork/check-patches.mjs

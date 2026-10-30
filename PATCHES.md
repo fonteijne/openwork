@@ -25,3 +25,5 @@ is regenerated with `pnpm install`, never merged by hand.
 |---|---|---|---|---|
 | `apps/server/src/downstream-hooks.ts` | Het aanhaakpunt zelf: types, loader, routes, gate en engine-policies. Bevat geen BonzaiWork-logica | nieuw | – (kandidaat, samen met de drie hooks hierboven) | 20ddd4b |
 | `apps/server/test/downstream-hooks.test.ts` | Tests van het aanhaakpunt | nieuw | – | 20ddd4b |
+| `.github/ISSUE_TEMPLATE/bonzaiwork-bug.yml` | Issue-formulier voor "Feedback sturen" (fout), velden die de app via de URL invult (#9) | nieuw | – (alleen BonzaiWork) | 2aa4481 |
+| `.github/ISSUE_TEMPLATE/bonzaiwork-idee.yml` | Issue-formulier voor "Feedback sturen" (idee) (#9) | nieuw | – (alleen BonzaiWork) | 2aa4481 |

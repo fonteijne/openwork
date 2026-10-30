@@ -15,6 +15,7 @@ import { useUi } from "./ui-store";
 
 const CommandPalette = lazy(() => import("./command-palette").then((module) => ({ default: module.CommandPalette })));
 const NewProjectDialog = lazy(() => import("../projects/new-project-dialog").then((module) => ({ default: module.NewProjectDialog })));
+const FeedbackDialog = lazy(() => import("../feedback/feedback-dialog").then((module) => ({ default: module.FeedbackDialog })));
 
 const NO_ENGINE: NonNullable<Backend["engine"]> = { current: () => "ready", subscribe: () => () => undefined, error: () => null, retry: () => undefined };
 
@@ -52,6 +53,9 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
   const setNewProject = useUi((state) => state.setNewProject);
   const setSidecarSheet = useUi((state) => state.setSidecarSheet);
   const newProjectOpened = useOpenedOnce(newProjectOpen);
+  const feedbackOpen = useUi((state) => state.feedbackOpen);
+  const setFeedback = useUi((state) => state.setFeedback);
+  const feedbackOpened = useOpenedOnce(feedbackOpen);
   const routeKey = JSON.stringify(props.route);
 
   // Navigating closes the drawer and the sidecar sheet.
@@ -94,6 +98,11 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
       {newProjectOpened ? (
         <Suspense fallback={null}>
           <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProject} />
+        </Suspense>
+      ) : null}
+      {feedbackOpened ? (
+        <Suspense fallback={null}>
+          <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedback} />
         </Suspense>
       ) : null}
     </div>

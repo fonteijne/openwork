@@ -20,7 +20,7 @@ import {
   type EngineState,
 } from "../types";
 
-import { hasDesktopBridge, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
+import { hasDesktopBridge, openExternal, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
 import { engine, createTranslator, followEvents, PROVIDER_ID, type EngineTarget, type NativeSession } from "./engine";
 import { enc, probe, request, type Connection } from "./http";
 import { deviceMetaStore, EMPTY_META, serverMetaStore, type MetaStore, type ProjectMeta } from "./meta";
@@ -868,6 +868,27 @@ export async function createLiveBackend(): Promise<Backend> {
     desktop: {
       pickFolder: () => pickDirectory("Map voor dit project"),
       revealPath: (path) => revealItem(path),
+      openUrl: (url) => openExternal(url),
+    },
+
+    feedback: {
+      async collect(notes) {
+        try {
+          const report = await req("/bonzaiwork/feedback/collect", { method: "POST", body: { notes } });
+          const id = str(report, "id");
+          return id ? { id, system: str(report, "system") ?? null, logs: str(report, "logs") ?? "", screenshot: str(report, "screenshot") ?? null } : null;
+        } catch (failure) {
+          // A server without the feedback routes: GitHub still opens, without files.
+          if (failure instanceof BackendError && (failure.status === 404 || failure.status === 405)) return null;
+          throw failure;
+        }
+      },
+      async save(reportId, input) {
+        const saved = await req(`/bonzaiwork/feedback/${enc(reportId)}/save`, { method: "POST", body: { screenshot: input.screenshot } });
+        const folder = str(saved, "folder");
+        if (!folder) throw new BackendError("invalid_response", "De bestanden zijn niet opgeslagen.");
+        return folder;
+      },
     },
   };
 
