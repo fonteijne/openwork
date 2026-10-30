@@ -55,6 +55,7 @@ al in PATCHES als nieuw bestand), via wat de hooks nu al krijgen:
 | Persoonlijke instructies per beurt (§5.1) | waarschijnlijk | eigen instructie-entry per sessie via `engine.connection()` (§5.1) |
 | Globale `git`-deny en `.git/**`-deny (§7.4) | **onbekend** | toestemmingen lopen via de `permissions`-optie van `managed-opencode-v2.ts`, die `server.ts` vult; de hooks hebben daar geen ingang |
 | `ask`/`allow` per breinen-MCP-tool (§5.2) | **onbekend** | idem |
+| `deny` per pad: uitgesloten mappen en de persoonlijke instructiebestanden in "Mijn brein" (§5.1.1, §7.3) | **onbekend** | idem |
 | Niet-vertrouwde plugins en MCP's uit een brein uitzetten (§7.1) | **onbekend** | idem, of `experimental.policies` zoals voor providers |
 
 Voor de drie onbekende punten is de waarschijnlijke uitweg een uitbreiding van de bestaande hook in
@@ -141,8 +142,10 @@ Bijwerken vóór de beurt gaat via de UI: `chats.send` wacht op `POST /bonzaiwor
 
 1. **Nieuw project → Uit een gedeeld brein**: link plakken, eventueel "Verbinding testen". Naam en map
    vult de app voor (`~/BonzaiWork/<reponaam>`, via de bestaande `defaultFolder()`).
-2. `POST /bonzaiwork/brains/clone` clonet (ondiep, `--depth 50`, standaardbranch) en meldt voortgang.
-   Mislukt het, dan blijft er niets halfs achter.
+2. `POST /bonzaiwork/brains/clone` clonet de standaardbranch **volledig** (geen `--depth`) en meldt
+   voortgang. Een ondiepe clone wint niets bij een repo van Markdown, en geeft problemen bij rebasen, bij
+   de voorouder-controle van §7.4 en in de geschiedenis. Is de repo groter dan ~500 MB, dan waarschuwt de
+   app vóór het clonen. Mislukt het, dan blijft er niets halfs achter.
 3. **Vertrouwensstap** (§7.1): de app laat zien wat het brein meebrengt en vraagt bevestiging.
 4. De UI registreert de map als workspace via de bestaande `POST /workspaces/local`
    (`ensureWorkspaceFiles` schrijft niets in de map) en daarna `PUT /bonzaiwork/brains/:workspaceId`.
@@ -167,8 +170,15 @@ Een **bestaand project dat al een git-repo met SSH-remote is**, krijgt in de pro
 
 - Eén wachtrij en mutex per brein; nooit twee git-acties tegelijk in dezelfde map.
 - Pas als **alle** chats in het project stil zijn, plus 15 s rust (bundelt snelle vervolgvragen).
-- `git add -A` (respecteert `.gitignore` en `.git/info/exclude`), geheimenscan (§7.2), dan commit:
-  auteur = de gebruiker; bericht = `<chattitel>` + "Via BonzaiWork" + trailer `BonzaiWork-Chat: <id>`.
+- **Wat er meegaat** (N5): nieuwe en gewijzigde `.md`-bestanden (`git add -- '*.md'`), plus wijzigingen
+  en verwijderingen van bestanden die al gedeeld waren (`git add -u`, zodat bijv. een script in een skill
+  bijgewerkt kan worden). Een **nieuw** bestand dat geen Markdown is (een pptx die de AI maakte, een
+  afbeelding) gaat niet vanzelf mee: de statuspil zegt "2 bestanden niet gedeeld (geen Markdown)" met
+  "Toch delen". Alles respecteert `.gitignore` en `.git/info/exclude`. Dan de geheimenscan (§7.2).
+- **Twee commits als het moet**: wijzigingen van de AI in deze beurt (§6.5, "wie schreef wat") en
+  wijzigingen van de gebruiker zelf (bijv. in Obsidian tussen twee beurten) gaan in aparte commits. Auteur
+  is beide keren de gebruiker; alleen de AI-commit krijgt het bericht `<chattitel>` + "Via BonzaiWork" +
+  trailer `BonzaiWork-Chat: <id>`.
 - `push`. Geweigerd omdat iemand anders eerder was → `fetch` + `rebase` + opnieuw, max. 3 keer.
 - Offline of host onbereikbaar → commits blijven lokaal, status "3 wijzigingen nog niet gedeeld", opnieuw
   proberen met oplopende wachttijd en bij elk volgend moment uit §2.
@@ -212,7 +222,8 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
   - **Haal op uit een repo** (tweede laptop, of een privérepo die al bestaat): clone via SSH.
   - Later wisselen kan in de instellingen van "Mijn brein"; de oude map blijft dan gewoon staan.
 - **Altijd geschiedenis, synchroniseren is optioneel**: is het persoonlijke brein nog geen git-repo, dan
-  doet BonzaiWork `git init` **zonder origin**, puur om de geschiedenis bij te houden (§5.1.1, "Vangnet").
+  houdt BonzaiWork een git-geschiedenis **zonder origin** bij, met de git-map in de app-gegevens
+  (§5.1.1, "Vangnet").
   De status is dan "Alleen op deze laptop". Later koppelen aan een eigen privérepo via SSH is dan alleen
   een origin toevoegen en de bestaande geschiedenis versturen; daarna dezelfde sync als een projectbrein.
 - Het is ook een **gewoon project** ("Mijn brein", altijd bovenaan, niet te archiveren): daar chat je om
@@ -223,13 +234,22 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
      (`opencode-v2-instructions.ts`) laadt alleen bestanden binnen de workspace (`../` en paden buiten de
      `insideRoot`-check slaat hij over), en zijn 192 KiB is één budget voor álle geconfigureerde
      instructies samen, waarbij een te groot bestand stil wordt overgeslagen. Daarom een **eigen
-     instructie-entry**: vlak vóór elke beurt (in de `pull`-route die de UI toch al afwacht, en in de
-     routine-runner) zet de sync met `engine.connection()` de entry
-     `/api/experimental/session/:id/instructions/entries/bonzaiwork.personal`, op dezelfde manier als
-     `server.ts` zijn eigen entries per sessie zet. Fase 0, **ja/nee**: werkt een eigen entry-sleutel naast
-     die van de server, en erven sub-taken (child sessions) hem? Zo nee, dan is een hook in `server.ts`
-     nodig (patch). Boven de grens van N6 laat de app een waarschuwing zien in "Mijn brein" en stuurt hij
-     het bestand ingekort mee, nooit stil niets.
+     instructie-entry**, op dezelfde manier als `server.ts` (r. 1562) zijn eigen entries per sessie zet:
+     een `PUT` op `/api/experimental/session/:id/instructions/entries/bonzaiwork.personal` via
+     `engine.connection()`.
+     - **Wanneer**: in de `pull`-route die de UI vóór elke `chats.send` afwacht. Die route krijgt daarvoor
+       `{ sessionId }` mee (§8.1), want de entry is per sessie. Slash-commando's (`/verwerk`,
+       `/onderhoud`) gaan in de UI ook via `chats.send` (`engine.command`), dus die zijn gedekt. De
+       routine-runner doet hetzelfde vóór zijn prompt. Wat de UI níét ziet: beurten die de engine zelf
+       start, zoals sub-taken. `server.ts` (r. 1538) zet zijn entries vóór `prompt`, `command` én
+       `generate`; wij alleen waar de UI of de runner langskomt.
+     - **Los van het netwerk**: eerst het persoonlijke brein bijwerken (max. ~5 s), daarna de entry zetten,
+       **ook als bijwerken mislukte**, met de lokale versie. Wie offline is of een trage host heeft, krijgt
+       zo toch zijn voorkeuren.
+     - Fase 0, **ja/nee**: werkt een eigen entry-sleutel naast die van de server, zijn `command`-beurten
+       gedekt, en erven sub-taken (child sessions) de entry? Zo nee, dan een hook in `server.ts` (patch).
+     - Boven de grens van N6 laat de app een waarschuwing zien in "Mijn brein" en stuurt hij het bestand
+       ingekort mee, nooit stil niets.
      **Skills**: de engine draait met een eigen `OPENCODE_CONFIG_DIR` (`managed-opencode-v2.ts`), dus
      `~/.config/opencode` werkt niet. Fase 0 kiest tussen de globale skillspaden van die config-map
      vanuit de hooks naar het persoonlijke brein laten wijzen, of de skills via de breinen-MCP aanbieden.
@@ -263,18 +283,18 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
   In "Mijn brein → Geschiedenis": wat is er veranderd, vanuit welke chat, en **"Zet deze notitie terug"**
   of **"Draai deze beurt terug"**. Waar de git-map staat, hangt af van de map:
 
-  | Persoonlijk brein | Git-map | Waarom |
-  |---|---|---|
-  | Al een git-repo die BonzaiWork synchroniseert | die repo | geschiedenis is er al |
-  | Geen git-repo, **lokale map** (ook de nieuwe `~/BonzaiWork/Persoonlijk`) | `git init` **in de map, zonder origin** | één mechanisme met de projectbreinen; de geschiedenis verhuist mee met de map; later een privérepo koppelen = origin toevoegen en versturen |
-  | Map in **iCloud, OneDrive, Dropbox of Google Drive** | **buiten de map**: `userData/bonzaiwork/history/<id>.git` met de vault als werkmap (`GIT_DIR`/`GIT_WORK_TREE`, geen `.git` in de vault) | een `.git` die door cloud-sync gaat, raakt beschadigd (half gesynchroniseerde objecten, `index.lock`, "conflict"-kopieën), zeker met twee apparaten |
-  | Al een git-repo die **iets anders** synchroniseert (Obsidian Git-plugin) | ook **buiten de map**, zoals hierboven | twee programma's die in dezelfde repo committen, geven conflicten |
+  | Persoonlijk brein | Git-map |
+  |---|---|
+  | Al een git-repo die BonzaiWork mag synchroniseren | die repo (de geschiedenis is er al) |
+  | **Alle andere gevallen**: een lokale map (ook de nieuwe `~/BonzaiWork/Persoonlijk`), een map in iCloud, OneDrive, Dropbox, Google Drive of een andere sync, of een repo die iets anders synchroniseert (Obsidian Git) | **altijd buiten de map**: `userData/bonzaiwork/history/<id>.git` met de vault als werkmap (`GIT_DIR`/`GIT_WORK_TREE`; er komt geen `.git` in de vault) |
 
-  De code is in alle gevallen dezelfde git-laag; alleen de plek van de git-map verschilt. Cloudmappen
-  herkent de app aan hun pad (`~/Library/Mobile Documents`, `~/Library/CloudStorage/*`, de
-  OneDrive-/Dropbox-mappen uit hun eigen instellingen). In `.git/info/exclude` staat dat alleen
-  `.md`-bestanden meegaan (N5), zodat bijlagen de geschiedenis niet groot maken. Er gaat niets naar
-  buiten zolang er geen origin is.
+  Waarom altijd buiten de map, en niet `git init` erin: een `.git` die door cloud-sync gaat, raakt
+  beschadigd (half gesynchroniseerde objecten, `index.lock`, "conflict"-kopieën), en cloudmappen op hun
+  pad herkennen is te broos (eigen Dropbox-locaties, Nextcloud, Synology Drive, netwerkschijven). Eén regel
+  zonder herkenning is veiliger. Wat we inleveren: de geschiedenis verhuist niet vanzelf mee met de map.
+  Een privérepo koppelen blijft eenvoudig (origin toevoegen aan dezelfde git-map en versturen), en daarna
+  staat de geschiedenis ook op de host. De git-map bevat alleen `.md`-bestanden (N5), zodat bijlagen hem
+  niet groot maken. Er gaat niets naar buiten zolang er geen origin is.
 - **Niet tegelijk met de gebruiker schrijven**: `persoonlijk_brein_bewerken` geeft de versie mee die de AI
   las; is de notitie intussen veranderd (de collega typt in Obsidian, de cloud-sync haalde iets binnen),
   dan weigert de tool en leest de AI opnieuw. Zo overschrijft de AI nooit werk van de gebruiker.
@@ -287,10 +307,16 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
   andere bijlagen in de vault blijven onzichtbaar en onaangeroerd.
 - **Mappen uitsluiten**: bij het kiezen (en later in de instellingen) vinkt de gebruiker mappen uit die de
   AI nooit mag lezen of wijzigen, bijvoorbeeld `Dagboek/` of `Gezondheid/`. Altijd uit: `.obsidian/`,
-  `.trash/`, `.logseq/`, `.git/`.
+  `.trash/`, `.logseq/`, `.git/`. **Let op**: de breinen-MCP houdt zich hieraan, maar in het project
+  "Mijn brein" werkt de AI met de gewone engine-tools (lezen, zoeken, bewerken, bash) en die kennen deze
+  lijst niet. Afdwingen kan alleen met toestemmingsregels per pad (`deny` voor lezen en bewerken van die
+  mappen), en dat is dezelfde open vraag als in §3 (toestemmingen vanuit de hooks). Tot fase 0 dat
+  oplost, zegt de app eerlijk: "Uitgesloten voor zoeken en voor andere projecten; in Mijn brein zelf kan
+  de AI ze nog zien." Bash blijft hoe dan ook een omweg; voor echt gevoelige mappen is het advies ze
+  buiten de vault te zetten.
 - **Bestaande sync blijft van de gebruiker**: staat de map in iCloud, OneDrive, Dropbox of gebruikt hij
   Obsidian Sync, dan synchroniseert BonzaiWork niet via git en raakt die sync niet aan (de geschiedenis
-  staat dan buiten de map, zie "Vangnet"). Is de map al een git-repo (bijv.
+  staat buiten de map, zie "Vangnet"). Is de map al een git-repo (bijv.
   de Obsidian Git-plugin), dan vraagt de app: "Synchroniseert iets anders deze map al?" Ja → BonzaiWork
   blijft van git af (twee programma's die allebei committen geven conflicten). Nee → BonzaiWork mag de
   sync doen zoals bij een projectbrein.
@@ -338,7 +364,7 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   - Vroeg de gebruiker er zelf om, dan hoeft die niet nog eens te klikken: noemt het laatste bericht van
     de gebruiker dat brein (naam of map), dan keurt de UI de kaart automatisch één keer goed.
   - Het persoonlijke brein valt hierbuiten: dat hoort bij de gebruiker en de `persoonlijk_brein_*`-tools
-    staan op **allow**.
+    staan op **allow**, met één uitzondering: schrijven naar `AGENTS.md` en `_meta/voorkeuren.md` (§7.3).
 
 ## 6. Wat er in een brein staat: kennis in OKF, acties in ICM
 
@@ -436,7 +462,7 @@ goed; zie [kortingsbeleid](kortingsbeleid.md).
 | `title`, `description`, `tags` | aanbevolen | `description` is de ene regel in de index |
 | `resource` | aanbevolen | Link naar het echte ding (een systeem, dashboard, map), als die er is |
 | `sources` + voetnoten | herkomst | Elke bewering uit een bron krijgt een voetnoot `[^id]` die naar `sources[].id` wijst |
-| `generated` | vertrouwen | **Zet BonzaiWork zelf** bij elke wijziging in een beurt: `by: bonzaiwork/<versie>`, `at: nu` |
+| `generated` | vertrouwen | **Zet BonzaiWork zelf**, en houdt AI en mens uit elkaar (§6.5): een wijziging van de AI krijgt `by: bonzaiwork/<versie>`, een wijziging van de gebruiker zelf `by: human:<gebruiker>` (zoals de spec eist voor handwerk); `at: nu` |
 | `verified` | vertrouwen | Knop **"Klopt"** bij een concept in de UI voegt `{ by: human:<gebruiker>, at }` toe. De UI toont de trede uit de spec: niet nagekeken / door een mens nagekeken (en "nagekeken vóór de laatste wijziging" als `generated.at` later is) |
 | `status` | levenscyclus | Nieuw door de AI → `draft`; na "Klopt" → `stable`; vervangen → `deprecated` (blijft staan, met link naar de opvolger) |
 | `stale_after` | levenscyclus | De AI zet het bij tijdgevoelige kennis (prijzen, contactpersonen, planning); `/onderhoud` pakt verlopen concepten op |
@@ -540,7 +566,12 @@ Net als bij git (§2), deterministisch in code (`packages/bonzaiwork-brains/src/
 - **Conformiteit volgens OKF**: elk `.md` in `knowledge/` (behalve `index.md`/`log.md`) heeft leesbare
   frontmatter met een niet-lege `type`. Zo niet, dan geen commit en één herstelpoging door de AI; lukt dat
   niet, dan "Actie nodig". Onbekende sleutels blijven staan.
-- **`generated` invullen** bij elk concept dat in de beurt veranderde.
+- **`generated` invullen, AI en mens apart.** Welke bestanden de AI veranderde, haalt de sync uit de
+  beurt zelf: de bewerk-tools van de engine (`edit`, `write`, `patch`) in de berichten van die chat, plus
+  de schrijfacties van de breinen-MCP. Die concepten krijgen `by: bonzaiwork/<versie>`. Andere gewijzigde
+  concepten (de gebruiker in Obsidian, of een bash-commando dat de sync niet kan toeschrijven) krijgen
+  `by: human:<gebruiker>`. Bij twijfel kiest de sync `human:` niet: een bestand dat een bash-commando van
+  de AI veranderde, telt als AI. Dezelfde indeling bepaalt de twee commits van §4.3.
 - **`index.md` per map genereren**: zonder frontmatter (behalve `okf_version: "0.2"` in de root), een
   sectie met submappen en een per `type`, elk een lijst links met `description`. Bij een rebase-conflict
   maakt de sync hem opnieuw.
@@ -678,10 +709,26 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
 - Bijlagen uit de chat-inbox gaan nooit mee.
 - De app leest, kopieert of bewaart **geen** SSH-sleutels; dat blijft bij het systeem en de ssh-agent.
 
-### 7.3 Grenzen van de breinen-MCP
+### 7.3 Grenzen van de breinen-MCP en de instructie-entries
 
-Alleen tekstbestanden binnen geregistreerde breinmappen (geen symlinks naar buiten, geen `.git`, geen
-inbox); schrijven alleen in het persoonlijke brein; token alleen op loopback, net als de LiteLLM-proxy.
+- Alleen tekstbestanden binnen geregistreerde breinmappen (geen symlinks naar buiten, geen `.git`, geen
+  inbox); schrijven alleen in het persoonlijke brein; token alleen op loopback, net als de LiteLLM-proxy.
+- **Blijvende injectie via de persoonlijke instructies.** `AGENTS.md` en `_meta/voorkeuren.md` van het
+  persoonlijke brein gaan in elke chat (N3). Kan de AI daar vrij in schrijven, dan kan tekst die hij
+  ergens leest (een webpagina, een bron in een gedeeld brein) hem laten schrijven "negeer voortaan …", en
+  dat staat dan in elke volgende chat. Daarom weigert `persoonlijk_brein_schrijven/bewerken` die twee
+  bestanden, en is er een aparte tool `voorkeur_voorstellen` die **altijd** een kaart toont met de
+  wijziging ("Toevoegen aan je voorkeuren: …" → Toevoegen / Aanpassen / Weigeren). De andere bestanden in
+  het persoonlijke brein blijven op allow (N4); die gaan niet vanzelf in elke chat. Wijzigingen die de
+  gebruiker zelf (in Obsidian) in die twee bestanden doet, gaan gewoon mee. Fase 0 kijkt of dit ook voor
+  de gewone bewerk-tools in "Mijn brein" kan (`deny` op die twee paden), anders geldt hier dezelfde
+  kanttekening als bij uitgesloten mappen (§5.1.1).
+- **De instructie-entries zijn niet afgeschermd.** De engine-proxy van de server weigert schrijven alleen
+  voor zijn eigen twee sleutels (`server.ts` r. 1533). Elke houder van een client-token kan
+  `bonzaiwork.personal` en `bonzaiwork.rules` via `/opencode2` overschrijven of verwijderen. Het risico is
+  klein (wie dat token heeft, kan ook gewoon chatten), en de sync zet de entries vóór elke beurt opnieuw.
+  Afschermen vraagt de sleutels van downstream-hooks aan die weigerlijst toe te voegen (patch in
+  `server.ts`); dat nemen we mee als er toch een `server.ts`-hook komt (fase 0).
 
 ### 7.4 De AI en git
 
@@ -693,12 +740,34 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
    en schrijven naar `.git/**` in elke breinmap op `deny`. Dat vangt het normale geval, geen kwaadwillende
    omweg.
 2. **De sync controleert zelf**, vóór elke commit en push: is de remote nog die uit `brains.json`, staat
-   `HEAD` op de verwachte branch, en is de geschiedenis sinds de vorige sync alleen aangevuld (geen
-   herschreven commits)? Zo niet, dan geen push en status "Actie nodig".
-3. **Op de git-host**: de standaardbranch van een gedeeld brein beschermd tegen force-push en verwijderen
-   (GitHub branch protection, GitLab protected branch). Rechtstreeks pushen blijft kunnen (B4); een
-   `git push --force` met de SSH-sleutel van de gebruiker niet. Dit is de enige laag die ook een
-   omzeilde deny tegenhoudt; de instructie bij "Nieuw gedeeld brein" vraagt erom.
+   `HEAD` op de verwachte branch, en is `origin/<branch>` zoals die bij de vorige geslaagde sync was een
+   **voorouder van `HEAD`**? Wat al gedeeld is, is dan niet herschreven; het rebasen van eigen, nog niet
+   verstuurde commits (§4.2, §4.3) mag gewoon. Zo niet, dan geen push en status "Actie nodig". Deze laag
+   beschermt alleen de push van de sync zelf. Een AI die laag 1 omzeilt, pusht buiten de sync om; laag 3
+   vangt daarvan alleen de force-push af. Een gewone push van zo'n AI is niet erger dan wat de sync zelf
+   ook doet (een commit op de gedeelde branch, terug te draaien via de geschiedenis).
+3. **Op de git-host**: de standaardbranch van een gedeeld brein beschermd tegen force-push en verwijderen.
+   - **GitHub**: branch protection, "Allow force pushes" uit; pushen door het team toegestaan.
+   - **GitLab**: protected branch met **"Allowed to push and merge: Developers + Maintainers"** en "Allowed
+     to force push" uit. Met de standaardinstelling (alleen Maintainers) kan de rest van het team niet
+     pushen en belandt het in "Alleen lezen".
+   - Rechtstreeks pushen blijft zo kunnen (B4); een `git push --force` met de SSH-sleutel van de gebruiker
+     niet. Dit is de enige laag die ook een omzeilde deny tegenhoudt.
+   - De app kan deze instelling via SSH **niet controleren**; het is een stap voor de beheerder van de repo,
+     geen controle in "Verbinding testen". In fase 1 staat hij in de beheerdershandleiding
+     (`docs/bonzaiwork/brein-beheer.md`, nieuw); vanaf fase 2 ook in "Nieuw gedeeld brein".
+4. **Git van de sync voert geen code uit uit de repo.** Komt de AI toch voorbij laag 1, dan kan hij
+   `.git/hooks/pre-commit` neerzetten of `core.fsmonitor` in `.git/config`, en dan voert dugite die code
+   uit bij de volgende `commit` of `status` van de sync, met de rechten van de app. Daarom:
+   - De sync roept git **altijd** aan met `-c core.hooksPath=<lege map in userData>
+     -c core.fsmonitor=false -c commit.gpgsign=false` (command-line `-c` gaat vóór de repo-config).
+   - `.git/config` geldt als onbetrouwbaar. Ook filters (`filter.<naam>.clean/smudge`), `diff.external`,
+     `include.path` en dergelijke kunnen code starten. De sync bewaart daarom zijn eigen kopie van de
+     verwachte `.git/config` in `userData` en vergelijkt vóór elke git-actie; wijkt hij af, dan geen
+     git-actie en "Actie nodig" met "Herstellen". `GIT_SSH_COMMAND` gaat al vóór `core.sshCommand` (§3.2);
+     de remote-controle zit in laag 2.
+   - Bij het persoonlijke brein staat de git-map buiten de map (§5.1.1), dus buiten bereik van de gewone
+     bewerk-tools; de `-c`-opties gelden ook daar.
 
 ## 8. API en UI
 
@@ -714,7 +783,7 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
 | `DELETE /bonzaiwork/brains/:workspaceId` | host | synchronisatie uitzetten (map blijft) |
 | `GET /bonzaiwork/brains` | client | alle breinen met status (voor de lijst en `breinen_lijst`) |
 | `GET /bonzaiwork/brains/:workspaceId/status` | client | `BrainStatus` |
-| `POST /bonzaiwork/brains/:workspaceId/pull` | client | bijwerken vóór een beurt |
+| `POST /bonzaiwork/brains/:workspaceId/pull` | client | `{ sessionId }`: projectbrein en persoonlijk brein bijwerken (max. ~5 s), daarna de instructie-entries van die sessie zetten, ook als bijwerken mislukte (§5.1) |
 | `POST /bonzaiwork/brains/:workspaceId/sync` | client | vastleggen + versturen |
 | `GET /bonzaiwork/brains/:workspaceId/history` | client | laatste commits: wie, wat, wanneer, welke chat |
 | `POST /bonzaiwork/brains/:workspaceId/resolve` | client | `{ strategy: "ai" \| "keep-mine-apart" }` |
@@ -726,7 +795,9 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
 
 ```ts
 type BrainKind = "project" | "personal";
-type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "error";
+type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "needs_trust" | "error";
+// needs_trust: een clone of pull bracht verbindingen, plugins, agents of scripts mee waarover de
+// gebruiker nog moet beslissen (§7.1). Synchroniseren en chatten gaan door; die onderdelen laden niet.
 type BrainStatus = {
   kind: BrainKind;
   state: BrainState;            // local_only: persoonlijk brein met lokale geschiedenis, zonder origin
@@ -790,7 +861,6 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 | B4 | Rechtstreeks of via branch/PR? | **Rechtstreeks in fase 1**, "via voorstel" als modus in fase 3 |
 | B5 | Vertrouwen per gebruiker of centraal? | **Per gebruiker** |
 | B6 | Brein als project of extra map? | **Een brein is altijd een eigen project, gedeeld met teamleden.** Plus één **persoonlijk brein** per gebruiker dat in elk project meetelt. Andere al-geclonede breinen zijn in een chat te raadplegen (alleen lezen) |
-
 | N1 | Persoonlijk brein verplicht als privérepo? Kan een bestaand second brain? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel. Een bestaand second brain wordt **gekozen, niet gekopieerd** (§5.1.1) |
 | N2 | Mag de AI uit eigen beweging in andere breinen kijken? | **Alleen als de gebruiker erom vraagt, of na een voorstel van de AI** dat de gebruiker goedkeurt (§5.2) |
 | N3 | Persoonlijke instructies altijd volledig in elke chat? | **Ja**, tot de grens van N6 (niet de 192 KiB van de projectinstructies; dat is een gedeeld budget, §5.1) |
@@ -816,7 +886,10 @@ Nog open:
 - **Ja/nee**: eigen instructie-entries per sessie (`bonzaiwork.personal` en `bonzaiwork.rules`), ook voor
   sub-taken (§5.1, §6.6). Nee → hook in `server.ts`.
 - **Ja/nee**: toestemmingsregels vanuit de hooks (globale `git`- en `.git/**`-deny, `ask`/`allow` per
-  breinen-MCP-tool). Nee → uitbreiding van de hook in `managed-opencode-v2.ts`.
+  breinen-MCP-tool, `deny` op uitgesloten mappen en op `AGENTS.md`/`_meta/voorkeuren.md` van het
+  persoonlijke brein). Nee → uitbreiding van de hook in `managed-opencode-v2.ts`.
+- dugite met `-c core.hooksPath=… -c core.fsmonitor=false`: een hook en een fsmonitor in de repo draaien
+  aantoonbaar niet (§7.4, laag 4).
 - Hoe komen persoonlijke skills in elke chat (§5.1, punt 1).
 - Laadt de v2-engine nieuwe skills na een pull vanzelf, of altijd `engine/reload`?
 - **Ja/nee, blokkerend voor B5**: lokale MCP's, plugins en agents uit een niet-vertrouwd brein uitzetten,
@@ -830,7 +903,7 @@ Nog open:
   conflictkaart met "Bewaar mijn versie apart", instellingen-sectie, demo-backend.
 - Persoonlijk brein: nieuwe map of bestaande vault kiezen in de onboarding, mappen uitsluiten, project
   "Mijn brein", optionele privérepo, instructies (volledig) en skills in elk project,
-  `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), geschiedenis met terugzetten (`git init` zonder origin, of buiten de map bij cloud-sync).
+  `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), geschiedenis met terugzetten (git-map altijd in `userData`), `voorkeur_voorstellen` met kaart.
 - Breinsjabloon (§6): `AGENTS.md` als ICM-ingang, `_meta/schema.md`, `_templates/`, `knowledge/` met
   root-`index.md` (`okf_version: "0.2"`), `log.md` en `references/`, een lege `workflows/`; skills en
   commando's voor verwerken, vastleggen, onderhoud en `/werkwijze` (met `icm-architect`, I2). App-regels
@@ -840,6 +913,8 @@ Nog open:
   hooks; controle van remote, branch en geschiedenis in de sync (§7.4). In de sync
   (`okf.ts`): conformiteit, `generated`, `index.md` per map, `log.md`, `references/` onveranderlijk.
 - UI: knop "Klopt" (`verified`) en de vertrouwenstrede en `status` bij een concept in de sidecar.
+- Beheerdershandleiding `docs/bonzaiwork/brein-beheer.md`: repo aanmaken, SSH-toegang voor het team, en de
+  branch-bescherming van §7.4 laag 3 (met de GitLab-instelling "Developers + Maintainers").
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
   in project X wordt geleerd, staat in het persoonlijke brein en werkt in project Y; offline werken en
   later delen werkt; een conflict verliest niets; de app leest of bewaart geen SSH-sleutels.
@@ -884,9 +959,17 @@ Nog open:
   (met de afwijkingen uit §6.9).
 - **Gekozen vault** (fixture: een kleine Obsidian-vault met wikilinks, frontmatter, `.obsidian/` en
   bijlagen): bewerken met verouderde versie → geweigerd; elke beurt staat in de eigen geschiedenis en is
-  terug te zetten; een lokale vault zonder git krijgt `git init` zonder origin; een vault in een
-  cloudmap of met Obsidian Git krijgt géén `.git` en zijn geschiedenis staat in `userData`; bijlagen en `.obsidian/` blijven ongewijzigd; vault die al
+  terug te zetten; een vault zonder git (lokaal of in een cloudmap) en een vault met Obsidian Git krijgen
+  géén `.git` en hun geschiedenis staat in `userData`; bijlagen en `.obsidian/` blijven ongewijzigd; vault die al
   een git-repo is, wordt niet aangeraakt als iets anders hem synchroniseert.
+- **Git-veiligheid**: een `pre-commit`-hook en een `core.fsmonitor` in de repo draaien niet bij een sync;
+  een gewijzigde `.git/config` stopt de sync met "Actie nodig"; een force-push van buiten de sync (de
+  voorouder-controle faalt) stopt de push; rebasen van eigen, onverstuurde commits gaat wel door.
+- **Wat er meegaat**: een nieuwe pptx gaat niet mee en staat als "niet gedeeld" in de status; een gewijzigd
+  script dat al gedeeld was, gaat wel mee; AI-wijzigingen en eigen wijzigingen landen in aparte commits met
+  de juiste `generated.by`.
+- **Instructie-entries**: offline of met een onbereikbare host zet de pull-route de entry toch, met de
+  lokale versie; `persoonlijk_brein_schrijven` weigert `AGENTS.md` en `_meta/voorkeuren.md`.
 - **Links en SSH**: unit-tests voor het omzetten van links; een test tegen een lokale `sshd` (in CI een
   container) met een testsleutel in een agent: onbekende host → vingerafdruk, gewijzigde host-sleutel →
   stop, vergrendelde sleutel → juiste melding.
