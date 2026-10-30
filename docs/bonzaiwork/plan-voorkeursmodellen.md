@@ -6,9 +6,12 @@ Issue: [fonteijne/openwork#7](https://github.com/fonteijne/openwork/issues/7) ·
 
 Susan (niet-technisch) wil niet nadenken over welke modellen aanstaan. Daarom:
 
-1. **Schakelaar "Alle modellen van de key" uit = alles uitgevinkt.** Daarna vinkt ze alleen aan wat ze wil.
-2. **Knop "Alleen voorkeursmodellen"** vinkt precies de door ons gekozen modellen aan.
-3. **Nieuwe projecten starten met alleen de voorkeursmodellen.** De rest zet ze aan in de projectinstellingen.
+1. **Schakelaar "Alle modellen van de key" aan = alles aangevinkt en vergrendeld.** Een vinkje uitzetten kan dan niet.
+2. **Schakelaar uit = alles uitgevinkt.** Daarna vinkt ze met de hand aan wat ze wil.
+3. **Knop "Voorkeursmodellen aanzetten"** (alleen bij schakelaar uit) vinkt precies de vijf voorkeursmodellen aan en de rest uit.
+4. **Nieuwe projecten starten met alleen de voorkeursmodellen.** De rest zet ze aan in de projectinstellingen.
+
+Dit gedrag is afgestemd met de opdrachtgever op 2026-10-30 (zie "Beantwoorde vragen", V5–V6).
 
 De voorkeursmodellen zijn deze vijf LiteLLM-model-id's (V1, V2). Er zijn er niet meer:
 
@@ -91,15 +94,26 @@ De voorkeursmodellen zijn deze vijf LiteLLM-model-id's (V1, V2). Er zijn er niet
 
 Volg DESIGN S2 (compacte rijen), P3 (meer tonen pas als de schakelaar uit staat), C1 (werkwoord eerst) en P5 (bestaande `Button`, `Row`, `Switch`).
 
-- **Schakelaar uit → `setAllowed([])`** in plaats van alle id's. Schakelaar aan → `null`, zoals nu.
-- **Nieuwe rij onder de schakelaar, alleen zichtbaar als die uit staat:** twee `quiet`-knoppen rechts.
-  - **"Alleen voorkeursmodellen"** → `setAllowed(preferredIn(status))`. Uitgeschakeld met een tooltip "Deze key biedt geen voorkeursmodellen" als de doorsnede leeg is (P4). Na het klikken een toast "Voorkeursmodellen gekozen" (C2).
-  - **"Alles uitvinken"** → `setAllowed([])`. Uitgeschakeld als er al niets is aangevinkt.
+De drie toestanden van de lijst:
+
+| Toestand | `allowedModels` | Vinkjes | Knop "Voorkeursmodellen aanzetten" |
+|---|---|---|---|
+| Schakelaar aan | `null` | Alle aangevinkt en vergrendeld (`disabled`, gedimd). Zo werkt het nu al. | Verborgen |
+| Schakelaar net uitgezet | `[]` | Alle uitgevinkt, met de hand aan te vinken | Zichtbaar |
+| Met de hand gekozen of na de knop | lijst id's | Precies die id's aangevinkt | Zichtbaar |
+
+- **Schakelaar aan → `setAllowed(null)`**, zoals nu. Alle vinkjes staan aan en zijn vergrendeld. Ook modellen die de key later krijgt, doen mee.
+- **Schakelaar uit → `setAllowed([])`** in plaats van alle id's: alles uitgevinkt.
+- **Knop "Voorkeursmodellen aanzetten"**: een `quiet`-knop rechts in een rij onder de schakelaar. Alleen zichtbaar als de schakelaar uit staat (P3).
+  - Klikken → `setAllowed(preferredIn(status))`. Dat **vervangt** de selectie: de vijf voorkeursmodellen gaan aan, alle andere uit.
+  - Uitgeschakeld met een tooltip "Deze key biedt geen voorkeursmodellen" als de key er geen van biedt (P4). Biedt de key er maar een paar, dan gaan alleen die aan.
+  - Na het klikken een toast "Voorkeursmodellen aangezet" (C2).
+- Er komt geen knop "Alles uitvinken" en geen knop "Alles aanvinken" (V5, V6). Opnieuw beginnen gaat via schakelaar aan en weer uit.
 - Het vinkje mag nu ook het laatste model uitzetten: de guard `if (next.length)` gaat weg.
 - **Lege selectie** (`allowed` is `[]` of de doorsnede is leeg): onder de lijst één regel in neutrale inkt, "Nog geen model gekozen. Vink minstens één model aan om te chatten." (C5/C6, geen rood).
 - **Voorkeursmodellen herkenbaar maken:** een klein label "Voorkeur" rechts naast de naam (neutrale token, geen kleuraccent). Het model-id blijft verborgen op smalle schermen, zoals nu. De volgorde van de lijst blijft die van de key, zodat er niets verspringt.
 - De `Select` voor het standaardmodel blijft filteren op de gekozen modellen. Als het huidige standaardmodel wegvalt, toont de select "Eerste beschikbare model" (bestaand gedrag van `startModel`).
-- Copy in `copy.ts` (`settings`): `allowedPreferred`, `allowedNone`, `allowedPreferredUnavailable`, `allowedPreferredDone`, `allowedEmpty`, `preferredBadge`.
+- Copy in `copy.ts` (`settings`): `allowedPreferred` ("Voorkeursmodellen aanzetten"), `allowedPreferredUnavailable`, `allowedPreferredDone`, `allowedEmpty`, `preferredBadge`.
 
 ### 6. Nieuw project (`features/projects/new-project-dialog.tsx`)
 
@@ -117,9 +131,9 @@ Volg DESIGN S2 (compacte rijen), P3 (meer tonen pas als de schakelaar uit staat)
 
 - `pnpm --filter @bonzaiwork/policy test`, `pnpm --filter @bonzaiwork/litellm test`, `pnpm --filter @bonzaiwork/app test` en `typecheck` voor alle drie.
 - **Headless UI-check** in demomodus (`pnpm --filter @bonzaiwork/app dev`, headless Chrome via Playwright), met screenshots voor de PR (DESIGN P10):
-  1. Schakelaar aan (alle modellen, vinkjes gedimd).
-  2. Schakelaar uit → alles uitgevinkt + de lege-selectie-regel.
-  3. Na "Alleen voorkeursmodellen" → vijf vinkjes + toast.
+  1. Schakelaar aan → alle vinkjes aan en vergrendeld, knop verborgen.
+  2. Schakelaar uit → alles uitgevinkt + de lege-selectie-regel + de knop.
+  3. Eerst een ander model met de hand aanvinken, daarna "Voorkeursmodellen aanzetten" → precies de vijf vinkjes, het andere model weer uit, plus de toast.
   4. Key zonder voorkeursmodellen (`?voorkeur=geen`) → knop uitgeschakeld met tooltip.
   5. Composer met de geblokkeerde staat "Geen modellen gekozen".
   6. Nieuw project → instellingen tonen alleen de voorkeursmodellen aangevinkt.
@@ -139,8 +153,5 @@ Volg DESIGN S2 (compacte rijen), P3 (meer tonen pas als de schakelaar uit staat)
 | V3 | Moet de lijst zonder nieuwe build te wijzigen zijn, bijvoorbeeld via LiteLLM's `model_info`? | Nee. De lijst zit in de build (B2). De LiteLLM-config ligt buiten onze invloed. |
 | V4 | Moeten bestaande projecten naar de voorkeursmodellen? | Nee, geen migratie (B7). Ze houden "Alle modellen" en de gebruiker kiest zelf. |
 
-## Nog open
-
-| # | Vraag | Gevolg |
-|---|---|---|
-| V5 | Is een derde knop **"Alles aanvinken"** nodig? Dat is een vaste lijst van de huidige modellen. De schakelaar aan betekent ook toekomstige modellen. | Niet gevraagd in het issue, daarom weggelaten (P3). |
+| V5 | Is een knop "Alles aanvinken" nodig? | Nee. Schakelaar aan zet alles aan en vergrendelt de vinkjes. |
+| V6 | Hoe werken schakelaar en knop samen? | Aan: alles aan en vergrendeld. Uit: alles uit, met de hand aan te vinken. "Voorkeursmodellen aanzetten": alleen de vijf aan. Geen knop "Alles uitvinken". |
