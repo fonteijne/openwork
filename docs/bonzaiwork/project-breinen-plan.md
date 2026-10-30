@@ -6,9 +6,10 @@ Status: **voorstel, beslissingen B1–B6 en N1–N5 genomen** (§9). Nog niets g
 
 Een nieuw project kan, behalve een lege map in `~/BonzaiWork/<naam>` of een bestaande map, ook een
 **git-repo zijn die BonzaiWork via SSH clonet** in `~/BonzaiWork/<naam>`. Zo'n repo is een
-**project-brein**: de gedeelde kennis en workflows van een team. De kennis is een bundel in Google's
-**Open Knowledge Format (OKF)** in `knowledge/` (§6), de instructies voor de AI staan in `AGENTS.md` en
-werkwijzen als skills in `.opencode/`. BonzaiWork werkt in die map zoals in elk ander project, maar **haalt vóór het
+**project-brein**: de gedeelde kennis en werkwijzen van een team (§6). Wat het team **weet**, staat als
+bundel in Google's **Open Knowledge Format (OKF)** in `knowledge/`; wat het team **doet**, staat als
+werkwijzen volgens de **Interpretable Context Methodology (ICM)** in `workflows/`, met `AGENTS.md` als
+ingang die naar allebei routeert. BonzaiWork werkt in die map zoals in elk ander project, maar **haalt vóór het
 werk de nieuwste versie op** en **legt na elke beurt de wijzigingen vast en verstuurt ze**.
 
 Daarnaast heeft elke gebruiker één **persoonlijk brein**: eigen voorkeuren, kennis en workflows die in
@@ -67,7 +68,8 @@ packages/bonzaiwork-brains/          NIEUW
   src/remote.ts                      repo-links herkennen en naar SSH-vorm omzetten; host-sleutels
   src/sync.ts                        per brein: wachtrij, mutex, status, pull/commit/push, conflicten
   src/okf.ts                         OKF vóór elke commit: conformiteit, generated, index.md, log.md, references/ bewaken
-  templates/                         schema-AGENTS.md (team en persoonlijk), skills en commando's (§6)
+  src/icm.ts                         ICM: werkwijzen vinden, contracten lezen, invoer controleren, status van schijf, controles
+  templates/                         AGENTS.md, _meta/schema.md, _templates/ (team en persoonlijk), skills en commando's (§6)
   src/registry.ts                    welke mappen een brein zijn (userData/bonzaiwork/brains.json)
   src/routes.ts                      /bonzaiwork/brains/*
   src/mcp.ts                         lokale MCP-server "breinen": persoonlijk brein + andere breinen (§5)
@@ -195,7 +197,7 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
     terug op de gedeelde versie.
 - Tot het conflict is opgelost, pauzeert het bijwerken van dit brein; chatten blijft kunnen.
 - De bestanden die iedereen raakt, geven nooit een conflict voor de gebruiker: een `index.md` maakt de
-  sync opnieuw, `log.md` voegt hij per datum samen (§6.4).
+  sync opnieuw, `log.md` voegt hij per datum samen (§6.5).
 
 ## 5. Persoonlijk brein en andere breinen (B6)
 
@@ -216,7 +218,7 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
 - Het is ook een **gewoon project** ("Mijn brein", altijd bovenaan, niet te archiveren): daar chat je om
   je eigen kennis en workflows te ordenen.
 - **Telt mee in elk project**, op twee manieren:
-  1. **Instructies**: het `AGENTS.md` van het persoonlijke brein komt **volledig** als extra instructie in
+  1. **Instructies**: `AGENTS.md` + `_meta/voorkeuren.md` van het persoonlijke brein (§6.7) komen **volledig** als extra instructie in
      elke chat (N3), tot een eigen grens (N6). **Niet via de bestaande route**: `readConfiguredInstructions`
      (`opencode-v2-instructions.ts`) laadt alleen bestanden binnen de workspace (`../` en paden buiten de
      `insideRoot`-check slaat hij over), en zijn 192 KiB is één budget voor álle geconfigureerde
@@ -237,7 +239,7 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
      in uitgesloten mappen (N4), en alleen in `.md`-bestanden (N5). Elke wijziging komt in de
      geschiedenis en is terug te draaien (§5.1.1); de `Stop`-hook deelt hem daarna als er een repo aan hangt.
 - **Wat waar hoort**: teamkennis in het projectbrein, persoonlijke voorkeuren en eigen werkwijzen in het
-  persoonlijke brein. Bij twijfel vraagt de AI het (staat in de vaste instructie, §6). Het persoonlijke
+  persoonlijke brein. Bij twijfel vraagt de AI het (staat in de app-regels, §6.6). Het persoonlijke
   brein schrijft nooit naar een projectbrein en omgekeerd.
 
 #### 5.1.1 Een bestaand second brain kiezen
@@ -248,8 +250,8 @@ hun eigen werkwijze werken en ziet BonzaiWork altijd de actuele notities. Het do
 BonzaiWork migreert: tijdens de overgang kan Obsidian ernaast blijven draaien, en BonzaiWork wordt
 geleidelijk het hoofdgereedschap voor dezelfde map.
 
-- **OKF-bundel erbij**: de app voegt in de gekozen map `AGENTS.md` (met "Mijn voorkeuren"; gaat volledig
-  in elke chat, N3), `knowledge/` en de skills toe (§6.6). In Obsidian zijn dat gewone
+- **Breinstructuur erbij**: de app voegt in de gekozen map `AGENTS.md`, `_meta/` (met `voorkeuren.md`; die
+  twee gaan volledig in elke chat, N3), `knowledge/` en de skills toe (§6.7). In Obsidian zijn dat gewone
   notities, dus de collega kan ze lezen en bijwerken. Bestond er al een `AGENTS.md`, dan vult de app die
   aan in plaats van hem te vervangen.
 - **De AI mag in de hele map schrijven (N4)**: nieuwe notities aanmaken en bestaande bijwerken, vanuit
@@ -338,63 +340,75 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   - Het persoonlijke brein valt hierbuiten: dat hoort bij de gebruiker en de `persoonlijk_brein_*`-tools
     staan op **allow**.
 
-## 6. Wat er in een brein staat: een OKF-bundel
+## 6. Wat er in een brein staat: kennis in OKF, acties in ICM
 
-Elk brein bevat een bundel in het **Open Knowledge Format (OKF) v0.2** van Google Cloud
-([spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md),
-[aankondiging](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing)).
-OKF is een open, leveranciersonafhankelijk formaat (Apache 2.0) dat het LLM-wiki-patroon van Karpathy
-vastlegt als standaard: **een map met Markdown-bestanden met YAML-frontmatter**, één bestand per
-concept, onderling gelinkt met gewone Markdown-links. Er is geen SDK, database of account nodig. We
-volgen de spec; alleen waar hij iets openlaat, kiezen we zelf (en zeggen we dat).
+Een brein gebruikt twee open standaarden, elk voor één ding:
 
-Waarom OKF in plaats van een eigen indeling: breinen worden **draagbaar** (elke editor, GitHub/GitLab,
-Google's Knowledge Catalog en visualizer, en tools die OKF exporteren, zoals Mem, kunnen ze lezen of
-leveren), de regels staan vast in een spec die we niet zelf hoeven te onderhouden, en de spec heeft al
-velden voor bronnen, vertrouwen en houdbaarheid die precies passen bij een brein dat een AI bijhoudt.
+| | Standaard | Wat het beschrijft | Waar |
+|---|---|---|---|
+| **Weten** | **Open Knowledge Format (OKF) v0.2** van Google Cloud ([spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)) | wat het team weet: concepten met type, herkomst, vertrouwen en houdbaarheid | `knowledge/` |
+| **Doen** | **Interpretable Context Methodology (ICM)** van Van Clief & McDermott ([paper](https://arxiv.org/abs/2603.16021), [repo](https://github.com/RinDig/Interpretable-Context-Methodology), [icm-architect](https://github.com/RinDig/icm-architect), MIT) | hoe het team werkt: werkwijzen als genummerde stappen, elk met een contract (wat lezen, wat doen, wat schrijven, hoe controleren) | `workflows/` en de routering in `AGENTS.md` |
+
+Ze passen op elkaar: allebei gewone Markdown met YAML-frontmatter, relatieve links en "het bestand is de
+toestand". `icm-architect` levert zelf een OKF-viewer mee, en zijn indexscript slaat OKF's gereserveerde
+`index.md` en `log.md` al over. De taakverdeling volgt uit ICM: de kennis in `knowledge/` is de
+**fabriek** (ICM-laag 3, stabiel over runs heen), de werkwijzen in `workflows/` zijn de **contracten**
+(laag 1–2), en wat een run oplevert is het **product** (laag 4).
+
+Waarom ICM voor de acties: een agent (in een chat of een routine) weet dan bij elke stap precies wat hij
+moet lezen en wat niet, wat hij oplevert, en waar hij stopt voor een controle. Dat is afleesbaar en
+aanpasbaar door het team zelf, zonder code, en BonzaiWork kan het afdwingen omdat de contracten exacte
+paden noemen (§6.5).
 
 ### 6.1 Structuur
 
 ```
-AGENTS.md                 instructies voor de AI (geen concept, valt buiten de bundel)
-.opencode/skills/         werkwijzen die de AI uitvoert (OpenCode-skills, buiten de bundel)
-.opencode/commands/       /verwerk, /vastleggen, /onderhoud
-knowledge/                de OKF-bundel
+AGENTS.md                 ICM-ingang (laag 0): wat dit brein is en waar alles staat; alleen routering
+_meta/
+  schema.md               de OKF-typen van dit brein en de schrijfafspraken (één plek)
+_templates/               stage-CONTEXT.md, workflow-CONTEXT.md, concept.md: nieuw werk is een kopie
+knowledge/                OKF-bundel: wat we weten (de fabriek voor elke werkwijze)
   index.md                root-index; frontmatter alleen okf_version: "0.2"
   log.md                  updategeschiedenis, nieuwste eerst
-  references/             bronnen (OKF-conventie voor extern materiaal); onveranderlijk
+  references/             bronnen (OKF-conventie); onveranderlijk
+  offertes/
     index.md
-    2026-10-30-kickoff-notulen.md
-  offertes/               indeling naar onderwerp, door het team bepaald
-    index.md
-    offerteproces.md      één concept = één bestand; het pad is de identiteit
+    offerteproces.md      concept: wie wat doet en wie goedkeurt
     kortingsbeleid.md
-  producten/
-    index.md
-    ...
+workflows/                ICM-werkwijzen: wat we doen
+  offerte-maken/
+    CONTEXT.md            laag 1: de werkwijze in één scherm (stappen en hun taak)
+    01_intake/
+      CONTEXT.md          laag 2: stapcontract
+      output/             wat deze stap oplevert (per run; standaard niet gedeeld, I1)
+    02_opzet/
+      CONTEXT.md
+      references/         alleen wat specifiek is voor deze stap; algemene kennis staat in knowledge/
+      output/
+    03_controle/
+      CONTEXT.md
+      output/
+.opencode/skills/         okf-ingest, okf-query, okf-lint, icm-architect, plus bekwaamheden (bijv. pptx)
+.opencode/commands/       /verwerk, /vastleggen, /onderhoud, /werkwijze
 ```
 
-Twee keuzes die de spec openlaat:
+Keuzes waar de standaarden ruimte laten (en §6.9 voor waar we bewust afwijken):
 
-- **De bundel staat in `knowledge/`, niet in de root.** OKF eist dat élk `.md`-bestand in de bundel
-  frontmatter met `type` heeft. `AGENTS.md` en de skills (`SKILL.md`) zijn geen kennisconcepten en hebben
-  dat niet; buiten de bundel blijft die conform. De spec staat een bundel als submap van een grotere repo
-  uitdrukkelijk toe.
-- **Links zijn relatief** (`[kortingsbeleid](kortingsbeleid.md)`, `[proces](../offertes/offerteproces.md)`).
-  De spec raadt bundel-absolute paden (`/offertes/...`) aan, maar staat relatieve toe. Omdat de bundel in
-  een submap staat, zouden absolute paden op GitHub/GitLab en in Obsidian breken; relatieve werken overal.
-  Geen `[[wikilinks]]`: die zijn geen OKF.
+- **De OKF-bundel staat in `knowledge/`.** OKF eist dat élk `.md`-bestand in de bundel een `type` heeft;
+  `AGENTS.md`, de `CONTEXT.md`'s en de skills hebben dat niet. Buiten de bundel blijft die conform; de spec
+  staat een bundel als submap uitdrukkelijk toe.
+- **Links en invoerpaden zijn relatief** en moeten bestaan (ICM-invariant 8; OKF staat relatief toe).
+  Absolute paden zouden breken op GitHub/GitLab en in Obsidian. Geen `[[wikilinks]]`.
+- **Verwijzingen gaan één kant op** (ICM): werkwijzen verwijzen naar kennis, kennis nooit naar
+  werkwijzen. `AGENTS.md` routeert naar allebei.
 
-Er zijn geen vaste mappen per paginasoort meer (zoals Karpathy's `summaries/`, `concepts/`): OKF ordent
-naar onderwerp, en de soort staat in `type`.
-
-### 6.2 Een concept
+### 6.2 Kennis: een OKF-concept
 
 ```markdown
 ---
 type: Process
 title: Offerteproces
-description: Hoe we een offerte opbouwen en wie hem goedkeurt.
+description: Wie een offerte opstelt, wie hem goedkeurt en wanneer.
 tags: [offertes, sales]
 sources:
   - id: kickoff
@@ -408,16 +422,17 @@ verified:
     at: 2026-10-30T11:02:00+01:00
 status: stable
 ---
-# Stappen
-1. Sales maakt een concept in het offertesjabloon.[^kickoff]
-2. Boven de kortingsgrens keurt de teamleider goed; zie [kortingsbeleid](kortingsbeleid.md).
+# Offerteproces
+
+Sales stelt de offerte op in het offertesjabloon.[^kickoff] Boven de kortingsgrens keurt de teamleider
+goed; zie [kortingsbeleid](kortingsbeleid.md).
 
 [^kickoff]: Afgesproken in de kickoff.
 ```
 
 | Veld | OKF | Hoe BonzaiWork het gebruikt |
 |---|---|---|
-| `type` | **verplicht**, vrije tekst | De AI kiest uit de lijst in `AGENTS.md` (startlijst: `Process`, `Playbook`, `Decision`, `Policy`, `Product`, `System`, `Team`, `Glossary Term`, `Analysis`, `Meeting Summary`); het team vult hem aan |
+| `type` | **verplicht**, vrije tekst | De AI kiest uit de lijst in `_meta/schema.md` (startlijst: `Process`, `Decision`, `Policy`, `Product`, `System`, `Team`, `Glossary Term`, `Analysis`, `Meeting Summary`, `Reference`); het team vult hem aan |
 | `title`, `description`, `tags` | aanbevolen | `description` is de ene regel in de index |
 | `resource` | aanbevolen | Link naar het echte ding (een systeem, dashboard, map), als die er is |
 | `sources` + voetnoten | herkomst | Elke bewering uit een bron krijgt een voetnoot `[^id]` die naar `sources[].id` wijst |
@@ -428,106 +443,213 @@ status: stable
 
 De Attested Computations uit de spec (uitvoerbare, geattesteerde berekeningen) gebruiken we niet.
 
-### 6.3 Werkwijzen
+Het type `Playbook` uit de vorige versie vervalt: hoe het team iets **doet**, staat als ICM-werkwijze in
+`workflows/` (ICM: "de structuur is de documentatie"). Een `Process`-concept beschrijft het bedrijfsproces
+als kennis (wie, wat, waarom); de werkwijze beschrijft hoe een agent er een run van maakt en verwijst naar
+dat concept.
 
-Karpathy's drie werkwijzen blijven, nu met OKF-velden:
+### 6.3 Acties: een ICM-werkwijze
+
+Een werkwijze is een **pipeline** in ICM-termen: genummerde stappen, de `output/` van de ene is de invoer
+van de volgende, en elke stap eindigt bij een controle. Het team (of de AI met de skill `icm-architect`,
+via `/werkwijze`) maakt ze; ze staan in de repo en zijn dus gedeeld.
+
+De werkwijze in één scherm (`workflows/offerte-maken/CONTEXT.md`, laag 1):
+
+```markdown
+# Offerte maken - van aanvraag naar gecontroleerde offerte
+
+| Stap | Taak |
+|---|---|
+| `01_intake` | aanvraag tot korte brief |
+| `02_opzet` | brief tot conceptofferte |
+| `03_controle` | offerte tegen beleid toetsen |
+
+Elke stap heeft een eigen CONTEXT.md met invoer, uitvoer en controle.
+Fabriek (elke run): `../../knowledge/offertes/`. Product (elke run nieuw): de `output/` van elke stap.
+Status is wat er staat: een stap is klaar als zijn `output/` iets bevat en een eventuele `check.md` `pass` zegt.
+```
+
+Een stapcontract (`workflows/offerte-maken/02_opzet/CONTEXT.md`, laag 2; vorm uit `icm-architect`):
+
+```markdown
+# 02_opzet - brief tot conceptofferte
+
+Eén taak: de conceptofferte schrijven vanuit de brief.
+
+## Inputs
+- Working (deze run): `../01_intake/output/brief.md`
+- Reference (elke run): `../../../knowledge/offertes/offerteproces.md`
+- Reference (elke run): `../../../knowledge/offertes/kortingsbeleid.md`
+- Reference (elke run): `references/offertesjabloon.md`
+
+Do NOT load: andere stappen, eerdere runs, de rest van `knowledge/`.
+
+## Process
+1. Ontbreekt een invoer of is hij leeg, stop en zeg welke.
+2. Vul het sjabloon in vanuit de brief.
+3. Korting boven de grens uit het kortingsbeleid: markeer de regel voor goedkeuring, reken niet zelf.
+
+## Outputs
+- `conceptofferte.md` -> `output/`
+
+## Check
+De gebruiker leest de conceptofferte en keurt hem goed of past hem aan. De volgende stap leest wat hier staat.
+```
+
+Wat we van ICM overnemen, zonder er iets aan te veranderen:
+
+- **Eén stap, één taak**; nummering geeft de volgorde (`01_`, `02_`).
+- **Elk contract** heeft `Inputs` (exacte paden, gesplitst in working en reference, plus wat níét te
+  laden), `Process` (genummerd en kort), `Outputs` en precies één `Check`.
+- **Reference = kennis.** Een contract verwijst naar OKF-concepten in `knowledge/` in plaats van regels te
+  herhalen: één plek per feit.
+- **Elke stap eindigt bij een controle**: een persoon, een script of een klein model. Een controle die
+  geen persoon is, schrijft `check.md` naast de output, eerste regel `pass` of `fail: <waarom>`; bij `fail`
+  stopt de run daar.
+- **Elke output is een bewerkbaar bestand**: de gebruiker kan hem openen en aanpassen; de volgende stap
+  leest wat er staat.
+- **Klein houden**: één contract plus zijn invoer blijft onder ongeveer 8.000 tokens.
+- **De wandeltest**: een agent zonder geheugen moet vanuit de bestanden alleen kunnen zeggen waar hij is,
+  wat hij moet doen en wat de status is.
+
+En ICM's eigen grens: het is voor opeenvolgende, gecontroleerde, herhaalbare werkwijzen. Werk met
+automatische vertakkingen halverwege of realtime samenwerking tussen agents hoort er niet in.
+
+### 6.4 Werkwijzen voor het brein zelf
+
+Het onderhoud van de kennis zelf blijft bij drie skills die BonzaiWork in elk brein zet (geen
+ICM-pipelines: ze draaien op elke vraag, niet als run met een product):
 
 | Werkwijze | Wanneer | Wat de AI doet |
 |---|---|---|
-| **Verwerken** (`/verwerk`, skill `okf-ingest`) | De gebruiker sleept een bestand in de chat, plakt een tekst, of zet een `.md` in `references/` | Bron als Markdown in `references/` (met frontmatter `type: Reference`, `title`, en `resource` naar het origineel; alleen `.md`, N5). Kort de belangrijkste punten bespreken. Concepten aanmaken of bijwerken die de bron raakt, elk met de bron in `sources` en voetnoten bij de beweringen |
-| **Vragen** (skill `okf-query`) | Elke gewone vraag | Eerst de `index.md` van de root en daarna van de relevante mappen (progressive disclosure, zoals OKF bedoelt), dan de concepten; antwoord met links. Blijvend waardevol antwoord → "Zal ik dit vastleggen?" → `/vastleggen` maakt een concept (vaak `type: Analysis`) |
-| **Onderhoud** (`/onderhoud`, skill `okf-lint`) | Op verzoek of als wekelijkse routine | Tegenstrijdigheden, verlopen `stale_after`, oude `draft`s, concepten zonder bron, weesconcepten, onderwerpen zonder concept, gebroken links (OKF tolereert ze; ze kunnen ook "nog te schrijven kennis" zijn, dus melden, niet weghalen) |
+| **Verwerken** (`/verwerk`, skill `okf-ingest`) | De gebruiker sleept een bestand in de chat, plakt een tekst, of zet een `.md` in `references/` | Bron als Markdown in `references/` (`type: Reference`, `title`, `resource` naar het origineel; alleen `.md`, N5). Kort de belangrijkste punten bespreken. Concepten aanmaken of bijwerken die de bron raakt, met de bron in `sources` en voetnoten |
+| **Vragen** (skill `okf-query`) | Elke gewone vraag | Eerst `AGENTS.md` (route naar kennis of werkwijze), dan de `index.md` van de root en van de relevante map, dan de concepten; antwoord met links. Blijvend waardevol antwoord → "Zal ik dit vastleggen?" → `/vastleggen` maakt een concept (vaak `type: Analysis`) |
+| **Onderhoud** (`/onderhoud`, skill `okf-lint`) | Op verzoek of als wekelijkse routine | Kennis: tegenstrijdigheden, verlopen `stale_after`, oude `draft`s, concepten zonder bron, weesconcepten, gebroken links (melden, niet weghalen). Werkwijzen: de ICM-wandeltest, en contracten die naar een verdwenen of `deprecated` concept verwijzen |
 
 In een gedeeld brein slaat de wekelijkse routine over als `log.md` de afgelopen 7 dagen al een
-onderhoudsronde toont (van wie dan ook).
+onderhoudsronde toont (van wie dan ook). `/werkwijze` start `icm-architect` in Build-modus: de AI vraagt
+door op hoe het team het werk nu doet en zet de kleinste werkwijze neer die dat draagt.
 
-Teamworkflows die de AI **uitvoert** blijven OpenCode-skills in `.opencode/skills/`. De beschrijving van
-zo'n werkwijze voor mensen is een concept (`type: Playbook`), en de skill linkt ernaar. Een skill
-automatisch afleiden uit een `Playbook`-concept kan later (fase 3).
+### 6.5 Wat BonzaiWork zelf doet, niet de AI
 
-### 6.4 Wat BonzaiWork zelf doet, niet de AI
+Net als bij git (§2), deterministisch in code (`packages/bonzaiwork-brains/src/okf.ts` en `icm.ts`).
 
-Net als bij git (§2), deterministisch in de sync-machine (`packages/bonzaiwork-brains/src/okf.ts`), vlak
-vóór elke commit:
+**Kennis (vóór elke commit):**
 
-- **Conformiteit volgens de spec**: elk `.md` in `knowledge/` (behalve `index.md`/`log.md`) heeft
-  leesbare frontmatter met een niet-lege `type`. Zo niet, dan maakt de sync geen commit en vraagt de AI in
-  dezelfde chat het te herstellen (één poging); lukt dat niet, dan een melding. Onbekende sleutels laten we
-  staan (de spec vraagt dat).
+- **Conformiteit volgens OKF**: elk `.md` in `knowledge/` (behalve `index.md`/`log.md`) heeft leesbare
+  frontmatter met een niet-lege `type`. Zo niet, dan geen commit en één herstelpoging door de AI; lukt dat
+  niet, dan "Actie nodig". Onbekende sleutels blijven staan.
 - **`generated` invullen** bij elk concept dat in de beurt veranderde.
-- **`index.md` per map genereren** (de spec staat toe dat producers dat doen): zonder frontmatter, behalve
-  `okf_version: "0.2"` in de root; een sectie met submappen en een sectie per `type`, elk een lijst links
-  met `description`. De AI leest ze, maar bewerkt ze nooit. Een rebase-conflict in een `index.md` lost de
-  sync op door hem opnieuw te maken.
-- **`log.md` schrijven**: per beurt één regel onder de datum van vandaag, nieuwste datum bovenaan, zoals de
-  spec voorschrijft: `- **Update** [Offerteproces](offertes/offerteproces.md): <chattitel>` (labels
-  `Creation`, `Update`, `Deprecation`). Omdat de sync dit schrijft en niet de AI, mist er nooit een. Een
-  rebase-conflict in `log.md` lost de sync op door beide kanten per datum samen te voegen.
-- **`references/` blijft onveranderlijk**: een bestaand bestand daarin wijzigen of verwijderen weigert de
-  sync (terugzetten en melden); nieuwe bronnen toevoegen mag altijd.
+- **`index.md` per map genereren**: zonder frontmatter (behalve `okf_version: "0.2"` in de root), een
+  sectie met submappen en een per `type`, elk een lijst links met `description`. Bij een rebase-conflict
+  maakt de sync hem opnieuw.
+- **`log.md` schrijven**: per beurt één regel onder de datum van vandaag, nieuwste bovenaan:
+  `- **Update** [Offerteproces](offertes/offerteproces.md): <chattitel>`. Bij een rebase-conflict voegt
+  de sync beide kanten per datum samen.
+- **`references/` blijft onveranderlijk**: wijzigen of verwijderen weigert de sync; toevoegen mag.
 
-### 6.5 `AGENTS.md`
+**Werkwijzen (bij het draaien):**
+
+- **Vinden**: BonzaiWork leest `workflows/*/CONTEXT.md` (eerste kop = naam en taak) en toont de
+  werkwijzen in het project en in de composer.
+- **Een stap starten**: BonzaiWork leest het contract, controleert dat elke invoer bestaat en niet leeg is
+  (ICM-processtap 1, maar dan in code: ontbreekt er iets, dan start de stap niet en zegt de app welke), en
+  start de stap als **nieuwe chat** in de groep van die run (chatgroepen bestaan al), met het contract en
+  de lijst exacte invoerpaden. Een nieuwe chat per stap houdt de context klein, zoals ICM bedoelt; een
+  lopende chat zou de vorige stappen meeslepen.
+- **Controle afdwingen**: na de stap kijkt de app of de genoemde outputs er zijn. Dan de controle uit het
+  contract: een **persoon** krijgt een kaart ("Klopt de conceptofferte?" → Goedkeuren / Openen en
+  aanpassen / Opnieuw); een **klein model** laat BonzaiWork via LiteLLM de controlevraag beantwoorden en
+  `check.md` schrijven; een **script** draait alleen in een vertrouwd brein (§7.1), met toestemming. De
+  volgende stap kan pas starten na `pass` of goedkeuring.
+- **Status van schijf**: de voortgang (stap klaar, wacht op controle, afgekeurd) volgt uit wat er in
+  `output/` en `check.md` staat, niet uit een database.
+- **Structuurcontrole vóór commit** (voor gewijzigde werkwijzen): elk stapcontract heeft `Inputs`,
+  `Process`, `Outputs` en `Check`, en elk reference-pad bestaat. Een fout geeft "Actie nodig" en één
+  herstelpoging, net als bij kennis. Een link van `knowledge/` naar `workflows/` (verkeerde richting) en een
+  `AGENTS.md` van meer dan ~60 regels geven alleen een waarschuwing.
+- **Runs niet delen** (I1): `workflows/**/output/` staat in `.git/info/exclude`. Bij een nieuwe run van
+  dezelfde werkwijze verhuist de vorige naar `workflows/<naam>/_runs/<datum>-<onderwerp>/` (ook lokaal).
+
+### 6.6 `AGENTS.md` en `_meta/schema.md`
+
+ICM houdt de ingang klein en zonder inhoud (laag 0, ~300–800 tokens, onder ~60 regels). De regels voor het
+schrijven van kennis staan daarom in `_meta/schema.md`, en de regels van de app zelf (synchroniseren, geen
+git, andere breinen alleen op verzoek, persoonlijk versus team) staan **niet in de repo**: die zet
+BonzaiWork per beurt in een eigen instructie-entry `bonzaiwork.rules`, net als de persoonlijke instructies
+(§5.1; dezelfde fase 0-vraag). Zo heeft elk feit één plek en kan een team de app-regels niet per ongeluk
+weghalen.
 
 ```markdown
 # <Naam van het brein>
 
-<Eén alinea: waar dit brein over gaat en voor wie.>
+<Eén zin: waar dit brein over gaat en voor wie.>
 
-## Kennis
+## Waar alles staat
 
-De kennis van dit brein staat in `knowledge/`, in het Open Knowledge Format (OKF) v0.2.
+| Map | Wat erin staat |
+|---|---|
+| `knowledge/` | wat we weten (OKF); begin bij `knowledge/index.md` |
+| `workflows/` | hoe we werken (ICM); elke werkwijze begint bij zijn `CONTEXT.md` |
+| `_meta/schema.md` | typen en schrijfafspraken voor kennis |
+| `_templates/` | lege startbestanden: nieuw werk is een kopie |
 
-- Eén concept per bestand, ingedeeld naar onderwerp. Werk een bestaand concept bij in plaats van een tweede
-  over hetzelfde te maken.
-- Elk concept heeft frontmatter met `type` (verplicht; kies uit de lijst hieronder), `title`,
-  `description` (één zin) en `tags`. Kennis uit een bron krijgt de bron in `sources` en een voetnoot
-  `[^id]` bij de bewering.
-- Link met gewone, relatieve Markdown-links. Een link naar een concept dat nog niet bestaat mag.
-- Nieuwe concepten krijgen `status: draft`. Tijdgevoelige kennis krijgt `stale_after`. Wat vervangen is,
-  wordt `deprecated` met een link naar de opvolger; niet verwijderen.
-- Bronnen staan in `knowledge/references/`. Lees ze; wijzig of verwijder ze nooit.
-- Lees bij een vraag eerst `knowledge/index.md` en de index van de map die past. Bewerk `index.md`,
-  `log.md`, `generated` en `verified` nooit; dat doet BonzaiWork.
-- Spreekt een nieuwe bron een concept tegen, zet dat dan in het concept, met beide bronnen. Kies niet
-  stilzwijgend.
-- Werkwijzen: /verwerk (bron verwerken), /vastleggen (antwoord als concept bewaren), /onderhoud (controle).
+## Waar je heen gaat
 
-Typen: Process, Playbook, Decision, Policy, Product, System, Team, Glossary Term, Analysis, Meeting Summary.
-
-## Samenwerken
-
-BonzaiWork haalt vóór je beurt de nieuwste versie op en deelt je wijzigingen erna; voer zelf geen git uit.
-Persoonlijke voorkeuren van de gebruiker horen in het persoonlijke brein, niet hier; vraag bij twijfel.
-Andere breinen raadpleeg je alleen als de gebruiker erom vraagt; denk je dat er een helpt, stel het dan in
-één zin voor en wacht op antwoord. Zet nooit wachtwoorden, sleutels of privégegevens van personen in het brein.
-
-## Conventies van dit team
-
-<Eigen typen, mapindeling, taal, wat wel en niet in het brein hoort. Groeit met het gebruik.>
+| Als | Ga naar | Stop bij |
+|---|---|---|
+| een vraag over hoe iets zit | `knowledge/index.md`, dan de map-index | het antwoord, met links |
+| een taak die als werkwijze bestaat | `workflows/<naam>/CONTEXT.md` | de controle van de stap |
+| een nieuwe bron | `/verwerk` | de concepten die hij raakt |
+| een werkwijze maken of aanpassen | `/werkwijze` | het voorstel, ter goedkeuring |
 ```
 
-### 6.6 Het persoonlijke brein
+`_meta/schema.md` bevat de typelijst en de schrijfregels uit §6.2 (één concept per bestand; `type`,
+`title`, `description`, `tags`; bronnen in `sources` met voetnoten; relatieve links; `status: draft` voor
+nieuw; `stale_after` voor tijdgevoelig; `deprecated` in plaats van verwijderen; `references/` niet wijzigen;
+`index.md`, `log.md`, `generated` en `verified` niet zelf schrijven; tegenspraak tussen bronnen benoemen).
 
-Dezelfde opbouw (`AGENTS.md` + `knowledge/`), met twee verschillen:
+### 6.7 Het persoonlijke brein
 
-- **Voorkeuren in `AGENTS.md`**, in een deel "Mijn voorkeuren" (rol, schrijfstijl, hoe ik samenvattingen
-  wil). Dat bestand gaat volledig in elke chat (N3), dus een geleerde voorkeur werkt meteen overal. Kennis
-  gaat als concepten in `knowledge/`.
-- **Bestaand second brain (§5.1.1)**: BonzaiWork voegt `AGENTS.md` en `knowledge/` toe; de bestaande
-  notities blijven waar ze staan en buiten de bundel (ze hebben geen `type`, dus binnen de bundel zouden ze
-  niet conform zijn). De AI leest ze en mag ze bijwerken (N4). Met **"Omzetten naar OKF"**
-  (`/inrichten`, fase 2) maakt de AI er map voor map concepten van in `knowledge/`, met de oorspronkelijke
-  notitie als bron; de notities zelf blijven staan. De gebruiker start dat zelf, per map.
+Dezelfde opbouw (`AGENTS.md`, `_meta/`, `knowledge/`, en `workflows/` voor eigen werkwijzen), met deze
+verschillen:
+
+- **Voorkeuren in `_meta/voorkeuren.md`** (rol, schrijfstijl, hoe ik samenvattingen wil), niet in
+  `AGENTS.md` (die blijft routering). De persoonlijke instructie-entry (§5.1) bestaat uit `AGENTS.md` +
+  `_meta/voorkeuren.md`, volledig (N3), binnen de grens van N6. Een geleerde voorkeur werkt zo meteen overal.
+- **Persoonlijke werkwijzen** in `workflows/` zijn in elk project te starten, net als die van het
+  projectbrein; hun stappen lezen dan uit het persoonlijke brein én het huidige project.
+- **Bestaand second brain (§5.1.1)**: BonzaiWork voegt `AGENTS.md`, `_meta/` en `knowledge/` toe; de
+  bestaande notities blijven waar ze staan en buiten de bundel (ze hebben geen `type`). De AI leest ze en
+  mag ze bijwerken (N4). **"Inrichten"** (`/inrichten`, fase 2) gebruikt de Restructure-modus van
+  `icm-architect`: inventaris, elke notitie indelen, een migratievoorstel ter goedkeuring, en dan per map
+  concepten in `knowledge/` maken met de oorspronkelijke notitie als bron. De notities zelf blijven staan.
 - **Importeren**: een OKF-bundel uit een ander hulpmiddel (bijv. een Mem-export) kan in één keer in
-  `knowledge/` (fase 2): de sync controleert de conformiteit en laat onbekende velden staan.
+  `knowledge/` (fase 2); de sync controleert de conformiteit.
 
-### 6.7 Zoeken als een brein groeit
+### 6.8 Zoeken als een brein groeit
 
-De `index.md` per map is OKF's eigen manier om een agent stap voor stap te laten zoeken; voor kleine en
-middelgrote breinen is dat genoeg. `brein_zoeken` en `persoonlijk_brein_zoeken` volgen dezelfde route
-(root-index → map-index → concept) en vallen terug op tekstzoeken, ook in `title`, `description` en
-`tags`. Fase 3: hybride zoeken (trefwoorden + betekenis) voor grote breinen, met embeddings via LiteLLM
-en de index lokaal.
+De `index.md` per map is OKF's manier om een agent stap voor stap te laten zoeken, en dat is ook ICM's
+gelaagd laden: eerst de ingang, dan wat de taak nodig heeft, nooit alles. `brein_zoeken` en
+`persoonlijk_brein_zoeken` volgen dezelfde route (root-index → map-index → concept) en vallen terug op
+tekstzoeken in `title`, `description` en `tags`. Fase 3: hybride zoeken voor grote breinen, met
+embeddings via LiteLLM en de index lokaal.
+
+### 6.9 Waar we bewust van ICM afwijken
+
+ICM staat afwijken toe, mits je opschrijft waarom. Deze afwijkingen komen ook in `_meta/schema.md`:
+
+- **`output/` wordt niet gedeeld** (I1). In ICM zit de output in de map en gaat hij mee in git. In een
+  gedeelde repo zouden twee collega's die dezelfde werkwijze draaien elkaars output overschrijven. Wat
+  blijvend is, legt de gebruiker vast als kennis (`/vastleggen`); het eindproduct verlaat de werkwijze
+  sowieso.
+- **Geen verplichte Python-scripts.** ICM's `_tools/` (`links.py`, `index.py`) doet BonzaiWork in de app
+  (§6.5); gebruikers hoeven geen Python te hebben. Een brein mag eigen scripts meebrengen, maar die draaien
+  alleen in een vertrouwd brein (§7.1).
+- **Geen `CLAUDE.md`-verwijzing nodig**: OpenCode leest `AGENTS.md` zelf.
+- **Indexen**: in `knowledge/` OKF's `index.md` (gegenereerd), in `workflows/` is de `CONTEXT.md` de
+  catalogus. ICM's `_index.md` gebruiken we niet.
 
 ## 7. Veiligheid
 
@@ -541,6 +663,9 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
   elke gebruiker beslist zelf. Zonder akkoord laden die onderdelen niet.
 - Komt er via een pull zo'n onderdeel bij of verandert het, dan opnieuw vragen vóór het laadt (diff op
   `opencode.json`, `.opencode/plugins/`, `.opencode/agents/`, `mcp`-sectie).
+- **Scripts in werkwijzen** (een stap of controle die een commando noemt, of `_tools/` in het brein) zijn
+  ook code uit een gedeelde repo. Ze staan in de vertrouwensstap, draaien alleen als het brein vertrouwd
+  is, en altijd met toestemming van de engine.
 - De keuzes staan per gebruiker in `brains.json` (niet in de repo).
 - Het mechanisme om onderdelen uit te zetten bestaat nog niet voor de hooks (§3, tabel). Fase 0 moet
   aantonen dat het kan; zonder dat geen fase 1 met gedeelde breinen die `opencode.json` of `.opencode/`
@@ -594,6 +719,10 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
 | `GET /bonzaiwork/brains/:workspaceId/history` | client | laatste commits: wie, wat, wanneer, welke chat |
 | `POST /bonzaiwork/brains/:workspaceId/resolve` | client | `{ strategy: "ai" \| "keep-mine-apart" }` |
 | `* /bonzaiwork/brains/mcp` | lokaal token | de breinen-MCP (§5.2), alleen voor de engine |
+| `GET /bonzaiwork/brains/:workspaceId/workflows` | client | werkwijzen (ook die van het persoonlijke brein) met hun stappen en de status van de lopende run |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/runs` | client | nieuwe run: vorige naar `_runs/`, chatgroep aanmaken |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start` | client | invoer controleren, stap als nieuwe chat starten; `409` met de ontbrekende invoer |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check` | client | `{ verdict: "pass" \| "fail", reason? }` van een persoon, of de modelcontrole laten draaien |
 
 ```ts
 type BrainKind = "project" | "personal";
@@ -634,6 +763,11 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 - **Chat**: onder een afgeronde beurt een stille regel "Gedeeld met het brein · 3 concepten" (of "Wordt
   gedeeld zodra je weer online bent"). Lezen in een ander brein in woorden: "Las *Offerteproces* in het
   Sales-brein". De toestemmingskaart voor een ander brein (§5.2) in de bestaande stijl.
+- **Werkwijzen**: op de projectpagina en in de composer ("Werkwijze starten"). Een lopende run als
+  stappenbalk in de sidecar (klaar / bezig / wacht op jou / afgekeurd), met per stap het outputbestand om
+  te openen en aan te passen. Controlekaart in de stijl van de toestemmingskaarten: "Klopt de
+  conceptofferte?" → Goedkeuren / Openen en aanpassen / Opnieuw. "Volgende stap" pas na goedkeuring. Een
+  ontbrekende invoer in woorden ("De brief uit stap 1 ontbreekt").
 - **Concept in de sidecar**: titel, type en tags; de vertrouwenstrede uit OKF ("Door AI geschreven, niet
   nagekeken" / "Nagekeken door Jan, 30 okt" / "Nagekeken vóór de laatste wijziging"), de `status`
   ("Concept", "Vastgesteld", "Vervangen") en "Verlopen" na `stale_after`; knop **"Klopt"** (§6.2) en de
@@ -667,7 +801,10 @@ Nog open:
 
 | # | Vraag | Voorstel |
 |---|---|---|
-| N6 | Hoe groot mogen de persoonlijke instructies zijn die volledig in elke chat gaan? | **32 KiB** (ruwweg 8k tokens per beurt), met een waarschuwing in "Mijn brein" erboven en ingekort meesturen. 192 KiB zou ~50k tokens per beurt zijn, op LiteLLM-kosten |
+| N6 | Hoe groot mogen de persoonlijke instructies zijn die volledig in elke chat gaan? | **32 KiB** (ruwweg 8k tokens per beurt), met een waarschuwing in "Mijn brein" erboven en ingekort meesturen. 192 KiB zou ~50k tokens per beurt zijn, op LiteLLM-kosten. Met ICM wordt dit kleiner: `AGENTS.md` is alleen routering (~60 regels), dus vooral `voorkeuren.md` telt |
+| I1 | Worden de outputs van werkwijze-runs gedeeld (in git) of blijven ze per gebruiker? | **Per gebruiker** (§6.9): anders overschrijven collega's elkaars run. Blijvends gaat als kennis via `/vastleggen` |
+| I2 | `icm-architect` (MIT) meeleveren als skill voor `/werkwijze` en `/inrichten`? | **Ja**, met naamsvermelding; zijn Python-scripts niet, die doet de app (§6.9) |
+| I3 | Welke controles mag een werkwijze gebruiken? | Persoon en klein model (via LiteLLM, kost weinig) altijd; script alleen in een vertrouwd brein (§7.1) |
 
 ## 10. Fasering
 
@@ -676,8 +813,8 @@ Nog open:
 - SSH via het systeem op Windows (OpenSSH-client en ssh-agent-service) en macOS (sleutelhanger); wat
   gebeurt er bij een sleutel met wachtwoord die niet in de agent zit.
 - `DownstreamServerHost`: sessie-activiteit en een MCP-entry in de globale engine-config (verwacht: ja).
-- **Ja/nee**: eigen instructie-entry per sessie voor de persoonlijke instructies, ook voor sub-taken
-  (§5.1). Nee → hook in `server.ts`.
+- **Ja/nee**: eigen instructie-entries per sessie (`bonzaiwork.personal` en `bonzaiwork.rules`), ook voor
+  sub-taken (§5.1, §6.6). Nee → hook in `server.ts`.
 - **Ja/nee**: toestemmingsregels vanuit de hooks (globale `git`- en `.git/**`-deny, `ask`/`allow` per
   breinen-MCP-tool). Nee → uitbreiding van de hook in `managed-opencode-v2.ts`.
 - Hoe komen persoonlijke skills in elke chat (§5.1, punt 1).
@@ -694,8 +831,12 @@ Nog open:
 - Persoonlijk brein: nieuwe map of bestaande vault kiezen in de onboarding, mappen uitsluiten, project
   "Mijn brein", optionele privérepo, instructies (volledig) en skills in elk project,
   `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), geschiedenis met terugzetten (`git init` zonder origin, of buiten de map bij cloud-sync).
-- OKF-sjabloon (§6): `AGENTS.md`, `knowledge/` met root-`index.md` (`okf_version: "0.2"`), `log.md` en
-  `references/`, skills en commando's voor verwerken, vastleggen en onderhoud. Globale `git`- en `.git/**`-deny via de
+- Breinsjabloon (§6): `AGENTS.md` als ICM-ingang, `_meta/schema.md`, `_templates/`, `knowledge/` met
+  root-`index.md` (`okf_version: "0.2"`), `log.md` en `references/`, een lege `workflows/`; skills en
+  commando's voor verwerken, vastleggen, onderhoud en `/werkwijze` (met `icm-architect`, I2). App-regels
+  als eigen instructie-entry `bonzaiwork.rules` (§6.6).
+- Werkwijzen als bestanden: de AI volgt de contracten via de routering in `AGENTS.md`; de sync controleert
+  de structuur vóór commit en deelt `output/` niet (§6.5, I1). Globale `git`- en `.git/**`-deny via de
   hooks; controle van remote, branch en geschiedenis in de sync (§7.4). In de sync
   (`okf.ts`): conformiteit, `generated`, `index.md` per map, `log.md`, `references/` onveranderlijk.
 - UI: knop "Klopt" (`verified`) en de vertrouwenstrede en `status` bij een concept in de sidecar.
@@ -709,13 +850,18 @@ Nog open:
 - "Laat de AI het samenvoegen", geschiedenis met chat-links, periodieke fetch, routines bij het brein,
   "Als brein synchroniseren" voor bestaande repo's, "Nieuw gedeeld brein".
 - Voorbeeldroutine: dagelijks "Wat is er nieuw in mijn breinen" (leest de nieuwe regels in elke `log.md`).
-- Wekelijkse onderhoudsroutine (slaat over als een teamlid al onderhoud deed), "Omzetten naar OKF" voor
-  een bestaand second brain of een bestaande repo, en een OKF-bundel importeren.
+- Wekelijkse onderhoudsroutine (slaat over als een teamlid al onderhoud deed), "Inrichten" met de
+  Restructure-modus van `icm-architect` voor een bestaand second brain of een bestaande repo, en een
+  OKF-bundel importeren.
+- **Werkwijzen draaien in de app** (§6.5): invoer controleren, elke stap als nieuwe chat in de groep van de
+  run, controlekaart en modelcontrole, "volgende stap" pas na `pass`, stappenbalk. Een werkwijze als
+  routine (een controle door een persoon zet de routine op "wacht op jou", zoals R2).
 
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een
   push op een beschermde branch faalt.
-- Hybride zoeken voor grote breinen (§6.6).
+- Hybride zoeken voor grote breinen (§6.8).
+- Werkwijzen met een script als controle of stap, voor vertrouwde breinen (§6.9).
 
 ## 11. Testen
 
@@ -730,6 +876,12 @@ Nog open:
   gelijktijdige `log.md`-regels blijven allebei staan, per datum, nieuwste eerst; wijzigen of verwijderen
   in `references/` wordt geweigerd en teruggezet; onbekende frontmattersleutels blijven staan. De
   voorbeeldbundels uit Google's repo gaan ongewijzigd door de conformiteitscontrole.
+- **ICM** (`icm.ts`): een stapcontract zonder `Inputs`, `Process`, `Outputs` of `Check`, of met een
+  reference-pad dat niet bestaat, blokkeert de commit; een stap met ontbrekende of lege invoer start niet en
+  noemt de invoer; de status volgt uit `output/` en `check.md` (ook `fail: <waarom>`); "volgende stap" kan
+  pas na `pass`; `output/` en `_runs/` komen nooit in een commit; een link van `knowledge/` naar
+  `workflows/` geeft een waarschuwing. De voorbeeldwerkspaces uit de ICM-repo gaan door de structuurcontrole
+  (met de afwijkingen uit §6.9).
 - **Gekozen vault** (fixture: een kleine Obsidian-vault met wikilinks, frontmatter, `.obsidian/` en
   bijlagen): bewerken met verouderde versie → geweigerd; elke beurt staat in de eigen geschiedenis en is
   terug te zetten; een lokale vault zonder git krijgt `git init` zonder origin; een vault in een
