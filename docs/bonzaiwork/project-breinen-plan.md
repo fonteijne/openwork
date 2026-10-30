@@ -802,7 +802,7 @@ Nog open:
 | # | Vraag | Voorstel |
 |---|---|---|
 | N6 | Hoe groot mogen de persoonlijke instructies zijn die volledig in elke chat gaan? | **32 KiB** (ruwweg 8k tokens per beurt), met een waarschuwing in "Mijn brein" erboven en ingekort meesturen. 192 KiB zou ~50k tokens per beurt zijn, op LiteLLM-kosten. Met ICM wordt dit kleiner: `AGENTS.md` is alleen routering (~60 regels), dus vooral `voorkeuren.md` telt |
-| I1 | Worden de outputs van werkwijze-runs gedeeld (in git) of blijven ze per gebruiker? | **Per gebruiker** (§6.9): anders overschrijven collega's elkaars run. Blijvends gaat als kennis via `/vastleggen` |
+| I1 | Worden de outputs van werkwijze-runs gedeeld (in git) of blijven ze per gebruiker? | **Per gebruiker** (§6.9): anders overschrijven collega's elkaars run. Wat blijvend is, gaat als kennis via `/vastleggen` |
 | I2 | `icm-architect` (MIT) meeleveren als skill voor `/werkwijze` en `/inrichten`? | **Ja**, met naamsvermelding; zijn Python-scripts niet, die doet de app (§6.9) |
 | I3 | Welke controles mag een werkwijze gebruiken? | Persoon en klein model (via LiteLLM, kost weinig) altijd; script alleen in een vertrouwd brein (§7.1) |
 
