@@ -180,11 +180,16 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
 
 ### 5.1 Het persoonlijke brein
 
-- **Eén per gebruiker**, in `~/BonzaiWork/Persoonlijk`. De onboarding maakt het aan als **lokale map**
-  (N1); geen git nodig en geen waarschuwing over back-ups.
-- **Optioneel een privérepo**: in de instellingen van "Mijn brein" kan de gebruiker het koppelen aan een
-  eigen repo via SSH (dan dezelfde sync als een projectbrein), of bij een tweede laptop "Haal je
-  persoonlijke brein op" kiezen. Zonder repo is de status gewoon "Alleen op deze laptop".
+- **Eén per gebruiker.** De onboarding vraagt "Heb je al een eigen notitiemap of second brain?" (N1):
+  - **Ja → kies die map.** BonzaiWork gebruikt de map **waar hij staat** (Obsidian-vault, Logseq-graph,
+    gewone Markdown-map, ook in iCloud/OneDrive/Dropbox). Niets wordt gekopieerd of verplaatst. Zie
+    §5.1.1.
+  - **Nee → nieuw.** BonzaiWork maakt `~/BonzaiWork/Persoonlijk` aan als **lokale map**; geen git nodig en
+    geen waarschuwing over back-ups.
+  - **Haal op uit een repo** (tweede laptop, of een privérepo die al bestaat): clone via SSH.
+  - Later wisselen kan in de instellingen van "Mijn brein"; de oude map blijft dan gewoon staan.
+- **Synchroniseren is optioneel**: een nieuwe map kan de gebruiker koppelen aan een eigen privérepo via
+  SSH (dan dezelfde sync als een projectbrein). Zonder repo is de status gewoon "Alleen op deze laptop".
 - Het is ook een **gewoon project** ("Mijn brein", altijd bovenaan, niet te archiveren): daar chat je om
   je eigen kennis en workflows te ordenen.
 - **Telt mee in elk project**, op twee manieren:
@@ -197,10 +202,42 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
      naar `~/BonzaiWork/Persoonlijk`, of de MCP-route hieronder.
   2. **Schrijven vanuit elk project**: leert de AI in project X iets persoonlijks ("ik wil samenvattingen
      altijd in drie punten"), dan legt hij dat vast met het MCP-hulpmiddel `persoonlijk_brein_schrijven`.
-     Dat schrijft alleen Markdown binnen `~/BonzaiWork/Persoonlijk`; de `Stop`-hook deelt het daarna.
+     Dat schrijft alleen Markdown binnen het persoonlijke brein (bij een gekozen map: alleen in de
+     BonzaiWork-submap, §5.1.1); de `Stop`-hook deelt het daarna als er een repo aan hangt.
 - **Wat waar hoort**: teamkennis in het projectbrein, persoonlijke voorkeuren en eigen werkwijzen in het
   persoonlijke brein. Bij twijfel vraagt de AI het (staat in de vaste instructie, §6). Het persoonlijke
   brein schrijft nooit naar een projectbrein en omgekeerd.
+
+#### 5.1.1 Een bestaand second brain kiezen
+
+Waarom kiezen in plaats van kopiëren: een kopie geeft twee versies die uit elkaar lopen, en verplaatsen
+breekt wat de collega al heeft (Obsidian, de sync via iCloud of Obsidian Sync, plugins). Met kiezen blijft
+hun eigen werkwijze precies zoals hij was en ziet BonzaiWork altijd de actuele notities.
+
+- **BonzaiWork blijft in één submap**: de app maakt in de gekozen map één map `BonzaiWork/` aan met
+  `instructies.md` (de persoonlijke instructies die volledig in elke chat gaan, N3), `skills/` en
+  `geleerd/` (waar de AI nieuwe notities schrijft). In Obsidian zijn dat gewone notities, dus de collega
+  kan ze lezen en bijwerken. Heeft de map al een `AGENTS.md` in de hoofdmap, dan telt die ook mee.
+- **De rest van de map is alleen lezen** voor de AI (zoeken en lezen via `persoonlijk_brein_zoeken/lezen`).
+  Bestaande notities wijzigen kan alleen als de gebruiker dat aanzet ("Mag BonzaiWork ook bestaande
+  notities bijwerken?", standaard uit; N4).
+- **Alleen de instructies gaan altijd mee**, niet de hele map. Een vault met duizenden notities komt dus
+  niet in elke chat; de AI zoekt erin als dat helpt. Dat houdt N3 werkbaar.
+- **Mappen uitsluiten**: bij het kiezen (en later in de instellingen) vinkt de gebruiker mappen uit die de
+  AI nooit mag lezen, bijvoorbeeld `Dagboek/` of `Gezondheid/`. Standaard uit: `.obsidian/`, `.trash/`,
+  `.logseq/`, `.git/`, bijlagenmappen met alleen afbeeldingen en pdf's (tekst-only in fase 1).
+- **Bestaande sync blijft van de gebruiker**: staat de map in iCloud, OneDrive, Dropbox of gebruikt hij
+  Obsidian Sync, dan doet BonzaiWork geen git en raakt die sync niet aan. Is de map al een git-repo (bijv.
+  de Obsidian Git-plugin), dan vraagt de app: "Synchroniseert iets anders deze map al?" Ja → BonzaiWork
+  blijft van git af (twee programma's die allebei committen geven conflicten). Nee → BonzaiWork mag de
+  sync doen zoals bij een projectbrein.
+- **Cloudmappen**: bestanden die alleen online staan (iCloud "Optimaliseer opslag", OneDrive "Bestanden op
+  aanvraag") slaat zoeken over in plaats van ze te downloaden; `instructies.md` laat de app lokaal houden
+  waar het systeem dat toestaat. Fase 0 test dit op macOS en Windows.
+- **Obsidian-gewoonten**: `[[wikilinks]]` en frontmatter laat de AI ongemoeid en gebruikt hij ook in
+  nieuwe notities in `BonzaiWork/geleerd/`, zodat ze in de graph van de collega passen.
+- **Project "Mijn brein"** wijst naar de gekozen map. Bijlagen uit chats komen daar in
+  `.opencode/openwork/inbox/`; Obsidian en Logseq tonen mappen met een punt niet.
 
 ### 5.2 Informatie uit andere breinen (alleen lezen)
 
@@ -338,9 +375,16 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
 | B5 | Vertrouwen per gebruiker of centraal? | **Per gebruiker** |
 | B6 | Brein als project of extra map? | **Een brein is altijd een eigen project, gedeeld met teamleden.** Plus één **persoonlijk brein** per gebruiker dat in elk project meetelt. Andere al-geclonede breinen zijn in een chat te raadplegen (alleen lezen) |
 
-| N1 | Persoonlijk brein verplicht als privérepo? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel |
+| N1 | Persoonlijk brein verplicht als privérepo? Kan een bestaand second brain? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel. Een bestaand second brain wordt **gekozen, niet gekopieerd** (§5.1.1) |
 | N2 | Mag de AI uit eigen beweging in andere breinen kijken? | **Alleen als de gebruiker erom vraagt, of na een voorstel van de AI** dat de gebruiker goedkeurt (§5.2) |
 | N3 | Persoonlijke instructies altijd volledig in elke chat? | **Ja**, tot de bestaande grens van 192 KiB |
+
+Nog open:
+
+| # | Vraag | Voorstel |
+|---|---|---|
+| N4 | Mag de AI bestaande notities in een gekozen second brain wijzigen? | Standaard **nee**: alleen schrijven in `BonzaiWork/`; per gebruiker aan te zetten |
+| N5 | Welke formaten in fase 1? | Markdown en platte tekst (Obsidian, Logseq, gewone mappen). Notion/Evernote-exports zijn ook Markdown/HTML en werken na exporteren; pdf's en afbeeldingen later |
 
 ## 10. Fasering
 
