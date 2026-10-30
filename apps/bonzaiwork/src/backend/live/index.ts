@@ -84,6 +84,7 @@ function readStatus(payload: unknown, readOnly: boolean): ServerStatus {
         return id ? [{ id, name: str(model, "name") ?? id }] : [];
       }),
       defaultModel: str(payload, "defaultModel") ?? null,
+      preferredModels: strings(field(payload, "preferredModels")),
       readOnly,
     },
     workspaceKeys,
@@ -455,7 +456,7 @@ export async function createLiveBackend(): Promise<Backend> {
         const listed = await listWorkspaces();
         const id = str(payload, "activeId") ?? listed.find((entry) => entry.path.replace(/[\\/]+$/, "") === folderPath.replace(/[\\/]+$/, ""))?.id;
         if (!id) throw new BackendError("invalid_response", "Het project is gemaakt, maar niet teruggevonden. Ververs de lijst.");
-        await meta.patch(id, { description: input.description, color: input.color, icon: input.icon });
+        await meta.patch(id, { description: input.description, color: input.color, icon: input.icon, allowedModels: input.allowedModels });
         if (input.defaultModel) await req(`/workspace/${enc(id)}/default-model`, { method: "PUT", body: { model: { providerID: PROVIDER_ID, modelID: input.defaultModel } } }).catch(() => null);
         if (input.instructions) await req(`/workspace/${enc(id)}/files/content`, { method: "POST", body: { path: "AGENTS.md", content: input.instructions, force: true } }).catch(() => null);
         return projectById(id);

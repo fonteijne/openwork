@@ -1,3 +1,5 @@
+import { PREFERRED_MODEL_IDS } from "@bonzaiwork/policy";
+
 import {
   BackendError,
   type AppStatus,
@@ -30,7 +32,8 @@ import { createSeed, type DemoState } from "./seed";
  *
  * URL switches (for reviewers): `?demo=leeg` starts without projects (shows
  * onboarding), `?sleutel=gebruiker` uses one key per person instead of per
- * project. Typing "budget op" in a chat shows the budget error.
+ * project, `?voorkeur=geen` gives a key without any preferred model. Typing
+ * "budget op" in a chat shows the budget error.
  */
 
 const CAPABILITIES: Capabilities = {
@@ -102,20 +105,25 @@ function demoFileContent(name: string): string {
 
 type Waiter<T> = { resolve: (value: T) => void; reject: (error: unknown) => void };
 
-export type DemoOptions = { empty: boolean; keyMode: "user" | "workspace" };
+export type DemoOptions = { empty: boolean; keyMode: "user" | "workspace"; noPreferred: boolean };
 
 export function readDemoOptions(search: string): DemoOptions {
   const params = new URLSearchParams(search);
   const demo = params.get("demo");
   const key = params.get("sleutel") ?? params.get("keyMode");
-  return { empty: demo === "leeg" || demo === "empty", keyMode: key === "gebruiker" || key === "user" ? "user" : "workspace" };
+  const preferred = params.get("voorkeur");
+  return {
+    empty: demo === "leeg" || demo === "empty",
+    keyMode: key === "gebruiker" || key === "user" ? "user" : "workspace",
+    noPreferred: preferred === "geen" || preferred === "none",
+  };
 }
 
 export function createDemoBackend(options: DemoOptions): Backend & { reset(): void } {
-  const storageKey = `bonzaiwork.demo.v3.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
+  const storageKey = `bonzaiwork.demo.v4.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
   const stored = readLocalJson(storageKey);
   const isState = (value: unknown): value is DemoState =>
-    typeof value === "object" && value !== null && Reflect.get(value, "version") === 3 && Array.isArray(Reflect.get(value, "projects"));
+    typeof value === "object" && value !== null && Reflect.get(value, "version") === 4 && Array.isArray(Reflect.get(value, "projects"));
   let state: DemoState = isState(stored) ? stored : createSeed(Date.now(), options);
   const freshSeed = !isState(stored);
 
@@ -192,8 +200,9 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
     keyMode: state.keyMode,
     keyStorePersistent: true,
     user: state.userKey ? { hasKey: true, keyHint: keyHint(state.userKey) } : { hasKey: false, keyHint: null },
-    models: clone(state.models),
+    models: clone(options.noPreferred ? state.models.filter((model) => !PREFERRED_MODEL_IDS.includes(model.id)) : state.models),
     defaultModel: state.defaultModel,
+    preferredModels: [...PREFERRED_MODEL_IDS],
     readOnly: false,
   });
 
@@ -598,7 +607,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
           archivedAt: null,
           key: { hasKey: false, keyHint: null },
           defaultModel: input.defaultModel,
-          allowedModels: null,
+          allowedModels: input.allowedModels,
           createdAt: Date.now(),
           keyValue: null,
         };

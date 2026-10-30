@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBackend } from "./context";
 import type { AppStatus, Project } from "./types";
 
+export { hasNoModels, newProjectModels, preferredIn, projectModels, startModel } from "./models";
+
 /** Query keys: one place, so mutations invalidate exactly what they change. */
 export const keys = {
   status: ["status"] as const,
@@ -89,22 +91,6 @@ export function useAgents(projectId: string) {
 export function useComposerEntries(projectId: string) {
   const backend = useBackend();
   return useQuery({ queryKey: keys.entries(projectId), queryFn: () => backend.composer.entries(projectId), staleTime: 60_000 });
-}
-
-/** The models this project may use: the key's models, narrowed by the project's allow-list. */
-export function projectModels(status: AppStatus | undefined, project: Project | null) {
-  const models = status?.models ?? [];
-  if (!project?.allowedModels) return models;
-  const allowed = new Set(project.allowedModels);
-  return models.filter((model) => allowed.has(model.id));
-}
-
-/** The model a new chat in this project starts with. */
-export function startModel(status: AppStatus | undefined, project: Project | null): string | null {
-  const models = projectModels(status, project);
-  if (project?.defaultModel && models.some((model) => model.id === project.defaultModel)) return project.defaultModel;
-  if (status?.defaultModel && models.some((model) => model.id === status.defaultModel)) return status.defaultModel;
-  return models[0]?.id ?? null;
 }
 
 export function modelName(status: AppStatus | undefined, id: string | null): string | null {

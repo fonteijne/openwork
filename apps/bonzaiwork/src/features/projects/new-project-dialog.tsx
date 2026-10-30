@@ -3,7 +3,7 @@ import { ChevronRight, FolderOpen } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, useStatus } from "~/backend/queries";
+import { keys, newProjectModels, startModel, useStatus } from "~/backend/queries";
 import { PROJECT_COLORS, PROJECT_ICONS, type ProjectColor, type ProjectIcon as ProjectIconName } from "~/backend/types";
 import { PROJECT_ICON_COMPONENTS } from "~/components/project-icon";
 import { Button } from "~/components/ui/button";
@@ -92,6 +92,7 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ field: "name" | "key" | "form"; message: string } | null>(null);
   const workspaceKeys = status.data?.keyMode === "workspace";
+  const initialModel = startModel(status.data, { allowedModels: newProjectModels(status.data), defaultModel: null });
 
   useEffect(() => {
     if (!props.open) return;
@@ -103,9 +104,9 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
     setTypingFolder(false);
     setInstructions("");
     setShowMore(false);
-    setModel(status.data?.defaultModel ?? null);
+    setModel(initialModel);
     setError(null);
-  }, [props.open, status.data?.defaultModel]);
+  }, [props.open, initialModel]);
 
   const pickFolder = async () => {
     if (!backend.capabilities.folderPicker) {
@@ -137,6 +138,7 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
         folderPath: folder?.trim() || null,
         instructions: instructions.trim() || null,
         defaultModel: model,
+        allowedModels: newProjectModels(status.data),
       });
       let keyFailure: string | null = null;
       const key = workspaceKeys ? keyField.current?.take().trim() : "";
@@ -163,7 +165,9 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
     }
   };
 
-  const models = status.data?.models ?? [];
+  // A new project starts with the preferred models only: offer just those as its default.
+  const startsWith = newProjectModels(status.data);
+  const models = (status.data?.models ?? []).filter((entry) => !startsWith || startsWith.includes(entry.id));
   const folderLabel = folder ? folder : copy.newProject.folderDefault(defaultFolder());
 
   return (

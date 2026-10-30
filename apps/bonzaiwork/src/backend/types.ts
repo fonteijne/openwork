@@ -26,6 +26,8 @@ export type AppStatus = {
   user: KeyState;
   models: Model[];
   defaultModel: string | null;
+  /** Model ids new projects start with, baked into the build; may include models this key lacks. */
+  preferredModels: string[];
   /** Host actions (create/rename/remove projects, keys) are unavailable. */
   readOnly: boolean;
 };
@@ -87,7 +89,7 @@ export type Project = {
   archivedAt: number | null;
   key: KeyState;
   defaultModel: string | null;
-  /** null = every model of the key. */
+  /** null = every model of the key; [] = none chosen yet. */
   allowedModels: string[] | null;
 };
 
@@ -119,6 +121,7 @@ export type NewProjectInput = {
   folderPath: string | null;
   instructions: string | null;
   defaultModel: string | null;
+  allowedModels: string[] | null;
 };
 
 export type ProjectPatch = Partial<Pick<Project, "name" | "description" | "color" | "icon" | "pinned" | "allowedModels">> & {

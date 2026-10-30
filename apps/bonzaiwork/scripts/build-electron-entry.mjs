@@ -5,7 +5,8 @@
  *   build-config.json  settings baked into this build (O3: the LiteLLM URL is fixed per build)
  *
  * Required: BONZAIWORK_LITELLM_BASE_URL. Optional: BONZAIWORK_DEFAULT_MODEL,
- * BONZAIWORK_KEY_MODE (user | workspace).
+ * BONZAIWORK_KEY_MODE (user | workspace), BONZAIWORK_PREFERRED_MODELS
+ * (comma-separated LiteLLM model ids; unset keeps the built-in list).
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";

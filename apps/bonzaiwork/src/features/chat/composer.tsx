@@ -324,7 +324,7 @@ export const Composer = forwardRef<
         {models.length ? (
           <Select variant="pill" label={copy.chat.model} value={props.model} onValueChange={props.onModelChange} items={models.map((model) => ({ value: model.id, label: model.name }))} />
         ) : (
-          <span className="px-2 text-xs text-muted-foreground">{copy.chat.noModels}</span>
+          <span className="px-2 text-xs text-muted-foreground">{status.data?.models.length ? copy.chat.noModelsChosen : copy.chat.noModels}</span>
         )}
         {agents.data && agents.data.length > 1 ? (
           <Select

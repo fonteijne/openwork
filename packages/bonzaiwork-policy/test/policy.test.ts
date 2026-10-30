@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isAllowedProvider, liteLLMProviderEntry, pickDefaultModel, readSettings, SERVER_ENVIRONMENT_DEFAULTS, trimTrailingSlashes } from "../src/index.ts";
+import { isAllowedProvider, liteLLMProviderEntry, pickDefaultModel, PREFERRED_MODEL_IDS, readPreferredModels, readSettings, SERVER_ENVIRONMENT_DEFAULTS, trimTrailingSlashes } from "../src/index.ts";
 
 describe("provider policy", () => {
   test("only litellm is allowed", () => {
@@ -48,5 +48,12 @@ describe("provider policy", () => {
     expect(pickDefaultModel([{ id: "a" }, { id: "b" }], "b")).toBe("b");
     expect(pickDefaultModel([{ id: "a" }], "missing")).toBe("a");
     expect(pickDefaultModel([], null)).toBeNull();
+  });
+
+  test("preferred models default to the built-in list and a build can override them", () => {
+    expect(readSettings({ BONZAIWORK_LITELLM_BASE_URL: "https://x.org" }).preferredModels).toEqual(["gpt-6-luna", "glm-5", "glm-4.7-flash", "qwen3.8-27b", "gemini-3.8-flash"]);
+    expect(readPreferredModels(undefined)).toEqual([...PREFERRED_MODEL_IDS]);
+    expect(readPreferredModels(" b , a,,b ")).toEqual(["b", "a"]);
+    expect(readPreferredModels("")).toEqual([]);
   });
 });

@@ -23,7 +23,7 @@ zijn een eigen chunk.
 | **Demo** (`src/backend/demo/`) | Overal anders, zoals `pnpm dev` zonder server | Draait in de browser: voorbeeldprojecten, streamende antwoorden met stappen, toestemmingen, vragen, foutstaten, routines met gemiste runs. Staat in `localStorage`. |
 
 Demo-schakelaars in de URL (vóór de `#`): `?demo=leeg` begint zonder projecten, `?sleutel=gebruiker`
-zet keys per gebruiker (O1). Typ in een chat "budget op" of `#fout` voor de foutstaten.
+zet keys per gebruiker (O1), `?voorkeur=geen` geeft een key zonder voorkeursmodellen. Typ in een chat "budget op" of `#fout` voor de foutstaten.
 
 Live in dev: start de server zoals in `docs/bonzaiwork/README.md` ("Ontwikkelen") en open
 `http://localhost:5183/?server=http://127.0.0.1:8787&token=dev&hostToken=dev-host`. Zonder `hostToken` is
