@@ -389,6 +389,8 @@ export type RemoteCheck =
   | { ok: true; sshUrl: string; name: string; empty: boolean }
   | { ok: false; sshUrl: string | null; name: string | null; problem: RemoteProblem | "link"; message: string; host: { name: string; fingerprints: string[] } | null };
 
+export type BrainCandidate = { repository: { remote: string | null; branch: string | null; ssh: boolean } | null };
+
 export type CloneJob = { state: "running" | "done" | "failed"; error: string | null; status: BrainStatus | null };
 
 export type TrustTier = "unverified" | "machine" | "human" | "human_before_change";
@@ -544,6 +546,12 @@ export interface Backend {
     /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
     register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
     unregister(projectId: string): Promise<void>;
+    /** What a project that is not a brain yet can become: its git repository, if it is one. */
+    candidate(projectId: string): Promise<BrainCandidate>;
+    /** "Als brein synchroniseren": a repository with an SSH link becomes a brain as it is. */
+    adopt(projectId: string): Promise<BrainStatus>;
+    /** "Deel als nieuw brein": the folder goes into an empty repository. */
+    publish(projectId: string, url: string, name: string): Promise<BrainStatus>;
     /** Puts the brain template in an empty shared brain and shares it (plan §6.1). */
     setUp(projectId: string, input: { name: string; description: string }): Promise<BrainStatus>;
     /** Before a turn: updates the project brain and the personal brain (at most ~5 s). */

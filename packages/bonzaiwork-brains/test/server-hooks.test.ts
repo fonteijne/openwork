@@ -164,3 +164,44 @@ test("rustige breinen kijken af en toe naar het team; een lopende chat wacht", a
   expect((await call("/bonzaiwork/brains/ws/resolve", { method: "POST", body: { strategy: "ai" } })).body).toMatchObject({ prompt: null, files: [] });
   expect((await call("/bonzaiwork/brains/ws/resolve", { method: "POST", body: { strategy: "other" } })).status).toBe(400);
 });
+
+test("een bestaand project wordt een brein: een eigen repo, of delen in een lege repo", async () => {
+  world = await createWorld();
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+  const host = fakeHost();
+  await hooks.start(host);
+  await call("/bonzaiwork/brains/settings", { method: "PUT", body: { name: "Anna", email: "anna@example.invalid" } });
+
+  // A plain folder with notes and a plugin of the user's own, shared into an empty repository.
+  const plain = join(world.root, "Marketing");
+  await mkdir(join(plain, ".opencode", "plugins"), { recursive: true });
+  await writeFile(join(plain, "campagne.md"), "# Campagne\n");
+  await writeFile(join(plain, ".opencode", "plugins", "mijn.js"), "export default {}\n");
+  const empty = join(world.root, "marketing.git");
+  await world.git.ok(["init", "-q", "--bare", "-b", "main", empty], { cwd: world.root });
+  host.workspaceList = [{ id: "ws_m", path: plain }, { id: "ws_s", path: join(world.root, "Sales") }];
+  expect((await call("/bonzaiwork/brains/ws_m/candidate")).body).toEqual({ repository: null });
+  expect((await call("/bonzaiwork/brains/ws_m/publish", { method: "POST", body: { url: world.url } })).body.code).toBe("remote_not_empty");
+  const published = await call("/bonzaiwork/brains/ws_m/publish", { method: "POST", body: { url: `file://${empty}`, name: "Marketing" } });
+  expect(published.status).toBe(200);
+  expect(published.body.status).toMatchObject({ state: "synced", remote: `file://${empty}` });
+  expect(await world.git.ok(["show", "main:campagne.md"], { cwd: empty })).toBe("# Campagne\n");
+  expect((await world.git.ok(["show", "main:AGENTS.md"], { cwd: empty }))).toContain("# Marketing");
+  // The user's own plugin stays in the folder and is not shared by itself.
+  expect(existsSync(join(plain, ".opencode", "plugins", "mijn.js"))).toBe(true);
+  expect((await world.git.run(["show", "main:.opencode/plugins/mijn.js"], { cwd: empty })).exitCode).not.toBe(0);
+  expect((await call("/bonzaiwork/brains/ws_m/publish", { method: "POST", body: { url: `file://${empty}` } })).body.code).toBe("already_brain");
+
+  // A folder that is a clone already becomes a brain as it is.
+  await world.seed({ "knowledge/a.md": "a\n" });
+  const repo = join(world.root, "Sales");
+  await world.git.ok(["clone", "-q", world.url, repo], { cwd: world.root });
+  const seen = await call("/bonzaiwork/brains/ws_s/candidate");
+  expect(seen.body).toEqual({ repository: { remote: world.url, branch: "main", ssh: false } });
+  const adopted = await call("/bonzaiwork/brains/ws_s/adopt", { method: "POST", body: {} });
+  expect(adopted.status).toBe(200);
+  expect(adopted.body.status).toMatchObject({ state: "synced", branch: "main", pendingTrust: [] });
+  await writeFile(join(repo, "knowledge/b.md"), "b\n");
+  expect((await call("/bonzaiwork/brains/ws_s/sync", { method: "POST" })).body).toMatchObject({ state: "synced" });
+  expect(await world.git.ok(["show", "main:knowledge/b.md"], { cwd: world.bare })).toBe("b\n");
+});

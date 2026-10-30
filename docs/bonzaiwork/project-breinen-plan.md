@@ -997,6 +997,12 @@ Stand fase 2 (bezig):
   (alleen `fetch`); de pil toont dan "2 nieuwe wijzigingen van het team". De map verandert pas vóór de
   volgende beurt.
 - Geschiedenis: "Open de chat" bij je eigen beurten.
+- **Een bestaand project wordt een brein** (Projectinstellingen → Brein): een map die al een git-repo met
+  SSH-link is, wordt met **"Als brein synchroniseren"** een brein zoals hij is (niets geclonet of
+  verplaatst; wat erin staat telt als vertrouwd). Een gewone map gaat met **"Deel als nieuw brein"** in
+  een lege repo: `git init` in de map, het sjabloon waar het ontbreekt, eerste commit en push. Een repo die
+  niet leeg is, wordt geweigerd ("haal hem op als gedeeld brein"). Een lege repo ophalen via "Uit een
+  gedeeld brein" richt hem ook in (fase 1).
 
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een

@@ -1,6 +1,7 @@
 import {
   BackendError,
   type Backend,
+  type BrainCandidate,
   type BrainHistoryEntry,
   type BrainKind,
   type BrainMode,
@@ -170,6 +171,12 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     },
     register: async (projectId, input) => requireStatus(await req(brain(projectId), { method: "PUT", body: input, ...host })),
     unregister: async (projectId) => void (await req(brain(projectId), { method: "DELETE", ...host })),
+    async candidate(projectId): Promise<BrainCandidate> {
+      const repository = field(await req(`${brain(projectId)}/candidate`, host), "repository");
+      return { repository: rec(repository) ? { remote: str(repository, "remote") ?? null, branch: str(repository, "branch") ?? null, ssh: field(repository, "ssh") === true } : null };
+    },
+    adopt: async (projectId) => requireStatus(await req(`${brain(projectId)}/adopt`, { method: "POST", body: {}, ...host, timeoutMs: 120_000 })),
+    publish: async (projectId, url, name) => requireStatus(await req(`${brain(projectId)}/publish`, { method: "POST", body: { url, name }, ...host, timeoutMs: 120_000 })),
     setUp: async (projectId, input) => requireStatus(await req(`${brain(projectId)}/setup`, { method: "POST", body: input, ...host, timeoutMs: 120_000 })),
     prepare: async (projectId, chatId) => void (await req(`${brain(projectId)}/pull`, { method: "POST", body: { sessionId: chatId }, timeoutMs: 15_000 })),
     share: async (projectId) => requireStatus(await req(`${brain(projectId)}/sync`, { method: "POST", timeoutMs: 120_000 })),

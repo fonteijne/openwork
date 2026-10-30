@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Ellipsis, MessageSquare } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { useBrain, useBrainAuthor, useBrainHistory, useStatus } from "~/backend/queries";
-import type { BrainMode, Project } from "~/backend/types";
+import type { BrainMode, Project, RemoteCheck } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/field";
 import { Menu, MenuItem } from "~/components/ui/menu";
@@ -16,6 +17,7 @@ import { navigate } from "~/lib/router";
 import { fileName } from "~/lib/tools";
 
 import { useBrainAction } from "./actions";
+import { BrainLinkField } from "./link-field";
 import { brainStateLabel } from "./status-pill";
 
 const MODES: BrainMode[] = ["auto", "manual", "read_only"];
@@ -96,6 +98,50 @@ function PrivateRepo(props: { projectId: string; path: string }) {
   );
 }
 
+/**
+ * A project that is not a brain yet (fase 2): a repository with an SSH link
+ * becomes one as it is; a plain folder can go into an empty repository.
+ */
+function BecomeBrain(props: { project: Project; readOnly: boolean }) {
+  const backend = useBackend();
+  const candidate = useQuery({ queryKey: ["brain-candidate", props.project.id], queryFn: () => backend.brains.candidate(props.project.id) });
+  const { busy, run, brains } = useBrainAction(props.project.id);
+  const [check, setCheck] = useState<RemoteCheck | null>(null);
+  if (candidate.isLoading) return <Skeleton className="my-3 h-12 w-full" />;
+  const repository = candidate.data?.repository ?? null;
+  if (repository) {
+    return (
+      <Row
+        label={copy.brain.adoptTitle}
+        hint={repository.remote ?? undefined}
+        value={repository.ssh ? undefined : <Locked>{copy.brain.adoptNotSsh}</Locked>}
+        action={repository.ssh ? (
+          <Button variant="secondary" size="sm" disabled={props.readOnly || busy !== null} onClick={() => void run("adopt", () => brains.adopt(props.project.id), copy.brain.adopted)}>
+            {copy.brain.adopt}
+          </Button>
+        ) : undefined}
+      />
+    );
+  }
+  const notEmpty = check?.ok === true && !check.empty;
+  return (
+    <div className="border-b border-border py-3" data-testid="brain-publish">
+      <div className="text-sm font-medium">{copy.brain.publishTitle}</div>
+      <p className="mb-2 text-xs text-muted-foreground">{copy.brain.publishHint}</p>
+      <BrainLinkField check={check} onCheck={setCheck} disabled={props.readOnly || busy !== null} />
+      {notEmpty ? <p className="mt-2 text-sm text-muted-foreground" role="status">{copy.brain.publishNotEmpty}</p> : null}
+      <Button
+        className="mt-3"
+        variant="primary"
+        disabled={props.readOnly || busy !== null || !check?.ok || notEmpty}
+        onClick={() => { if (check?.ok) void run("publish", () => brains.publish(props.project.id, check.sshUrl, props.project.name), copy.brain.published); }}
+      >
+        {copy.brain.publish}
+      </Button>
+    </div>
+  );
+}
+
 /** Project settings, "Brein" (brains plan §8.2): rows, state right, one action each (DESIGN.md S2). */
 export function BrainSettingsSection(props: { project: Project }) {
   const backend = useBackend();
@@ -112,6 +158,7 @@ export function BrainSettingsSection(props: { project: Project }) {
     return (
       <Section title={copy.brain.sectionTitle}>
         <Row label={copy.brain.notABrain} />
+        <BecomeBrain project={props.project} readOnly={readOnly} />
       </Section>
     );
   }

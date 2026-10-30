@@ -476,6 +476,9 @@ type BrainStatus = {
 | `PUT /bonzaiwork/brains/:workspaceId/excluded` | host | `{ folders }`: uitgesloten mappen (persoonlijk brein) |
 | `POST /bonzaiwork/brains/:workspaceId/remote` | host | `{ url }`: privérepo aan het persoonlijke brein koppelen |
 | `POST /bonzaiwork/brains/:workspaceId/restore` | client | `{ commit, path? }`: notitie terugzetten, of zonder `path` de beurt terugdraaien |
+| `GET /bonzaiwork/brains/:workspaceId/candidate` | host | `{ repository: { remote, branch, ssh } \| null }`: is de projectmap al een git-repo? |
+| `POST /bonzaiwork/brains/:workspaceId/adopt` | host | "Als brein synchroniseren": repo met SSH-link wordt een brein zoals hij is |
+| `POST /bonzaiwork/brains/:workspaceId/publish` | host | `{ url, name }`: "Deel als nieuw brein" in een lege repo; `409 remote_not_empty` / `already_repository` |
 | `POST /bonzaiwork/brains/:workspaceId/setup` | host | `{ name, description }`: breinsjabloon in een lege repo, daarna delen |
 | `GET /bonzaiwork/brains/:workspaceId/concept?path=` | client | `{ concept }`: OKF-type, status, verlopen, schrijver, nakijkers, vertrouwensniveau, bronnen |
 | `POST /bonzaiwork/brains/:workspaceId/verify` | client | `{ path }`: "Klopt" vastleggen in de notitie |

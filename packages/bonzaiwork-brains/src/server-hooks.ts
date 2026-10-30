@@ -491,6 +491,51 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     return json({ workspaceId, status });
   }
 
+  /** What a project that is not a brain yet can become (projectinstellingen → Brein). */
+  async function candidate(workspaceId: string): Promise<Response> {
+    const workspace = host?.workspaces().find((entry) => entry.id === workspaceId);
+    if (!workspace || !git) return failure(404, "workspace_not_found", "Workspace not found.");
+    const base = { cwd: workspace.path };
+    const inside = await git.run(["rev-parse", "--git-dir"], base);
+    if (inside.exitCode !== 0 || inside.stdout.trim() !== ".git") return json({ repository: null });
+    const remote = (await git.run(["remote", "get-url", "origin"], base)).stdout.trim() || null;
+    const branch = (await git.run(["symbolic-ref", "--short", "-q", "HEAD"], base)).stdout.trim() || null;
+    return json({ repository: { remote, branch, ssh: remote !== null && /^(git@|ssh:\/\/)/.test(remote) } });
+  }
+
+  /** "Als brein synchroniseren" and "Deel als nieuw brein" (plan §4.1, fase 2). */
+  async function become(request: Request, workspaceId: string, how: "adopt" | "publish"): Promise<Response> {
+    if (host?.readOnly) return failure(403, "read_only", "This device is read-only.");
+    const workspace = host?.workspaces().find((entry) => entry.id === workspaceId);
+    if (!workspace) return failure(404, "workspace_not_found", "Workspace not found.");
+    if (known(workspaceId)) return failure(409, "already_brain", "This project is a brain already.");
+    if (!git) return failure(503, "starting", "BonzaiWork is still starting.");
+    const body = (await readBody(request)) ?? {};
+    const options = { git, id: workspaceId, path: workspace.path, author, save: (next: BrainRecord) => registry.upsert(next), log, platform };
+    let made: BrainSync;
+    try {
+      if (how === "adopt") {
+        made = await BrainSync.adopt({ ...options, mode: MODES.find((candidate) => candidate === body.mode) ?? "auto", allowFileProtocol });
+      } else {
+        const parsed = parseRemote(text(body, "url") ?? "");
+        const local = allowFileProtocol && text(body, "url")?.startsWith("file://") ? text(body, "url") : null;
+        if (!local && !parsed.ok) return failure(400, "link_invalid", "This is not a repository link.");
+        made = await BrainSync.publish({ ...options, remote: local ?? (parsed.ok ? parsed.link.sshUrl : "") });
+      }
+    } catch (error) {
+      if (error instanceof BrainCloneError) return failure(409, error.problem, error.message);
+      throw error;
+    }
+    await registry.upsert(made.snapshot);
+    made.dispose();
+    const sync = await activate(made.snapshot, workspace.path);
+    const status = how === "publish"
+      ? await sync.firstShare({ name: text(body, "name") || workspace.path.split(/[\\/]/).filter(Boolean).at(-1) || "Brein", description: text(body, "description") ?? "" })
+      : await sync.prepareTurn();
+    await refreshPolicies();
+    return json({ workspaceId, status });
+  }
+
   async function unregister(workspaceId: string): Promise<Response> {
     const sync = known(workspaceId);
     sync?.dispose();
@@ -636,6 +681,12 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         });
       },
     },
+    {
+      method: "GET", path: "/bonzaiwork/brains/:workspaceId/candidate", auth: "host-token",
+      handle: (_request, params) => candidate(params.workspaceId),
+    },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/adopt", auth: "host-token", handle: (request, params) => become(request, params.workspaceId, "adopt") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/publish", auth: "host-token", handle: (request, params) => become(request, params.workspaceId, "publish") },
     {
       method: "POST", path: "/bonzaiwork/brains/:workspaceId/setup", auth: "host-token",
       handle: async (request, params) => {

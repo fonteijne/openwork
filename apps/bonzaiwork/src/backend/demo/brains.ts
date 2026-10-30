@@ -130,7 +130,7 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
       if (!/gitlab\.com|github\.com/.test(url) && !state.verified[`host:${url.split("/")[2] ?? url}`]) {
         return { ok: false, sshUrl: url, name, problem: "host_unknown", message: "De server van dit brein is nog onbekend. Controleer de vingerafdruk en bevestig hem.", host: { name: url.split("/")[2] ?? url, fingerprints: ["256 SHA256:Gm8Kp2c7yQ0iXv1sTbL4N9dWfE3hJ6aR5uZoP8qYwC0 (ED25519)"] } };
       }
-      return { ok: true, sshUrl: url.replace(/^https:\/\/([^/]+)\/(.+?)(\.git)?\/?$/, "git@$1:$2.git"), name, empty: false };
+      return { ok: true, sshUrl: url.replace(/^https:\/\/([^/]+)\/(.+?)(\.git)?\/?$/, "git@$1:$2.git"), name, empty: /leeg|nieuw/i.test(url) };
     },
     async trustHost(url) {
       await later();
@@ -168,6 +168,27 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
         pendingTrust,
       };
       state.history[projectId] = [{ commit: "0a1b2c3", author: state.author?.name ?? "Jij", at: Date.now(), title: registration.kind === "personal" ? "Begin geschiedenis" : "Opgehaald", chatId: null, files: [] }];
+      save();
+      return view(projectId);
+    },
+    async candidate(projectId) {
+      await later(150);
+      // The demo's "Website-teksten" is a clone of a team repository; the others are plain folders.
+      return { repository: projectId === "p-website" ? { remote: "git@github.com:bonzai-demo/website.git", branch: "main", ssh: true } : null };
+    },
+    async adopt(projectId) {
+      await later(700);
+      const path = input.projectPath(projectId) ?? `${input.home}/${projectId}`;
+      state.brains[projectId] = base(Date.now(), path, "project", "git@github.com:bonzai-demo/website.git");
+      state.history[projectId] = [];
+      save();
+      return view(projectId);
+    },
+    async publish(projectId, url) {
+      await later(900);
+      const path = input.projectPath(projectId) ?? `${input.home}/${projectId}`;
+      state.brains[projectId] = base(Date.now(), path, "project", url.replace(/^https:\/\/([^/]+)\/(.+?)(\.git)?\/?$/, "git@$1:$2.git"));
+      state.history[projectId] = [{ commit: "1a2b3c4", author: state.author?.name ?? "Jij", at: Date.now(), title: "Brein gedeeld", chatId: null, files: [] }];
       save();
       return view(projectId);
     },

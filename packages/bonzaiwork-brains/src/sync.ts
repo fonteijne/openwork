@@ -982,6 +982,80 @@ export class BrainSync {
     return sync;
   }
 
+  /** What is in the folder now is the user's own: it counts as trusted (it ran before BonzaiWork anyway). */
+  private async trustWhatIsThere(): Promise<void> {
+    if (!await this.hasCommit("HEAD")) return;
+    const items = await findTrustItems(await this.treeEntries("HEAD"), (blob) => this.ok(["cat-file", "-p", blob]));
+    await this.persist({ trusted: { ...this.record.trusted, ...Object.fromEntries(items.map((item) => [item.path, item.blob])) } });
+  }
+
+  /**
+   * "Als brein synchroniseren" (plan §4.1): a project folder that is a git
+   * repository with an SSH remote becomes a project brain as it is. Nothing is
+   * cloned or moved; what it holds now counts as trusted.
+   */
+  static async adopt(input: Omit<BrainSyncOptions, "record"> & { id: string; path: string; mode: BrainMode; allowFileProtocol?: boolean }): Promise<BrainSync> {
+    const base = { cwd: input.path };
+    const top = await input.git.run(["rev-parse", "--show-toplevel"], base);
+    const gitDir = await input.git.run(["rev-parse", "--git-dir"], base);
+    if (top.exitCode !== 0 || gitDir.stdout.trim() !== ".git") {
+      throw new BrainCloneError("no_repository", "Deze map is geen git-repository (of hoort bij een andere map).");
+    }
+    const remote = (await input.git.run(["remote", "get-url", "origin"], base)).stdout.trim();
+    if (!/^(git@|ssh:\/\/)/.test(remote) && !(input.allowFileProtocol && remote.startsWith("file://"))) {
+      throw new BrainCloneError("not_ssh", "Deze repository heeft geen SSH-link. BonzaiWork deelt alleen via SSH.");
+    }
+    const branch = (await input.git.run(["symbolic-ref", "--short", "-q", "HEAD"], base)).stdout.trim();
+    if (!branch) throw new BrainCloneError("no_repository", "Deze repository staat niet op een branch.");
+    const sync = new BrainSync({
+      ...input,
+      record: { id: input.id, kind: "project", path: input.path, gitDir: null, mode: input.mode, remote, branch, trusted: {}, lastSyncedRemote: null, lastSyncAt: null, gitConfig: null, excluded: [] },
+    });
+    await sync.writeLocalExcludes();
+    await sync.trustWhatIsThere();
+    if (await sync.hasCommit(sync.remoteRef()) && await sync.isAncestor(sync.remoteRef(), "HEAD")) {
+      await sync.persist({ lastSyncedRemote: await sync.revParse(sync.remoteRef()) });
+    }
+    await sync.rememberConfig();
+    return sync;
+  }
+
+  /**
+   * "Deel als nieuw brein": a project folder without git goes into an empty
+   * repository. History starts here; what is in the folder counts as trusted.
+   */
+  static async publish(input: Omit<BrainSyncOptions, "record"> & { id: string; path: string; remote: string; timeoutMs?: number }): Promise<BrainSync> {
+    if (await stat(join(input.path, ".git")).catch(() => null)) {
+      throw new BrainCloneError("already_repository", "Deze map is al een git-repository; kies Als brein synchroniseren.");
+    }
+    const listed = await input.git.run(["ls-remote", "--heads", input.remote], { cwd: input.path, timeoutMs: input.timeoutMs ?? 60_000 });
+    if (listed.exitCode !== 0 || listed.timedOut) {
+      const problem = classifyGitError(listed.stderr, listed.timedOut);
+      throw new BrainCloneError(problem, remoteProblemMessage(problem, input.platform));
+    }
+    if (listed.stdout.trim()) throw new BrainCloneError("remote_not_empty", "Deze repository is niet leeg. Haal hem op als gedeeld brein, of kies een lege repository.");
+    const sync = new BrainSync({
+      ...input,
+      record: { id: input.id, kind: "project", path: input.path, gitDir: null, mode: "auto", remote: input.remote, branch: "main", trusted: {}, lastSyncedRemote: null, lastSyncAt: null, gitConfig: null, excluded: [] },
+    });
+    await sync.ok(["init", "-q", "-b", "main"]);
+    await sync.ok(["remote", "add", "origin", input.remote]);
+    await sync.writeLocalExcludes();
+    await sync.rememberConfig();
+    return sync;
+  }
+
+  /** After publish: the first commit, trust for what was there, and the first push. */
+  firstShare(input: { name: string; description: string }): Promise<BrainStatus> {
+    return this.lock(async () => {
+      await applyTemplate(this.record.path, { kind: "project", name: input.name, description: input.description, now: new Date(this.now()) });
+      await this.commit("Brein gedeeld\n\nVia BonzaiWork\n", "own", "brein gedeeld");
+      await this.trustWhatIsThere();
+      await this.push();
+      return this.statusNow();
+    });
+  }
+
   /**
    * Plan §4.1: a full clone without checkout, the untrusted items excluded,
    * then the checkout. On failure nothing half is left behind.
@@ -1031,7 +1105,7 @@ export class BrainSync {
 }
 
 export class BrainCloneError extends Error {
-  constructor(readonly problem: RemoteProblem | "not_empty", message: string) {
+  constructor(readonly problem: RemoteProblem | "not_empty" | "no_repository" | "not_ssh" | "remote_not_empty" | "already_repository", message: string) {
     super(message);
     this.name = "BrainCloneError";
   }
