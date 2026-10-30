@@ -700,6 +700,17 @@ export const copy = {
     runSubject: "Waar gaat deze run over?",
     runDone: "Alle stappen zijn goedgekeurd",
     runStarted: "Nieuwe run; de vorige staat apart",
+    // Care for a brain (fase 2).
+    careTitle: "Onderhoud",
+    maintenance: "Wekelijks onderhoud",
+    maintenanceHint: "Elke maandag om 9:00 controleert de AI de kennis van dit brein. Deed een collega het die week al, dan slaat hij over.",
+    maintenancePlan: "Inplannen",
+    maintenancePlanned: "Ingepland",
+    maintenancePrompt: "Kijk eerst in knowledge/log.md: staat er deze week (sinds maandag) al een regel van Wekelijks onderhoud, zeg dan alleen wie het deed en stop. Anders: controleer dit brein volgens de skill okf-lint en geef de bevindingen, belangrijkste eerst.",
+    setUpTitle: "Inrichten",
+    setUpHint: "De AI richt deze map in als brein: kennis in knowledge/, werkwijzen in workflows/. Je ziet eerst het voorstel; er verandert niets zonder jouw akkoord.",
+    setUpChat: "Brein inrichten",
+    setUpPrompt: "Gebruik de skill icm-architect in de Restructure-modus om deze map in te richten als brein volgens AGENTS.md en _meta/schema.md: kennis als OKF-concepten in knowledge/, terugkerend werk als werkwijzen in workflows/. Laat eerst het plan zien (wat waarheen, wat nieuw) en wacht op mijn akkoord voordat je iets verplaatst of schrijft. Verwijder niets.",
   },
 
   common: {

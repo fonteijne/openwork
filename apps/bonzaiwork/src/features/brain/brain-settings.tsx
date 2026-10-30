@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Ellipsis, MessageSquare } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { useBrain, useBrainAuthor, useBrainHistory, useStatus } from "~/backend/queries";
+import { useBrain, useBrainAuthor, useBrainHistory, useRoutines, useStatus } from "~/backend/queries";
 import type { BrainMode, Project, RemoteCheck } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/field";
@@ -13,11 +13,13 @@ import { ConfirmDialog } from "~/components/ui/overlay";
 import { Select } from "~/components/ui/select";
 import { copy } from "~/copy";
 import { formatDateTime, relativeTime } from "~/lib/format";
-import { navigate } from "~/lib/router";
+import { href, navigate } from "~/lib/router";
+import { localTimezone } from "~/lib/schedule";
 import { fileName } from "~/lib/tools";
 
 import { useBrainAction } from "./actions";
 import { BrainLinkField } from "./link-field";
+import { useStartChat } from "./start-chat";
 import { brainStateLabel } from "./status-pill";
 
 const MODES: BrainMode[] = ["auto", "manual", "read_only"];
@@ -95,6 +97,42 @@ function PrivateRepo(props: { projectId: string; path: string }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Weekly maintenance as a routine, and "Inrichten" with icm-architect (fase 2). */
+function Care(props: { projectId: string; readOnly: boolean }) {
+  const backend = useBackend();
+  const routines = useRoutines(props.projectId);
+  const startChat = useStartChat(props.projectId);
+  const { busy, run } = useBrainAction(props.projectId);
+  const planned = (routines.data ?? []).find((routine) => routine.name === copy.brain.maintenance && routine.state !== "archived");
+  return (
+    <Section title={copy.brain.careTitle}>
+      <Row
+        label={copy.brain.maintenance}
+        hint={copy.brain.maintenanceHint}
+        action={planned ? (
+          <a className="text-sm text-muted-foreground underline-offset-2 hover:underline" href={href({ name: "project-routines", projectId: props.projectId, routineId: planned.id })}>{copy.brain.maintenancePlanned}</a>
+        ) : (
+          <Button variant="secondary" size="sm" disabled={props.readOnly || busy !== null} onClick={() => void run("maintenance", () => backend.routines.create({
+            projectId: props.projectId, name: copy.brain.maintenance, prompt: copy.brain.maintenancePrompt, model: null,
+            schedule: { kind: "weekly", timezone: localTimezone(), daysOfWeek: [1], hour: 9, minute: 0 },
+          }), copy.brain.maintenancePlanned).then(() => routines.refetch())}>
+            {copy.brain.maintenancePlan}
+          </Button>
+        )}
+      />
+      <Row
+        label={copy.brain.setUpTitle}
+        hint={copy.brain.setUpHint}
+        action={
+          <Button variant="secondary" size="sm" disabled={props.readOnly || busy !== null} onClick={() => void run("setup", () => startChat({ title: copy.brain.setUpChat, prompt: copy.brain.setUpPrompt }))}>
+            {copy.brain.setUpTitle}
+          </Button>
+        }
+      />
+    </Section>
   );
 }
 
@@ -217,6 +255,7 @@ export function BrainSettingsSection(props: { project: Project }) {
           />
         )}
       </Section>
+      {personalBrain ? null : <Care projectId={props.project.id} readOnly={readOnly} />}
       <Section title={copy.brain.history}>
         <History projectId={props.project.id} />
       </Section>

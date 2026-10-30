@@ -1012,6 +1012,16 @@ Stand fase 2 (bezig):
   via LiteLLM); een script volgt in fase 3. "Nieuwe run" zet de vorige in `_runs/<datum>-<onderwerp>/`.
   `output/`, `check.md` en `_runs/` worden niet gedeeld (I1). Nog niet: runs als chatgroep, werkwijzen in
   de composer, en een werkwijze als routine.
+- **Onderhoud** (Projectinstellingen → Brein): "Wekelijks onderhoud" plant een routine (maandag 9:00)
+  die de kennis controleert met `okf-lint`; staat er die week al een onderhoudsregel in `log.md`, dan
+  stopt hij (in de opdracht, niet in code). "Inrichten" start een chat met `icm-architect` in de
+  Restructure-modus, die eerst het plan laat zien en op akkoord wacht.
+- **Nog open in fase 2**: de dagelijkse routine "Wat is er nieuw in mijn breinen" (een routine draait
+  zonder iemand die de toestemmingskaart voor een ander brein beantwoordt; zie de beslissing hieronder),
+  een OKF-bundel importeren, runs als chatgroep, werkwijzen in de composer en een werkwijze als routine.
+- **Te beslissen vóór fase 3** ("via voorstel"): GitLab kan een merge request maken bij een gewone push
+  over SSH (`git push -o merge_request.create`); GitHub kan dat niet zonder token of `gh`, wat B2 ("geen
+  tokens") raakt. En of routines zonder klik in andere breinen mogen lezen.
 
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een
