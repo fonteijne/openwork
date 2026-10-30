@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, projectModels, useBrains, useProjects, useStatus } from "~/backend/queries";
+import { keys, projectModels, useProjects, useStatus } from "~/backend/queries";
+import { BrainPicker } from "~/features/brain/brain-picker";
 import type { Routine, RoutineInput, RoutineSchedule } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Field, Input, Textarea } from "~/components/ui/field";
@@ -214,47 +214,6 @@ function defaultSchedule(): RoutineSchedule {
   return { kind: "weekly", timezone: localTimezone(), daysOfWeek: WEEKDAYS, hour: 9, minute: 0 };
 }
 
-/**
- * Brains a routine reads without a click (brains plan §5.2): nobody is there
- * to answer the question while it runs. Only shared brains on this laptop.
- */
-function BrainChoice(props: { projectId: string | null; value: string[]; onChange: (value: string[]) => void }) {
-  const brains = useBrains();
-  const projects = useProjects();
-  const choices = (brains.data ?? [])
-    .filter((brain) => brain.status.kind === "project" && brain.projectId !== props.projectId)
-    .map((brain) => ({ id: brain.projectId, name: projects.data?.find((project) => project.id === brain.projectId)?.name ?? brain.path.split(/[\\/]/).at(-1) ?? brain.projectId }));
-  if (!choices.length) return null;
-  const toggle = (id: string) => props.onChange(props.value.includes(id) ? props.value.filter((entry) => entry !== id) : [...props.value, id]);
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium" id="routine-brains">{copy.routines.brains}</span>
-      <div role="group" aria-labelledby="routine-brains" className="flex flex-wrap gap-1.5">
-        {choices.map((choice) => {
-          const checked = props.value.includes(choice.id);
-          return (
-            <button
-              key={choice.id}
-              type="button"
-              role="checkbox"
-              aria-checked={checked}
-              onClick={() => toggle(choice.id)}
-              className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm ring-1 ring-inset transition-colors duration-100 pointer-coarse:h-10 [&_svg]:size-3.5",
-                checked ? "bg-muted text-foreground ring-foreground/40" : "text-muted-foreground ring-border hover:text-foreground",
-              )}
-            >
-              {checked ? <Check /> : null}
-              {choice.name}
-            </button>
-          );
-        })}
-      </div>
-      <p className="text-xs text-muted-foreground">{copy.routines.brainsHint}</p>
-    </div>
-  );
-}
-
 export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boolean) => void; routine: Routine | null; projectId: string | null; onSaved?: (routine: Routine) => void; template?: Partial<RoutineInput> }) {
   const backend = useBackend();
   const client = useQueryClient();
@@ -360,7 +319,7 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
             />
           )}
         </Field>
-        {backend.capabilities.brains ? <BrainChoice projectId={projectId} value={brains} onChange={setBrains} /> : null}
+        {backend.capabilities.brains ? <BrainPicker label={copy.routines.brains} hint={copy.routines.brainsHint} exclude={projectId} value={brains} onChange={setBrains} /> : null}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium">{copy.routines.schedule}</span>
           <ScheduleEditor value={schedule} onChange={setSchedule} />

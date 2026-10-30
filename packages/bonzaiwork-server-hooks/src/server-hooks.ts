@@ -21,7 +21,7 @@ export function createCombinedHooks(options: { litellm?: ServerHooksOptions; bra
   const litellm = createServerHooks(options.litellm);
   const brains = createBrainsServerHooks(options.brains);
   // A routine may read the brains it names without a click (brains plan §5.2).
-  const routines = createRoutinesHooks({ resolveBrain: brains.resolveBrain, ...options.routines });
+  const routines = createRoutinesHooks({ answerBrainReads: brains.answerBrainReads, ...options.routines });
   const paths = new Set<string>();
   for (const route of [...litellm.routes, ...brains.routes, ...routines.routes]) {
     const key = `${route.method} ${route.path}`;

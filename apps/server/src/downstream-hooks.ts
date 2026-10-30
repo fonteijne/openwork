@@ -81,6 +81,8 @@ export type DownstreamServerHost = {
    * engine's own config folder, which the engine watches.
    */
   setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
+  /** The engine's own config folder (OPENCODE_CONFIG_DIR), where the global instructions live. */
+  engineConfigDirectory: string;
   log(level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>): void;
 };
 
@@ -436,6 +438,7 @@ export async function startDownstreamServerHooks(input: DownstreamStartInput): P
       });
       return changed;
     },
+    engineConfigDirectory: engineConfigDirectory(config),
     setEngineGlobalContext: async ({ instructions, skillsDirectory }) => {
       const directory = engineConfigDirectory(config);
       await mkdir(directory, { recursive: true, mode: 0o700 });

@@ -65,8 +65,12 @@ async function startLiteLLM(): Promise<{ server: Server; url: string }> {
     if (tools.length) contexts.push(JSON.stringify(messages));
     if (last.role === "tool") toolResults.push(JSON.stringify(last.content));
     const personalTool = tools.find((name) => name.endsWith("persoonlijk_brein_schrijven"));
+    const readPath = /LEESPAD\|([^|]+)\|/.exec(userText)?.[1];
+    const writePath = /SCHRIJFPAD\|([^|]+)\|/.exec(userText)?.[1];
     const readTool = tools.find((name) => /(^|_)brein_lezen$/.test(name) && !name.includes("persoonlijk"));
-    if (userText.includes("ANDERBREIN") && readTool) call(readTool, { brein: "Sales", pad: "AGENTS.md" });
+    if (readPath && tools.includes("read")) call("read", { path: readPath });
+    else if (writePath && tools.includes("write")) call("write", { path: writePath, content: "VAN-BUITEN\n" });
+    else if (userText.includes("ANDERBREIN") && readTool) call(readTool, { brein: "Sales", pad: "AGENTS.md" });
     else if (userText.includes("PERSOONLIJK") && personalTool) call(personalTool, { pad: "knowledge/geleerd.md", inhoud: "---\ntype: Analysis\ntitle: Geleerd\n---\n# Geleerd\n" });
     else if (userText.includes("SCHRIJF") && tools.includes("write")) call("write", { path: "knowledge/e2e.md", content: "---\ntype: Process\n---\n# Uit de chat\n" });
     else if (userText.includes("GIT") && tools.includes("shell")) call("shell", { command: "git log -1" });
@@ -251,7 +255,27 @@ async function main() {
       check("after allowing, the brain is read with its source", read !== null, toolResults.slice(-1).join("").slice(0, 200));
     }
 
-    // 6. A routine reads the brains it names without a click; another routine waits (plan §5.2).
+    // 6. The ordinary tools stay out of other brains (plan §5.2, fase 0 §6.6); a brain's own chats are not touched.
+    const ask = async (engineUrl: string, chat: string, prompt: string): Promise<string> => {
+      const before = toolResults.length;
+      await fetch(`${engineUrl}/api/session/${chat}/prompt`, { method: "POST", headers: owner, body: JSON.stringify({ text: prompt, delivery: "steer" }) });
+      return waitFor("tool result", async () => (toolResults.length > before ? toolResults.at(-1) ?? "" : null), 30_000).catch(() => "");
+    };
+    const personalEngineUrl = `${base}/workspace/${personalId}/opencode2`;
+    const personalChat = record(await (await fetch(`${personalEngineUrl}/api/session`, { method: "POST", headers: owner, body: JSON.stringify({ model: { providerID: "litellm", id: "e2e-model" }, title: "Grenzen", location: { directory: personalFolder } }) })).json());
+    const personalChatId = text(personalChat.id) || text(record(personalChat.data).id);
+    const blockedRead = await ask(personalEngineUrl, personalChatId, `LEESPAD|${join(brain, "AGENTS.md")}|`);
+    check("a chat elsewhere cannot read a brain with the ordinary tools", blockedRead.includes("Blocked by configuration policy"), blockedRead.slice(0, 160));
+    const blockedWrite = await ask(personalEngineUrl, personalChatId, `SCHRIJFPAD|${join(brain, "knowledge", "van-buiten.md")}|`);
+    check("… nor write in it", blockedWrite.includes("Blocked by configuration policy") && !existsSync(join(brain, "knowledge", "van-buiten.md")), blockedWrite.slice(0, 160));
+    const ownRead = await ask(engine, sessionId, `LEESPAD|${join(brain, "AGENTS.md")}|`);
+    check("a chat in the brain itself still reads it, also by its full path", ownRead.includes("Sales") && !ownRead.includes("Blocked"), ownRead.slice(0, 160));
+    // Sales was open before the personal brain existed: its folder is rebuilt at the next quiet moment.
+    await new Promise((done) => setTimeout(done, 8_000));
+    const personalRead = await ask(engine, sessionId, `LEESPAD|${join(personalFolder, "AGENTS.md")}|`);
+    check("the personal brain is closed to other projects too", personalRead.includes("Blocked by configuration policy"), personalRead.slice(0, 160));
+
+    // 7. A routine reads the brains it names without a click; another routine waits (plan §5.2).
     const readsBefore = toolResults.filter((result) => result.includes("Uit het brein Sales")).length;
     const schedule = { kind: "daily", timezone: "UTC", hour: 3, minute: 0 };
     const allowed = await api("/bonzaiwork/routines", { method: "POST", headers: owner, body: { workspaceId: personalId, name: "Nieuws uit Sales", prompt: "ANDERBREIN wat is er nieuw", model: "e2e-model", schedule, brains: [workspaceId] } });
@@ -279,6 +303,14 @@ async function main() {
     await new Promise((done) => setTimeout(done, 3_000));
     const still = list(record(await (await fetch(`${personalEngine}/api/session/${otherChat}/permission`, { headers: owner })).json()).data);
     check("a routine without that brain still waits for the user", waiting !== null && still.length === 1, JSON.stringify(still).slice(0, 200));
+
+    // 8. A project that may always consult a brain (Projectinstellingen → Brein): no click there either.
+    const allowedReads = await api(`/bonzaiwork/brains/${personalId}/reads`, { method: "PUT", headers: host, body: { brains: [workspaceId] } });
+    check("the project may consult Sales without asking", JSON.stringify(allowedReads.body) === JSON.stringify({ brains: [workspaceId] }), JSON.stringify(allowedReads.body));
+    const readsBeforeProject = toolResults.filter((result) => result.includes("Uit het brein Sales")).length;
+    await fetch(`${personalEngineUrl}/api/session/${personalChatId}/prompt`, { method: "POST", headers: owner, body: JSON.stringify({ text: "ANDERBREIN kijk in Sales", delivery: "steer" }) });
+    const readByProject = await waitFor("project read", async () => (toolResults.filter((result) => result.includes("Uit het brein Sales")).length > readsBeforeProject ? true : null), 30_000).catch(() => null);
+    check("… and a chat there reads it without a click", readByProject !== null);
     await log.flush();
   } finally {
     server?.kill("SIGTERM");

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { BookOpen } from "lucide-react";
 
+import { useBrains, useProjects, useReads } from "~/backend/queries";
 import type { Message, PermissionReply, PermissionRequest } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { copy } from "~/copy";
 import { readLocalJson, writeLocalJson } from "~/lib/storage";
+
+import { brainIdByName } from "./brain-picker";
 
 const KEY = "bonzaiwork.brainReads";
 
@@ -62,7 +65,10 @@ function allowInChat(chatId: string, brain: string): void {
  * named the brain, or allowed it earlier in this chat, it is allowed once
  * without a click.
  */
-export function BrainPermissionCard(props: { request: PermissionRequest; messages: readonly Message[]; onReply: (reply: PermissionReply) => Promise<void> }) {
+export function BrainPermissionCard(props: { projectId: string; request: PermissionRequest; messages: readonly Message[]; onReply: (reply: PermissionReply) => Promise<void> }) {
+  const reads = useReads(props.projectId);
+  const brains = useBrains();
+  const projects = useProjects();
   const [busy, setBusy] = useState(false);
   const brain = brainOfRequest(props.request, props.messages);
   const automatic = brain !== null && (userNamedBrain(brain, props.messages) || allowedInChat(props.request.chatId).includes(brain.toLowerCase()));
@@ -85,6 +91,9 @@ export function BrainPermissionCard(props: { request: PermissionRequest; message
   });
 
   if (automatic) return null;
+  // A brain this project may always consult: the server allows it (Projectinstellingen → Brein).
+  const brainId = brain ? brainIdByName(brain, brains.data ?? [], projects.data) : null;
+  if (brainId && reads.data?.includes(brainId)) return null;
   const name = brain ?? copy.brain.otherBrain;
   return (
     <section aria-label={copy.brain.readTitle(name)} data-testid="brain-read" className="bw-enter rounded-window bg-background p-5 ring-1 ring-amber-9/60">

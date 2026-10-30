@@ -22,6 +22,7 @@ function fakeHost(): FakeHost {
   const listeners = new Set<(activity: SessionActivity) => void>();
   const host: FakeHost = {
     port: 4242,
+    engineConfigDirectory: "/engine/config",
     readOnly: false,
     mcp: {},
     context: null,
@@ -71,7 +72,7 @@ test("clone, registreren, een beurt en delen na de stille periode", async () => 
   hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, quietMs: 50, prepareTimeoutMs: 2_000, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
   const host = fakeHost();
   await hooks.start(host);
-  expect(hooks.enginePolicies().map((policy) => policy.resource)).toEqual(["shell:git *", "edit:.git/*", "edit:*/.git/*"]);
+  expect(hooks.enginePolicies().map((policy) => policy.resource)).toEqual(["shell:git *", "edit:.git/*", "edit:*/.git/*", "read:/engine/config/*", "edit:/engine/config/*"]);
 
   expect((await call("/bonzaiwork/brains/settings", { method: "PUT", body: { name: "Anna", email: "anna@example.invalid" } })).status).toBe(200);
   const folder = join(world.root, "BonzaiWork", "Sales");
@@ -117,6 +118,16 @@ test("clone, registreren, een beurt en delen na de stille periode", async () => 
 
   const listed = await call("/bonzaiwork/brains");
   expect(Array.isArray(listed.body.brains) && listed.body.brains.length).toBe(1);
+
+  // Other projects reach this brain only through the brains MCP (plan §5.2): absolute denies.
+  const resources = () => hooks?.enginePolicies().map((policy) => `${policy.effect} ${policy.resource}`) ?? [];
+  expect(resources()).toContain(`deny read:${folder}/*`);
+  expect(resources()).toContain(`deny edit:${folder}/*`);
+  expect(resources()).toContain("deny edit:/engine/config/*");
+  const reloads = host.reloads;
+  expect((await call("/bonzaiwork/brains/ws_sales", { method: "DELETE" })).status).toBe(200);
+  expect(resources()).not.toContain(`deny read:${folder}/*`);
+  expect(host.reloads).toBeGreaterThan(reloads);
 });
 
 test("bijwerken wacht niet op een andere lopende chat, en een onbekend project is geen brein", async () => {
@@ -204,6 +215,10 @@ test("een bestaand project wordt een brein: een eigen repo, of delen in een lege
   await writeFile(join(repo, "knowledge/b.md"), "b\n");
   expect((await call("/bonzaiwork/brains/ws_s/sync", { method: "POST" })).body).toMatchObject({ state: "synced" });
   expect(await world.git.ok(["show", "main:knowledge/b.md"], { cwd: world.bare })).toBe("b\n");
+
+  // Marketing may always consult Sales: only brains count, never itself.
+  expect((await call("/bonzaiwork/brains/ws_m/reads", { method: "PUT", body: { brains: ["ws_s", "ws_nope", "ws_m"] } })).body).toEqual({ brains: ["ws_s"] });
+  expect((await call("/bonzaiwork/brains/ws_m/reads")).body).toEqual({ brains: ["ws_s"] });
 });
 
 test("werkwijzen via de routes: lijst, invoer ontbreekt, controle door een persoon", async () => {

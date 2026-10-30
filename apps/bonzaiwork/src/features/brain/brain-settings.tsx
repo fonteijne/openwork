@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ellipsis, MessageSquare } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { useBrain, useBrainAuthor, useBrainHistory, useBrains, useRoutines, useStatus } from "~/backend/queries";
+import { keys, useBrain, useBrainAuthor, useBrainHistory, useBrains, useReads, useRoutines, useStatus } from "~/backend/queries";
 import type { BrainMode, Project, RemoteCheck, RoutineInput } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/field";
@@ -11,13 +11,16 @@ import { Menu, MenuItem } from "~/components/ui/menu";
 import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
 import { ConfirmDialog } from "~/components/ui/overlay";
 import { Select } from "~/components/ui/select";
+import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { errorText } from "~/lib/errors";
 import { formatDateTime, relativeTime } from "~/lib/format";
 import { href, navigate } from "~/lib/router";
 import { localTimezone } from "~/lib/schedule";
 import { fileName } from "~/lib/tools";
 
 import { useBrainAction } from "./actions";
+import { BrainPicker } from "./brain-picker";
 import { BrainLinkField } from "./link-field";
 import { RoutineEditor } from "../routines/routine-editor";
 import { useStartChat } from "./start-chat";
@@ -98,6 +101,35 @@ function PrivateRepo(props: { projectId: string; path: string }) {
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Plan §5.2, §8.2: brains this project consults without asking; the server answers for them. */
+function Reads(props: { projectId: string; readOnly: boolean }) {
+  const backend = useBackend();
+  const client = useQueryClient();
+  const reads = useReads(props.projectId);
+  const brains = useBrains();
+  const [busy, setBusy] = useState(false);
+  if (!(brains.data ?? []).some((brain) => brain.status.kind === "project" && brain.projectId !== props.projectId)) return null;
+  const change = async (next: string[]) => {
+    setBusy(true);
+    client.setQueryData(keys.reads(props.projectId), next);
+    try {
+      client.setQueryData(keys.reads(props.projectId), await backend.brains.setReads(props.projectId, next));
+    } catch (failure) {
+      toast(errorText(failure), { tone: "error" });
+      await reads.refetch();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title={copy.brain.readsTitle}>
+      <div className="py-3">
+        <BrainPicker label={copy.brain.reads} hint={copy.brain.readsHint} exclude={props.projectId} value={reads.data ?? []} onChange={(next) => void change(next)} disabled={props.readOnly || busy} />
+      </div>
+    </Section>
   );
 }
 
@@ -224,10 +256,13 @@ export function BrainSettingsSection(props: { project: Project }) {
   }
   if (!brain) {
     return (
-      <Section title={copy.brain.sectionTitle}>
-        <Row label={copy.brain.notABrain} />
-        <BecomeBrain project={props.project} readOnly={readOnly} />
-      </Section>
+      <div className="flex flex-col gap-10">
+        <Section title={copy.brain.sectionTitle}>
+          <Row label={copy.brain.notABrain} />
+          <BecomeBrain project={props.project} readOnly={readOnly} />
+        </Section>
+        <Reads projectId={props.project.id} readOnly={readOnly} />
+      </div>
     );
   }
 
@@ -296,6 +331,7 @@ export function BrainSettingsSection(props: { project: Project }) {
           />
         )}
       </Section>
+      <Reads projectId={props.project.id} readOnly={readOnly} />
       {personalBrain ? <News projectId={props.project.id} readOnly={readOnly} /> : <Care projectId={props.project.id} readOnly={readOnly} />}
       <Section title={copy.brain.history}>
         <History projectId={props.project.id} />

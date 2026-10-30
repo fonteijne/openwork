@@ -5,8 +5,9 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import { createGit, type Git } from "./git.ts";
-import { findBrain, handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
+import { handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
 import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
+import { answerBrainReads } from "./answers.ts";
 import { applyTemplate } from "./template.ts";
 import { listWorkflows, modelCheckPrompt, newRun, recordCheck, startStage } from "./workflows.ts";
 import { remoteProblemMessage } from "./messages.ts";
@@ -46,6 +47,10 @@ export type BrainsHost = {
   sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
   updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
   setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
+  /** OPENCODE_CONFIG_DIR: the global instructions; closed to the ordinary tools like a brain. */
+  engineConfigDirectory?: string;
+  /** A call to a workspace's engine through the server's own proxy (downstream-hooks.ts). */
+  engineRequest?(workspaceId: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   log: Log;
 };
 
@@ -71,6 +76,10 @@ export type BrainsHooksOptions = {
   /** How long a turn waits for the update before it goes on (plan §2). */
   prepareTimeoutMs?: number;
   proposals?: ProposalService;
+  /** How often running chats of projects with "zonder vragen" brains are checked for questions. */
+  readsEveryMs?: number;
+  /** How often a pending rebuild of the engine folders checks whether all chats are quiet. */
+  folderReloadEveryMs?: number;
   /** How often quiet brains look for the team's changes, so the pill can say so (fase 2). */
   fetchEveryMs?: number;
   /** Tests only. */
@@ -148,6 +157,32 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   const lastChat = new Map<string, string>();
   const quietTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let policySignature = "";
+  /** The closed folders the open engine folders were built with; null until the first write. */
+  let appliedFolders: string | null = null;
+  let folderReloadTimer: ReturnType<typeof setInterval> | null = null;
+  let readsTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * A folder the engine has open keeps the policies it was built with. When the closed folders
+   * change (a brain added or removed), the loaded folders are rebuilt with
+   * `/api/location/reload`, but only when no chat runs: the rebuild cancels open questions.
+   */
+  async function reloadFoldersWhenQuiet(): Promise<void> {
+    if (!host?.engineRequest || appliedFolders === JSON.stringify(closedFolders())) return;
+    const workspaces = host.workspaces();
+    for (const workspace of workspaces) {
+      const running = await host.runningSessions(workspace.id);
+      if (running === null || running.length) return;
+    }
+    const target = workspaces[0];
+    if (!target) return;
+    const wanted = JSON.stringify(closedFolders());
+    const reloaded = await host.engineRequest(target.id, "POST", "/api/location/reload").catch(() => null);
+    if (reloaded && reloaded.status < 300) {
+      appliedFolders = wanted;
+      log("info", "engine folders rebuilt for the closed brain folders", {});
+    }
+  }
   let stopActivity: (() => void) | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let fetchTimer: ReturnType<typeof setInterval> | null = null;
@@ -186,6 +221,22 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   const personal = (): BrainSync | undefined => [...syncs.values()].find((sync) => sync.snapshot.kind === "personal");
 
+  /**
+   * Other brains only through the brains MCP (plan §5.2, fase 0 §6.6): without a rule the AI reads
+   * and writes any folder outside its project with read/write/edit. Every brain folder, the personal
+   * brain and the engine's config folder get a deny with the absolute path; inside a folder the
+   * engine uses relative paths, so the chats in that brain itself are not touched. A guard rail:
+   * grep with the path and the shell still get past.
+   */
+  function closedFolders(): string[] {
+    const folders = [...[...syncs.values()].map((sync) => sync.snapshot.path), ...(host?.engineConfigDirectory ? [host.engineConfigDirectory] : [])];
+    return [...new Set(folders.flatMap((folder) => {
+      const clean = folder.replace(/[*?]/g, "").replace(/[\\/]+$/, "");
+      // Windows paths can reach the engine with either separator.
+      return clean.includes("\\") ? [`${clean}\\*`, `${clean.replace(/\\/g, "/")}/*`] : [`${clean}/*`];
+    }))].sort();
+  }
+
   function enginePolicies(): EnginePolicy[] {
     const mcp = [...new Set([...syncs.values()].flatMap((sync) => sync.untrustedMcpServers))].sort();
     // Excluded folders and the preferences file (plan §5.1.1, §7.3). Paths are relative to the
@@ -196,6 +247,10 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     return [
       ...BASE_ENGINE_POLICIES,
       ...(own ? [{ action: "tool.use", resource: `edit:${PREFERENCES_FILE}`, effect: "deny" } satisfies EnginePolicy] : []),
+      ...closedFolders().flatMap((folder): EnginePolicy[] => [
+        { action: "tool.use", resource: `read:${folder}`, effect: "deny" },
+        { action: "tool.use", resource: `edit:${folder}`, effect: "deny" },
+      ]),
       ...folders.flatMap((folder): EnginePolicy[] => [
         { action: "tool.use", resource: `read:${escape(folder)}/*`, effect: "deny" },
         { action: "tool.use", resource: `edit:${escape(folder)}/*`, effect: "deny" },
@@ -304,6 +359,9 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     if (signature === policySignature || !host) return;
     policySignature = signature;
     await host.reloadEngineProviders().catch((error: unknown) => log("warn", "Engine policies not reloaded", { error: String(error) }));
+    // The first write is what every folder opens with; later changes need a rebuild of open ones.
+    if (appliedFolders === null) appliedFolders = JSON.stringify(closedFolders());
+    else void reloadFoldersWhenQuiet();
   }
 
   async function activate(record: BrainRecord, path: string): Promise<BrainSync> {
@@ -337,7 +395,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   function onActivity(activity: SessionActivity): void {
     // Every project counts: a chat anywhere may write in the personal brain.
-    if (!syncs.has(activity.workspaceId) && !personal()) return;
+    if (!syncs.has(activity.workspaceId) && !personal() && !registry.reads(activity.workspaceId).length) return;
     const set = running.get(activity.workspaceId) ?? new Set<string>();
     running.set(activity.workspaceId, set);
     const timer = quietTimers.get(activity.workspaceId);
@@ -570,6 +628,30 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     return checked ? json({ stage: checked }) : failure(404, "stage_not_found", "Stage not found.");
   }
 
+  /** "Breinen die dit project zonder vragen mag raadplegen" (plan §5.2, §8.2). */
+  async function reads(request: Request, workspaceId: string): Promise<Response> {
+    if (!host?.workspaces().some((entry) => entry.id === workspaceId)) return failure(404, "workspace_not_found", "Workspace not found.");
+    if (request.method === "PUT") {
+      if (host.readOnly) return failure(403, "read_only", "This device is read-only.");
+      const body = await readBody(request);
+      const brains = Array.isArray(body?.brains) ? body.brains.filter((entry): entry is string => typeof entry === "string") : null;
+      if (!brains) return failure(400, "invalid_body", "Send brains: workspace ids.");
+      await registry.setReads(workspaceId, brains.filter((id) => syncs.get(id)?.snapshot.kind === "project"));
+    }
+    return json({ brains: registry.reads(workspaceId) });
+  }
+
+  /** Answers brain-read questions in running chats of projects that may consult those brains. */
+  async function answerProjectReads(): Promise<void> {
+    if (!host?.engineRequest) return;
+    for (const [workspaceId, allowed] of Object.entries(registry.allReads)) {
+      for (const sessionId of running.get(workspaceId) ?? []) {
+        await answerBrainReads({ request: host.engineRequest, workspaceId, sessionId, allowed, brains: access.teamBrains, log: (message, fields) => log("info", message, fields) })
+          .catch((error: unknown) => log("warn", "brain read question not answered", { error: String(error) }));
+      }
+    }
+  }
+
   async function unregister(workspaceId: string): Promise<Response> {
     const sync = known(workspaceId);
     sync?.dispose();
@@ -723,6 +805,11 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start", auth: "client", handle: (request, params) => workflows(request, params, "start") },
     { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check", auth: "client", handle: (request, params) => workflows(request, params, "check") },
     {
+      method: "GET", path: "/bonzaiwork/brains/:workspaceId/reads", auth: "client",
+      handle: (request, params) => reads(request, params.workspaceId),
+    },
+    { method: "PUT", path: "/bonzaiwork/brains/:workspaceId/reads", auth: "host-token", handle: (request, params) => reads(request, params.workspaceId) },
+    {
       method: "GET", path: "/bonzaiwork/brains/:workspaceId/candidate", auth: "host-token",
       handle: (_request, params) => candidate(params.workspaceId),
     },
@@ -757,8 +844,11 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     routes,
     enginePolicies,
     enginePermissions: () => ENGINE_PERMISSIONS,
-    /** The workspace id of a brain by the name the AI used (routines that may read it). */
-    resolveBrain: async (name: string) => findBrain(await access.teamBrains(), name)?.id ?? null,
+    /** Routines: answer a run's brain-read questions for the brains it names. */
+    answerBrainReads: async (workspaceId: string, sessionId: string, allowed: readonly string[]) => {
+      if (!host?.engineRequest) return 0;
+      return answerBrainReads({ request: host.engineRequest, workspaceId, sessionId, allowed, brains: access.teamBrains, log: (message, fields) => log("info", message, fields) });
+    },
     /** Tests: the tools without the engine. */
     personalAccess: access,
     async start(next: BrainsHost) {
@@ -780,6 +870,10 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         stopActivity = next.onSessionActivity(onActivity);
         reconcileTimer = setInterval(() => { void reconcile().catch(() => undefined); }, 10_000);
         reconcileTimer.unref?.();
+        readsTimer = setInterval(() => { void answerProjectReads(); }, options.readsEveryMs ?? 1_500);
+        readsTimer.unref?.();
+        folderReloadTimer = setInterval(() => { void reloadFoldersWhenQuiet().catch(() => undefined); }, options.folderReloadEveryMs ?? 5_000);
+        folderReloadTimer.unref?.();
         fetchTimer = setInterval(() => { void fetchQuietBrains(); }, fetchEveryMs);
         fetchTimer.unref?.();
       } catch (error) {
@@ -793,6 +887,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       stopActivity?.();
       if (reconcileTimer) clearInterval(reconcileTimer);
       if (fetchTimer) clearInterval(fetchTimer);
+      if (folderReloadTimer) clearInterval(folderReloadTimer);
+      if (readsTimer) clearInterval(readsTimer);
       for (const timer of quietTimers.values()) clearTimeout(timer);
       for (const sync of syncs.values()) sync.dispose();
     },

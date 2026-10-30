@@ -207,6 +207,8 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     },
     register: async (projectId, input) => requireStatus(await req(brain(projectId), { method: "PUT", body: input, ...host })),
     unregister: async (projectId) => void (await req(brain(projectId), { method: "DELETE", ...host })),
+    reads: async (projectId) => strings(field(await req(`${brain(projectId)}/reads`), "brains")),
+    setReads: async (projectId, brains) => strings(field(await req(`${brain(projectId)}/reads`, { method: "PUT", body: { brains }, ...host }), "brains")),
     workflows: async (projectId) => readWorkflows(await req(`${brain(projectId)}/workflows`)),
     startStage: async (projectId, workflow, stage) => readChatStart(await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/start`, { method: "POST", body: {} })),
     checkStage: async (projectId, workflow, stage, verdict, reason) => void (await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/check`, { method: "POST", body: { verdict, ...(reason ? { reason } : {}) } })),

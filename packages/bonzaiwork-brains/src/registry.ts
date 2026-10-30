@@ -2,20 +2,26 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { Author, BrainKind, BrainMode, BrainRecord } from "./sync.ts";
+import type { Author, BrainKind, BrainMode, BrainRecord, Proposal } from "./sync.ts";
 
 /**
  * Which folders are brains, per user (userData/bonzaiwork/brains.json; plan
  * §3). Trust decisions and sync bookkeeping live here, never in the repo.
  */
-type RegistryFile = { version: 1; author: Author | null; brains: BrainRecord[] };
+type RegistryFile = {
+  version: 1;
+  author: Author | null;
+  brains: BrainRecord[];
+  /** Per project (any project, brain or not): other brains it consults without asking (plan §5.2). */
+  reads: Record<string, string[]>;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const KINDS: readonly BrainKind[] = ["project", "personal"];
-const MODES: readonly BrainMode[] = ["auto", "manual", "read_only"];
+const MODES: readonly BrainMode[] = ["auto", "manual", "read_only", "proposal"];
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
@@ -33,7 +39,23 @@ function readRecord(value: unknown): BrainRecord | null {
     branch: value.branch, trusted, lastSyncedRemote: stringOrNull(value.lastSyncedRemote),
     lastSyncAt: typeof value.lastSyncAt === "number" ? value.lastSyncAt : null, gitConfig: stringOrNull(value.gitConfig),
     excluded: Array.isArray(value.excluded) ? value.excluded.filter((folder): folder is string => typeof folder === "string") : [],
+    proposal: readProposal(value.proposal),
   };
+}
+
+function readProposal(value: unknown): Proposal | null {
+  return isRecord(value) && typeof value.branch === "string"
+    ? { branch: value.branch, url: stringOrNull(value.url), manual: value.manual === true } : null;
+}
+
+function readReads(value: unknown): Record<string, string[]> {
+  const reads: Record<string, string[]> = {};
+  if (isRecord(value)) {
+    for (const [id, brains] of Object.entries(value)) {
+      if (Array.isArray(brains)) reads[id] = brains.filter((brain): brain is string => typeof brain === "string");
+    }
+  }
+  return reads;
 }
 
 function readAuthor(value: unknown): Author | null {
@@ -42,7 +64,7 @@ function readAuthor(value: unknown): Author | null {
 }
 
 export class BrainRegistry {
-  private data: RegistryFile = { version: 1, author: null, brains: [] };
+  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {} };
   private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly file: string) {}
@@ -57,12 +79,24 @@ export class BrainRegistry {
       version: 1,
       author: readAuthor(parsed.author),
       brains: Array.isArray(parsed.brains) ? parsed.brains.flatMap((entry) => readRecord(entry) ?? []) : [],
+      reads: readReads(parsed.reads),
     };
   }
 
   get author(): Author | null { return this.data.author; }
   get brains(): readonly BrainRecord[] { return this.data.brains; }
   find(id: string): BrainRecord | undefined { return this.data.brains.find((brain) => brain.id === id); }
+
+  reads(workspaceId: string): readonly string[] { return this.data.reads[workspaceId] ?? []; }
+  get allReads(): Readonly<Record<string, readonly string[]>> { return this.data.reads; }
+
+  setReads(workspaceId: string, brains: readonly string[]): Promise<void> {
+    const reads = { ...this.data.reads };
+    if (brains.length) reads[workspaceId] = [...new Set(brains)].filter((brain) => brain !== workspaceId);
+    else delete reads[workspaceId];
+    this.data = { ...this.data, reads };
+    return this.flush();
+  }
 
   setAuthor(author: Author): Promise<void> {
     this.data = { ...this.data, author };

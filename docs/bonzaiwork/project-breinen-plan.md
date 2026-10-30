@@ -1045,6 +1045,19 @@ Stand fase 2 (bezig):
   brein → Onderhoud → "Wat is er nieuw in je breinen" opent de editor met een ochtendroutine en alle
   gedeelde breinen aangevinkt. e2e: een routine leest zonder klik in het brein dat erbij staat, een andere
   wacht.
+- **Andere breinen alleen via de MCP** (§5.2, fase 0 §6.6) gebouwd: de hooks zetten voor elke
+  geregistreerde breinmap, het persoonlijke brein en `<OPENCODE_CONFIG_DIR>` `read:`/`edit:`-deny met het
+  absolute pad (op Windows met beide scheidingstekens). Een map die de engine al open had, houdt de
+  policies waarmee hij werd gebouwd (gemeten): verandert de lijst, dan bouwt BonzaiWork de geladen mappen
+  opnieuw met `POST /api/location/reload`, maar pas als geen chat loopt (die herbouw annuleert open
+  vragen). e2e: lezen en schrijven in Sales vanuit Mijn brein geblokkeerd, een chat in Sales zelf leest
+  gewoon (ook met het volle pad), en Mijn brein is ook vanuit Sales dicht na de herbouw.
+- **"Breinen die dit project zonder vragen mag raadplegen"** (Projectinstellingen → Brein → Andere
+  breinen, voor elk project): in `brains.json` per project. De server beantwoordt de vraag voor die breinen
+  in lopende chats van dat project, ook als de chat niet open staat; de kaart blijft dan weg. Routines en
+  projecten gebruiken dezelfde code (`answers.ts`). e2e: na het aanvinken leest een chat zonder klik.
+- `brains.json` kende de modus "via voorstel" niet: zo'n brein viel bij een herstart weg. Hersteld, met
+  het open voorstel.
 - **Nog open in fase 2**: een OKF-bundel importeren, runs als chatgroep, werkwijzen in de composer en een
   werkwijze als routine.
 - Beslist (30-10): GitHub-voorstellen via de `gh` van de gebruiker op de laptop (BonzaiWork bewaart geen

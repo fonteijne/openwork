@@ -565,6 +565,9 @@ export interface Backend {
     /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
     register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
     unregister(projectId: string): Promise<void>;
+    /** Other brains this project consults without asking (plan §5.2); the server answers for them. */
+    reads(projectId: string): Promise<string[]>;
+    setReads(projectId: string, brains: string[]): Promise<string[]>;
     workflows(projectId: string): Promise<Workflow[]>;
     /** Throws with the missing inputs when the stage cannot start; otherwise the chat to start. */
     startStage(projectId: string, workflow: string, stage: string): Promise<ChatStart>;

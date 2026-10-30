@@ -29,6 +29,7 @@ export const keys = {
   proposals: ["brain-proposals"] as const,
   brainAuthor: ["brain-author"] as const,
   workflows: (projectId: string) => ["workflows", projectId] as const,
+  reads: (projectId: string) => ["brain-reads", projectId] as const,
   env: ["env"] as const,
   versions: ["versions"] as const,
 };
@@ -173,4 +174,10 @@ export function useBrainAuthor() {
 export function useWorkflows(projectId: string) {
   const backend = useBackend();
   return useQuery({ queryKey: keys.workflows(projectId), queryFn: () => backend.brains.workflows(projectId), enabled: backend.capabilities.brains, refetchInterval: 10_000, staleTime: 5_000 });
+}
+
+/** Other brains this project consults without asking. */
+export function useReads(projectId: string) {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.reads(projectId), queryFn: () => backend.brains.reads(projectId), enabled: backend.capabilities.brains, staleTime: 10_000 });
 }

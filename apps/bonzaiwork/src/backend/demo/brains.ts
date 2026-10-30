@@ -33,6 +33,7 @@ type DemoBrains = {
   verified: Record<string, boolean>;
   /** Workflow stage states per project: the demo has no folder to read them from. */
   stages?: Record<string, WorkflowStage["state"][]>;
+  reads?: Record<string, string[]>;
 };
 
 const DEMO_WORKFLOW: Omit<Workflow, "stages"> & { stages: Array<Omit<WorkflowStage, "state" | "failure" | "missing">> } = {
@@ -188,6 +189,17 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
       state.history[projectId] = [{ commit: "0a1b2c3", author: state.author?.name ?? "Jij", at: Date.now(), title: registration.kind === "personal" ? "Begin geschiedenis" : "Opgehaald", chatId: null, files: [] }];
       save();
       return view(projectId);
+    },
+    async reads(projectId) {
+      await later(80);
+      return state.reads?.[projectId] ?? [];
+    },
+    async setReads(projectId, brains) {
+      await later();
+      const kept = brains.filter((id) => id !== projectId && state.brains[id]?.kind === "project");
+      state.reads = { ...state.reads, [projectId]: kept };
+      save();
+      return kept;
     },
     // Workflows (plan §6.5). In the demo, starting a stage counts as its chat having written the output.
     async workflows(projectId) {

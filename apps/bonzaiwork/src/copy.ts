@@ -690,6 +690,9 @@ export const copy = {
     readTitle: (brain: string) => `Mag BonzaiWork in het brein ${brain} kijken?`,
     readBody: "Alleen lezen. Wat de AI gebruikt, komt met de bron erbij in dit project.",
     readAlways: "Altijd in dit gesprek",
+    readsTitle: "Andere breinen",
+    reads: "Breinen die dit project zonder vragen mag raadplegen",
+    readsHint: "Alleen lezen, met de bron erbij. Andere breinen vraagt de AI eerst aan jou.",
     otherBrain: "een ander brein",
     locked: "Breinen hebben een nieuwere versie van de app nodig.",
     // Workflows in the app (§6.5). "Stap" and "controle", never "stage" or "check" (C3).

@@ -484,6 +484,7 @@ type BrainStatus = {
 | `PUT /bonzaiwork/brains/:workspaceId/excluded` | host | `{ folders }`: uitgesloten mappen (persoonlijk brein) |
 | `POST /bonzaiwork/brains/:workspaceId/remote` | host | `{ url }`: privérepo aan het persoonlijke brein koppelen |
 | `POST /bonzaiwork/brains/:workspaceId/restore` | client | `{ commit, path? }`: notitie terugzetten, of zonder `path` de beurt terugdraaien |
+| `GET` / `PUT /bonzaiwork/brains/:workspaceId/reads` | client / host | `{ brains }`: andere breinen die dit project zonder vragen mag raadplegen; de server beantwoordt die vragen |
 | `GET /bonzaiwork/brains/:workspaceId/workflows` | client | `{ workflows: [{ name, title, task, runs, stages: [{ id, task, outputs, check: { kind, text }, state, failure, missing }] }] }`; `state`: `waiting` / `ready` / `check` / `done` / `failed` |
 | `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start` | client | `{ title, prompt }` voor een nieuwe chat; `409 { code: "missing_input", missing }` |
 | `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check` | client | `{ verdict: "pass" \| "fail", reason? }` van een persoon, of `{ model: true }` → `{ title, prompt }` |

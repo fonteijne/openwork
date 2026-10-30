@@ -337,6 +337,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
             {permission && isBrainRead(permission) ? (
               <BrainPermissionCard
                 key={permission.id}
+                projectId={project.id}
                 request={permission}
                 messages={messages}
                 onReply={async (reply) => {

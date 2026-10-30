@@ -88,26 +88,21 @@ test("plannen, op tijd een chat starten, uitkomst volgen, gemist als de app dich
   expect((await call("/bonzaiwork/routines", { method: "POST", body: { workspaceId: "nope", name: "x", prompt: "y", schedule: { kind: "daily", timezone: "UTC", hour: 8, minute: 0 } } })).status).toBe(400);
 });
 
-test("een routine leest zonder klik alleen in de breinen die erbij staan", async () => {
+test("een routine laat de vragen voor zijn eigen breinen beantwoorden, alleen voor zijn eigen runs", async () => {
   const state = await mkdtemp(join(tmpdir(), "routines-"));
   cleanup.push(state);
-  hooks = createRoutinesHooks({ stateDirectory: state, tickMs: 3_600_000, resolveBrain: async (name) => (name.toLowerCase().startsWith("sales") ? "ws_sales" : name === "Service" ? "ws_service" : null) });
+  const asked: Array<[string, string, readonly string[]]> = [];
+  hooks = createRoutinesHooks({ stateDirectory: state, tickMs: 3_600_000, answerBrainReads: async (workspaceId, sessionId, allowed) => { asked.push([workspaceId, sessionId, allowed]); return 0; } });
   const host = fakeHost();
   await hooks.start(host);
   const created = await call("/bonzaiwork/routines", { method: "POST", body: { workspaceId: "ws_mijn", name: "Nieuws", prompt: "Wat is er nieuw?", schedule: { kind: "daily", timezone: "UTC", hour: 8, minute: 0 }, brains: ["ws_sales"] } });
+  const plain = await call("/bonzaiwork/routines", { method: "POST", body: { workspaceId: "ws_mijn", name: "Zonder", prompt: "x", schedule: { kind: "daily", timezone: "UTC", hour: 8, minute: 0 } } });
   const run = await call(`/bonzaiwork/routines/${String(created.body.id)}/run`, { method: "POST" });
+  await call(`/bonzaiwork/routines/${String(plain.body.id)}/run`, { method: "POST" });
   expect(run.body.data).toMatchObject({ status: "running", trigger: "manual", chatId: "ses_1" });
-  host.pending.ses_1 = [
-    { id: "per_1", action: "breinen_brein_lezen", resources: ["*"], source: { type: "tool", callID: "call_a" } },
-    { id: "per_2", action: "breinen_brein_zoeken", resources: ["*"], source: { type: "tool", callID: "call_b" } },
-    { id: "per_3", action: "bash", resources: ["*"] },
-  ];
-  host.messages.ses_1 = { data: [{ info: { id: "msg_1" }, parts: [
-    { type: "tool", tool: "breinen_brein_lezen", callID: "call_a", state: { status: "pending", input: { brein: "Sales", pad: "knowledge/log.md" } } },
-    { type: "tool", tool: "breinen_brein_zoeken", callID: "call_b", state: { status: "pending", input: JSON.stringify({ brein: "Service", vraag: "x" }) } },
-  ] }] };
   await hooks.answerBrainQuestions();
-  const replies = host.calls.filter((entry) => entry.path.includes("/reply"));
-  expect(replies.map((entry) => entry.path)).toEqual(["/api/session/ses_1/permission/per_1/reply"]);
-  expect(replies[0]?.body).toEqual({ decision: "once", reply: "once" });
+  expect(asked).toEqual([["ws_mijn", "ses_1", ["ws_sales"]]]);
+  host.emit("ses_1", "succeeded");
+  await hooks.answerBrainQuestions();
+  expect(asked.length).toBe(1);
 });

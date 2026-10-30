@@ -68,8 +68,8 @@ export type RoutinesOptions = {
   permissionPollMs?: number;
   /** The provider routines run on (the only one the engine has, plan B). */
   providerId?: string;
-  /** The workspace id of a brain by the name the AI used, or null (from the brains hooks). */
-  resolveBrain?: (name: string) => Promise<string | null>;
+  /** Answers a run's brain-read questions for the brains it names (from the brains hooks). */
+  answerBrainReads?: (workspaceId: string, sessionId: string, allowed: readonly string[]) => Promise<number>;
 };
 
 type Route = { method: string; path: string; auth: "client" | "host-token"; handle: (request: Request, params: Record<string, string>) => Promise<Response> };
@@ -80,7 +80,6 @@ const RUN_STATUSES: readonly RoutineRun["status"][] = ["queued", "running", "suc
 const TRIGGERS: readonly RoutineRun["trigger"][] = ["scheduled", "manual", "recovery"];
 const MISSED_AFTER_MS = 10 * 60_000;
 const RUNS_KEPT = 50;
-const BRAIN_READ = /^breinen_brein_(lezen|zoeken)$/;
 
 type Json = Record<string, unknown>;
 const record = (value: unknown): Json | null => (typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : null);
@@ -98,28 +97,6 @@ function parseSchedule(value: unknown): RoutineSchedule | null {
 
 async function readBody(request: Request): Promise<Json | null> {
   try { return record(await request.json()); } catch { return null; }
-}
-
-/** The `brein` argument of the tool call a permission is about (the engine only says `*`). */
-function brainOfCall(messages: unknown, callId: string | null, action: string): string | null {
-  const found: string[] = [];
-  const visit = (value: unknown) => {
-    if (Array.isArray(value)) { for (const item of value) visit(item); return; }
-    const node = record(value);
-    if (!node) return;
-    const tool = text(node, "tool") ?? text(node, "name");
-    const call = text(node, "callID") ?? text(node, "callId");
-    if (tool && (tool === action || tool.endsWith(`_${action}`) || (callId !== null && call === callId))) {
-      const state = record(node.state);
-      let input: unknown = state?.input ?? node.input;
-      if (typeof input === "string") { try { input = JSON.parse(input); } catch { input = null; } }
-      const brain = text(input, "brein");
-      if (brain && (callId === null || call === callId || found.length === 0)) found.push(brain);
-    }
-    for (const child of Object.values(node)) if (typeof child === "object") visit(child);
-  };
-  visit(messages);
-  return found.at(-1) ?? null;
 }
 
 export function createRoutinesHooks(options: RoutinesOptions = {}) {
@@ -278,29 +255,9 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
   /** Reads of brains the routine names are allowed once each; anything else waits for the user. */
   async function answerBrainQuestions(): Promise<void> {
     for (const [sessionId, { routine }] of live) {
-      if (!host || !routine.brains.length || !options.resolveBrain) continue;
-      try {
-        const pending = await host.engineRequest(routine.workspaceId, "GET", `/api/session/${encodeURIComponent(sessionId)}/permission`);
-        const data = record(pending.body)?.data ?? pending.body;
-        const items: unknown[] = Array.isArray(data) ? data : [];
-        const questions = items.flatMap((item) => {
-          const value = record(item);
-          const id = text(value, "id");
-          const action = text(value, "action") ?? text(value, "permission");
-          return value && id && action && BRAIN_READ.test(action) ? [{ id, action, callId: text(value.source, "callID") ?? text(value.tool, "callID") }] : [];
-        });
-        if (!questions.length) continue;
-        const messages = await host.engineRequest(routine.workspaceId, "GET", `/api/session/${encodeURIComponent(sessionId)}/message?limit=200`);
-        for (const question of questions) {
-          const name = brainOfCall(messages.body, question.callId, question.action);
-          const brain = name ? await options.resolveBrain(name) : null;
-          if (!brain || !routine.brains.includes(brain)) continue;
-          await host.engineRequest(routine.workspaceId, "POST", `/api/session/${encodeURIComponent(sessionId)}/permission/${encodeURIComponent(question.id)}/reply`, { decision: "once", reply: "once" });
-          host.log("info", "Routine read a brain it names", { routine: routine.id, brain });
-        }
-      } catch (error) {
-        host?.log("warn", "Routine permission check failed", { routine: routine.id, error: String(error) });
-      }
+      if (!routine.brains.length || !options.answerBrainReads) continue;
+      await options.answerBrainReads(routine.workspaceId, sessionId, routine.brains)
+        .catch((error: unknown) => host?.log("warn", "Routine permission check failed", { routine: routine.id, error: String(error) }));
     }
   }
 

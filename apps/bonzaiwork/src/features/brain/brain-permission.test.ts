@@ -41,3 +41,16 @@ describe("reading another brain", () => {
     expect(describeTool(tool("breinen_persoonlijk_brein_lezen", { pad: "Projecten/a.md" }, "completed"))).toMatchObject({ object: "a.md in je persoonlijke brein" });
   });
 });
+
+describe("which brain the AI meant", () => {
+  it("matches the project name or folder, like the brains MCP", async () => {
+    const { brainIdByName } = await import("./brain-picker");
+    const brain = (projectId: string, path: string): { projectId: string; path: string; status: { kind: "project" } } => ({ projectId, path, status: { kind: "project" } });
+    const brains = [brain("p-sales", "/x/Sales"), brain("p-service", "/x/klantenservice-brein")];
+    const projects = [{ id: "p-sales", name: "Offertes 2026" }];
+    expect(brainIdByName("offertes 2026", brains, projects)).toBe("p-sales");
+    expect(brainIdByName("Sales-brein", brains, projects)).toBe("p-sales");
+    expect(brainIdByName("klantenservice", brains, projects)).toBe("p-service");
+    expect(brainIdByName("marketing", brains, projects)).toBeNull();
+  });
+});
