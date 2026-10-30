@@ -188,8 +188,10 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
     geen waarschuwing over back-ups.
   - **Haal op uit een repo** (tweede laptop, of een privérepo die al bestaat): clone via SSH.
   - Later wisselen kan in de instellingen van "Mijn brein"; de oude map blijft dan gewoon staan.
-- **Synchroniseren is optioneel**: een nieuwe map kan de gebruiker koppelen aan een eigen privérepo via
-  SSH (dan dezelfde sync als een projectbrein). Zonder repo is de status gewoon "Alleen op deze laptop".
+- **Altijd geschiedenis, synchroniseren is optioneel**: is het persoonlijke brein nog geen git-repo, dan
+  doet BonzaiWork `git init` **zonder origin**, puur om de geschiedenis bij te houden (§5.1.1, "Vangnet").
+  De status is dan "Alleen op deze laptop". Later koppelen aan een eigen privérepo via SSH is dan alleen
+  een origin toevoegen en de bestaande geschiedenis versturen; daarna dezelfde sync als een projectbrein.
 - Het is ook een **gewoon project** ("Mijn brein", altijd bovenaan, niet te archiveren): daar chat je om
   je eigen kennis en workflows te ordenen.
 - **Telt mee in elk project**, op twee manieren:
@@ -226,13 +228,23 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
   bestaande indeling passen (de map met vergelijkbare notities); past niets, dan in `Inbox/` (of de
   inboxmap die de vault al heeft). Bewerken gaat per passage (oude tekst → nieuwe tekst), nooit door een
   hele notitie te overschrijven.
-- **Vangnet: geschiedenis van elke wijziging.** Een vault in iCloud of OneDrive heeft geen git, dus een
-  verkeerde wijziging zou anders niet terug te halen zijn. BonzaiWork houdt daarom een **eigen,
-  onzichtbare geschiedenis** bij: een git-map in de app-gegevens (`userData/bonzaiwork/history/<id>.git`,
-  met de vault als werkmap; er komt geen `.git` in de vault en er gaat niets naar buiten). Bij elke
-  `Stop`-hook legt hij de `.md`-wijzigingen vast, met de chat erbij. In "Mijn brein → Geschiedenis":
-  wat is er veranderd, vanuit welke chat, en **"Zet deze notitie terug"** of **"Draai deze beurt terug"**.
-  Synchroniseert BonzaiWork de vault zelf via een repo, dan is die repo de geschiedenis.
+- **Vangnet: geschiedenis van elke wijziging.** Omdat de AI vrij mag schrijven, moet elke wijziging terug
+  te halen zijn. Bij elke `Stop`-hook legt BonzaiWork de `.md`-wijzigingen vast in git, met de chat erbij.
+  In "Mijn brein → Geschiedenis": wat is er veranderd, vanuit welke chat, en **"Zet deze notitie terug"**
+  of **"Draai deze beurt terug"**. Waar de git-map staat, hangt af van de map:
+
+  | Persoonlijk brein | Git-map | Waarom |
+  |---|---|---|
+  | Al een git-repo die BonzaiWork synchroniseert | die repo | geschiedenis is er al |
+  | Geen git-repo, **lokale map** (ook de nieuwe `~/BonzaiWork/Persoonlijk`) | `git init` **in de map, zonder origin** | één mechanisme met de projectbreinen; de geschiedenis verhuist mee met de map; later een privérepo koppelen = origin toevoegen en versturen |
+  | Map in **iCloud, OneDrive, Dropbox of Google Drive** | **buiten de map**: `userData/bonzaiwork/history/<id>.git` met de vault als werkmap (`GIT_DIR`/`GIT_WORK_TREE`, geen `.git` in de vault) | een `.git` die door cloud-sync gaat, raakt beschadigd (half gesynchroniseerde objecten, `index.lock`, "conflict"-kopieën), zeker met twee apparaten |
+  | Al een git-repo die **iets anders** synchroniseert (Obsidian Git-plugin) | ook **buiten de map**, zoals hierboven | twee programma's die in dezelfde repo committen, geven conflicten |
+
+  De code is in alle gevallen dezelfde git-laag; alleen de plek van de git-map verschilt. Cloudmappen
+  herkent de app aan hun pad (`~/Library/Mobile Documents`, `~/Library/CloudStorage/*`, de
+  OneDrive-/Dropbox-mappen uit hun eigen instellingen). In `.git/info/exclude` staat dat alleen
+  `.md`-bestanden meegaan (N5), zodat bijlagen de geschiedenis niet groot maken. Er gaat niets naar
+  buiten zolang er geen origin is.
 - **Niet tegelijk met de gebruiker schrijven**: `persoonlijk_brein_bewerken` geeft de versie mee die de AI
   las; is de notitie intussen veranderd (de collega typt in Obsidian, de cloud-sync haalde iets binnen),
   dan weigert de tool en leest de AI opnieuw. Zo overschrijft de AI nooit werk van de gebruiker.
@@ -247,7 +259,8 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
   AI nooit mag lezen of wijzigen, bijvoorbeeld `Dagboek/` of `Gezondheid/`. Altijd uit: `.obsidian/`,
   `.trash/`, `.logseq/`, `.git/`.
 - **Bestaande sync blijft van de gebruiker**: staat de map in iCloud, OneDrive, Dropbox of gebruikt hij
-  Obsidian Sync, dan doet BonzaiWork geen git en raakt die sync niet aan. Is de map al een git-repo (bijv.
+  Obsidian Sync, dan synchroniseert BonzaiWork niet via git en raakt die sync niet aan (de geschiedenis
+  staat dan buiten de map, zie "Vangnet"). Is de map al een git-repo (bijv.
   de Obsidian Git-plugin), dan vraagt de app: "Synchroniseert iets anders deze map al?" Ja → BonzaiWork
   blijft van git af (twee programma's die allebei committen geven conflicten). Nee → BonzaiWork mag de
   sync doen zoals bij een projectbrein.
@@ -373,7 +386,7 @@ type BrainKind = "project" | "personal";
 type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "error";
 type BrainStatus = {
   kind: BrainKind;
-  state: BrainState;            // local_only: persoonlijk brein zonder repo
+  state: BrainState;            // local_only: persoonlijk brein met lokale geschiedenis, zonder origin
   mode: "auto" | "manual" | "read_only";
   remote: string | null;        // SSH-vorm, bijv. git@gitlab.com:team/brein.git
   branch: string;
@@ -424,7 +437,7 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
   conflictkaart met "Bewaar mijn versie apart", instellingen-sectie, demo-backend.
 - Persoonlijk brein: nieuwe map of bestaande vault kiezen in de onboarding, mappen uitsluiten, project
   "Mijn brein", optionele privérepo, instructies (volledig) en skills in elk project,
-  `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), eigen geschiedenis met terugzetten.
+  `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), geschiedenis met terugzetten (`git init` zonder origin, of buiten de map bij cloud-sync).
 - Sjabloon-`AGENTS.md` en `git *`-deny.
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
   in project X wordt geleerd, staat in het persoonlijke brein en werkt in project Y; offline werken en
@@ -451,7 +464,8 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
   naar buiten en alleen `.md`.
 - **Gekozen vault** (fixture: een kleine Obsidian-vault met wikilinks, frontmatter, `.obsidian/` en
   bijlagen): bewerken met verouderde versie → geweigerd; elke beurt staat in de eigen geschiedenis en is
-  terug te zetten; de vault krijgt geen `.git`; bijlagen en `.obsidian/` blijven ongewijzigd; vault die al
+  terug te zetten; een lokale vault zonder git krijgt `git init` zonder origin; een vault in een
+  cloudmap of met Obsidian Git krijgt géén `.git` en zijn geschiedenis staat in `userData`; bijlagen en `.obsidian/` blijven ongewijzigd; vault die al
   een git-repo is, wordt niet aangeraakt als iets anders hem synchroniseert.
 - **Links en SSH**: unit-tests voor het omzetten van links; een test tegen een lokale `sshd` (in CI een
   container) met een testsleutel in een agent: onbekende host → vingerafdruk, gewijzigde host-sleutel →
