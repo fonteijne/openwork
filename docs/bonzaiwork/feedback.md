@@ -1,6 +1,6 @@
 # BonzaiWork: feedback sturen (issue #9)
 
-> **Status.** Implementatieplan, nog geen code. Eerst de open beslissingen ([§6](#6-open-beslissingen)), dan bouwen.
+> **Status.** Implementatieplan, nog geen code. B1 en B3 zijn besloten; B2 (relay) staat nog open ([§6](#6-open-beslissingen)).
 > **Issue.** [#9 "Stuur feedback"](https://github.com/fonteijne/openwork/issues/9).
 
 ## 1. Doel
@@ -31,7 +31,7 @@ logbestand, tenzij ze dat wil.
 │  [x] Screenshot meesturen      [miniatuur]              │
 │  [x] Technische gegevens meesturen                      │
 │  ▸ Bekijk wat er wordt meegestuurd                      │  ← P3: details achter een uitklapper
-│  "Je feedback komt in een openbare lijst" (zie B1)      │  ← P9: actie, data en risico
+│  "Alleen het BonzaiWork-team kan dit lezen"             │  ← P9: actie, data en risico
 │                          [Annuleren]  [Feedback versturen] │
 └─────────────────────────────────────────────────────────┘
    │  2. UI → POST /bonzaiwork/feedback (lokale server)
@@ -96,6 +96,9 @@ Wat er **niet** meegaat, of eruit wordt gefilterd vóór verzending:
 | Thuismap (`/Users/<naam>`, `C:\Users\<naam>`, `/home/<naam>`) | `~` |
 | Project- en chatnamen, berichtinhoud | niet verzameld |
 
+Ook in een privé-repo blijft de redactie nodig: iedereen met leestoegang tot de repo ziet de issues, en keys of
+tokens horen nooit buiten de keychain (E5).
+
 De redactie draait in de server-hook (één plek), heeft eigen unit-tests, en de UI toont onder "Bekijk wat er wordt
 meegestuurd" exact de opgeschoonde tekst. De screenshot wordt niet opgeschoond: de gebruiker ziet een miniatuur en
 kan hem uitzetten.
@@ -123,14 +126,19 @@ de knop vanzelf uit.
 
 | # | Vraag | Opties | Advies |
 |---|---|---|---|
-| B1 | **Waar komen de issues?** Deze repo is openbaar. Logs en screenshots kunnen namen, bestandsnamen of klantinformatie tonen, en AGENTS.md verbiedt dat in deze repo. | a) issue in deze repo, bijlagen in een privé-repo/opslag, alleen een link; b) alles in een **privé-repo** (bijv. `fonteijne/bonzaiwork-feedback`); c) alles in deze repo | **b**: één privé-repo voor feedback. Maintainers zetten een issue met de hand door naar deze repo als het een echt werkpunt is. |
+| B1 | **Waar komen de issues?** | – | **Besloten (30-10-2026):** in deze repo, nadat die privé is gemaakt. De relay leest de doelrepo uit zijn eigen config (`owner/repo`), zodat een verhuizing geen nieuwe app-build vraagt. De relay gaat pas live als de repo privé is. |
 | B2 | **Waar draait de relay?** | a) Cloudflare Worker / Vercel-functie; b) naast LiteLLM op dezelfde server; c) als route in LiteLLM zelf (custom callback) | **a** of **b**, wat het makkelijkst te beheren is. Bepaalt stap 6. |
-| B3 | **Hoe bepaalt de app de categorie?** | a) gebruiker kiest (2 opties); b) het LLM via LiteLLM stelt categorie en titel voor, gebruiker kan wijzigen; c) alleen LLM | **a** in de eerste versie, **b** als vervolg (gebruikt de eigen LiteLLM, geen extra dienst). |
+| B3 | **Hoe bepaalt de app de categorie?** | – | **Besloten (30-10-2026):** de gebruiker kiest (2 opties). Een voorstel van het LLM via LiteLLM komt later, als vervolg. |
 | B4 | **Welke labels?** | `bug` / `feature` (zoals de issue-templates) + `feedback` + platform (`macos`/`windows`/`linux`) | Zoals voorgesteld. |
 | B5 | **Mag de gebruiker zijn naam/e-mail meesturen** om teruggebeld te worden? | ja (optioneel veld) / nee | Nee in de eerste versie; de LiteLLM-key-alias in de relay is genoeg om een gebruiker te herleiden. |
 
 ## 7. Risico's
 
+- **Repo privé maken (voorwaarde voor B1)**: `fonteijne/openwork` is een GitHub-fork van een openbare repo, en
+  GitHub laat een fork van een openbare repo niet privé zetten. Eerst de fork loskoppelen (GitHub Support,
+  "detach fork") of een nieuwe privé-repo maken en daar alles naartoe pushen (`git push --mirror`). De upstream-sync
+  haalt upstream via de URL op en heeft de fork-relatie niet nodig. Let daarna op de Actions-minuten van een
+  privé-repo (de verpakte build is zwaar) en op CodeQL, dat in een privé-repo GitHub Advanced Security vraagt.
 - **Spam/misbruik**: relay accepteert alleen geldige LiteLLM-keys, met rate limit per key en maximale payload.
 - **Gevoelige data in de screenshot**: standaard aan maar zichtbaar als miniatuur, met één klik uit te zetten.
 - **Upstream verandert logpaden** (`runtime.mjs`, `startup-log.mjs`): de `DiagnosticsSource` zoekt de bestanden
