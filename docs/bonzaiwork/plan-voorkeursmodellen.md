@@ -1,0 +1,133 @@
+# Implementatieplan: voorkeursmodellen in projectinstellingen
+
+Issue: [fonteijne/openwork#7](https://github.com/fonteijne/openwork/issues/7) · Stand: plan, nog niet gebouwd.
+
+## Doel
+
+Susan (niet-technisch) wil niet nadenken over welke modellen aanstaan. Daarom:
+
+1. **Schakelaar "Alle modellen van de key" uit = alles uitgevinkt.** Daarna vinkt ze alleen aan wat ze wil.
+2. **Knop "Alleen voorkeursmodellen"** vinkt precies de door ons gekozen modellen aan.
+3. **Nieuwe projecten starten met alleen de voorkeursmodellen.** De rest zet ze aan in de projectinstellingen.
+
+Voorkeursmodellen volgens het issue: GPT-6 Luna, GLM 5, GLM 4.7 Flash, Qwen 3.8 27B, Gemini 3.8 Flash.
+
+## Hoe het nu werkt
+
+| Onderdeel | Plek | Gedrag nu |
+|---|---|---|
+| Modellijst + schakelaar | `apps/bonzaiwork/src/features/settings/project-settings.tsx` (`KeySection`) | Schakelaar uit → `allowedModels` wordt **alle** model-id's. Een vinkje uitzetten mag niet als het het laatste is (`if (next.length)`). |
+| Opslag | `Project.allowedModels` (`backend/types.ts`), `ProjectMeta` (`backend/live/meta.ts`, contract §7.1) | `null` = alle modellen van de key, inclusief modellen die later bijkomen; anders een lijst model-id's. |
+| Filteren | `projectModels()` / `startModel()` in `backend/queries.ts` | Composer, chat, project-home en routine-editor gebruiken alleen de modellen uit deze lijst. |
+| Nieuw project | `features/projects/new-project-dialog.tsx` → `backend.projects.create` (demo + live) | `allowedModels` is altijd `null`. In `keyMode=workspace` wordt de key **na** het aanmaken gekoppeld. |
+| Modellen van LiteLLM | `packages/bonzaiwork-litellm/src/server-hooks.ts` → `GET /bonzaiwork/status` | `models` (één lijst voor alle keys samen) en `defaultModel`. |
+| Ingebakken instellingen | `packages/bonzaiwork-policy/src/index.ts` (`readSettings`), `apps/bonzaiwork/desktop-main/main.ts`, `scripts/build-electron-entry.mjs` | `BONZAIWORK_LITELLM_BASE_URL`, `BONZAIWORK_KEY_MODE`, `BONZAIWORK_DEFAULT_MODEL`. |
+
+## Beslissingen in dit plan
+
+| # | Beslissing | Waarom |
+|---|---|---|
+| B1 | De voorkeurslijst bestaat uit **LiteLLM-model-id's**, niet uit weergavenamen. | Namen verschillen per LiteLLM-config. Alleen id's matchen betrouwbaar. |
+| B2 | De lijst staat als standaard in `@bonzaiwork/policy` (`PREFERRED_MODEL_IDS`). Een build kan hem overschrijven met `BONZAIWORK_PREFERRED_MODELS` (komma-gescheiden), zoals `BONZAIWORK_DEFAULT_MODEL`. | Dit volgt O3 (instellingen worden in de build ingebakken). Er komt geen nieuwe UI voor beheer. |
+| B3 | De server geeft de lijst door in `GET /bonzaiwork/status` als `preferredModels: string[]`, ongefilterd en in de ingestelde volgorde. | De UI leest één bron. Het filteren tegen de key gebeurt bij het lezen, net als bij `allowedModels`. |
+| B4 | `allowedModels: []` wordt een geldige toestand: "nog niets gekozen". `null` blijft "alle modellen van de key". | Nodig voor de flow "alles uitvinken, dan zelf aanvinken". |
+| B5 | Een project zonder bruikbaar model is **geblokkeerd, geen fout** (DESIGN C5/P4). Composer en routine-editor tonen dan "Geen modellen gekozen" met de actie "Modellen kiezen" naar de projectinstellingen. | Een lege lijst mag nooit tot een stille fout bij het versturen leiden. |
+| B6 | Nieuwe projecten krijgen `allowedModels = preferredModels` (de ingestelde id's). Is de lijst leeg, dan blijft het `null`. | Dit werkt ook als de key pas later gekoppeld wordt: het filteren gebeurt bij het lezen. |
+| B7 | Bestaande projecten blijven zoals ze zijn: geen migratie. | Stilletjes modellen weghalen die iemand gebruikt, breekt lopende chats en routines. |
+
+## Stappen
+
+### 1. Policy: voorkeurslijst (`packages/bonzaiwork-policy`)
+
+- `src/index.ts`
+  - `export const PREFERRED_MODEL_IDS: readonly string[] = [...]` met de vijf id's (zie open vraag V1).
+  - `BonzaiworkSettings` krijgt `preferredModels: string[]`.
+  - `readSettings`: `BONZAIWORK_PREFERRED_MODELS` splitsen op `,`, trimmen, lege waarden en dubbele id's weghalen, de volgorde houden. Niet gezet → `PREFERRED_MODEL_IDS`. Een lege string (`""`) betekent bewust geen voorkeur → `[]`.
+  - Helper `pickPreferredModels(models, preferred)`: de doorsnede, in de volgorde van `preferred`. Puur en getest.
+- `test/policy.test.ts`: tests voor de standaard, de override, trimmen/dedupe, de lege string en de doorsnede.
+
+### 2. Build en Electron-entry
+
+- `apps/bonzaiwork/scripts/build-electron-entry.mjs`: `BONZAIWORK_PREFERRED_MODELS` als optionele ingebakken waarde (docblock + doorgeven).
+- `apps/bonzaiwork/desktop-main/main.ts`: de waarde doorgeven aan de server-env, zoals `BONZAIWORK_DEFAULT_MODEL` (alleen als hij gezet is).
+- `docs/bonzaiwork/README.md`: de variabele toevoegen bij de ingebakken instellingen.
+
+### 3. Server: status (`packages/bonzaiwork-litellm`)
+
+- `src/server-hooks.ts` → `status()`: `preferredModels: settings.preferredModels` toevoegen.
+- `test/proxy.test.ts`: de status bevat `preferredModels`, en dat werkt in beide key-modi.
+- `docs/bonzaiwork/frontend-contract.md` §5.5 en §7.1: `preferredModels` documenteren en de betekenis van `[]` toevoegen naast `null`.
+
+### 4. Frontend-backendlaag (`apps/bonzaiwork/src/backend`)
+
+- `types.ts`
+  - `AppStatus.preferredModels: string[]`.
+  - `NewProjectInput.allowedModels: string[] | null`.
+  - Het commentaar bij `Project.allowedModels` wordt: `null = every model of the key; [] = none chosen yet`.
+- Nieuwe pure module `models.ts` (met `models.test.ts`). Daarin komen `projectModels` en `startModel` uit `queries.ts`, plus:
+  - `preferredIn(status)`: de id's uit `preferredModels` die de key biedt.
+  - `hasNoModels(status, project)`: true bij een key met modellen maar een lege doorsnede.
+  
+  `queries.ts` exporteert deze functies opnieuw, zodat bestaande imports blijven werken.
+- `live/index.ts`
+  - `readStatus`: `preferredModels: strings(field(payload, "preferredModels"))`.
+  - `projects.create`: `allowedModels` meesturen in de eerste `meta.patch`.
+- `live/meta.ts`: `readMeta` neemt `[]` al over (`Array.isArray`). Een test in `live/meta.test.ts` legt vast dat `[]` niet terugvalt naar `null`.
+- `demo/seed.ts` + `demo/index.ts`
+  - `DEMO_MODELS` uitbreiden met de vijf voorkeursmodellen. De bestaande modellen blijven en dienen als "overige".
+  - Demo-state krijgt `preferredModels`.
+  - `projects.create` neemt `input.allowedModels` over. De audit-regel noemt de modelkeuze.
+  - Demo-schakelaar `?voorkeur=geen` simuleert een key zonder voorkeursmodellen, voor de geblokkeerde staat.
+
+### 5. Projectinstellingen: modelsectie (`features/settings/project-settings.tsx`)
+
+Volg DESIGN S2 (compacte rijen), P3 (meer tonen pas als de schakelaar uit staat), C1 (werkwoord eerst) en P5 (bestaande `Button`, `Row`, `Switch`).
+
+- **Schakelaar uit → `setAllowed([])`** in plaats van alle id's. Schakelaar aan → `null`, zoals nu.
+- **Nieuwe rij onder de schakelaar, alleen zichtbaar als die uit staat:** twee `quiet`-knoppen rechts.
+  - **"Alleen voorkeursmodellen"** → `setAllowed(preferredIn(status))`. Uitgeschakeld met een tooltip "Deze key biedt geen voorkeursmodellen" als de doorsnede leeg is (P4). Na het klikken een toast "Voorkeursmodellen gekozen" (C2).
+  - **"Alles uitvinken"** → `setAllowed([])`. Uitgeschakeld als er al niets is aangevinkt.
+- Het vinkje mag nu ook het laatste model uitzetten: de guard `if (next.length)` gaat weg.
+- **Lege selectie** (`allowed` is `[]` of de doorsnede is leeg): onder de lijst één regel in neutrale inkt, "Nog geen model gekozen. Vink minstens één model aan om te chatten." (C5/C6, geen rood).
+- **Voorkeursmodellen herkenbaar maken:** een klein label "Voorkeur" rechts naast de naam (neutrale token, geen kleuraccent). Het model-id blijft verborgen op smalle schermen, zoals nu. De volgorde van de lijst blijft die van de key, zodat er niets verspringt.
+- De `Select` voor het standaardmodel blijft filteren op de gekozen modellen. Als het huidige standaardmodel wegvalt, toont de select "Eerste beschikbare model" (bestaand gedrag van `startModel`).
+- Copy in `copy.ts` (`settings`): `allowedPreferred`, `allowedNone`, `allowedPreferredUnavailable`, `allowedPreferredDone`, `allowedEmpty`, `preferredBadge`.
+
+### 6. Nieuw project (`features/projects/new-project-dialog.tsx`)
+
+- `allowedModels: status.data?.preferredModels.length ? status.data.preferredModels : null` meegeven aan `create` (B6).
+- Standaardmodel: valt `status.defaultModel` buiten de voorkeurslijst, dan is het eerste voorkeursmodel dat de key biedt de start, of `null`. Zo verwijst het nieuwe project niet direct naar een uitgezet model.
+- Geen nieuwe controls in de dialoog: de keuze is "standaard goed" en aan te passen in de instellingen (P3).
+
+### 7. Geblokkeerde staat in chat en routines
+
+- `features/chat/composer.tsx`, `chat-view.tsx`, `project-home.tsx`: als `hasNoModels(...)` geldt, wordt versturen geblokkeerd met een `Locked`-melding "Geen modellen gekozen" en de knop "Modellen kiezen" (→ `navigate({ name: "project-settings", projectId, section: "key" })`).
+- `features/routines/routine-editor.tsx`: dezelfde melding in plaats van een lege modelkeuze.
+- Het onderscheid met "geen key" (`projectHasKey`) blijft: die melding gaat voor.
+
+### 8. Verificatie
+
+- `pnpm --filter @bonzaiwork/policy test`, `pnpm --filter @bonzaiwork/litellm test`, `pnpm --filter @bonzaiwork/app test` en `typecheck` voor alle drie.
+- **Headless UI-check** in demomodus (`pnpm --filter @bonzaiwork/app dev`, headless Chrome via Playwright), met screenshots voor de PR (DESIGN P10):
+  1. Schakelaar aan (alle modellen, vinkjes gedimd).
+  2. Schakelaar uit → alles uitgevinkt + de lege-selectie-regel.
+  3. Na "Alleen voorkeursmodellen" → vijf vinkjes + toast.
+  4. Key zonder voorkeursmodellen (`?voorkeur=geen`) → knop uitgeschakeld met tooltip.
+  5. Composer met de geblokkeerde staat "Geen modellen gekozen".
+  6. Nieuw project → instellingen tonen alleen de voorkeursmodellen aangevinkt.
+- Een live check tegen een echte LiteLLM (macOS) met de echte id's, zodra V1 is beantwoord. Lokale tests bewijzen niet dat de id's kloppen.
+
+### 9. PR
+
+- Eén PR met stappen 1 t/m 7. Geen feature flag: het gaat om een kleine UI-aanpassing en een standaardwaarde (AGENTS.md: "never flag additive UI, polish").
+- In de PR-tekst: de DESIGN-regels S2, P3, P4, P5, C1, C2, C5 en C6, plus de screenshots uit stap 8.
+
+## Open vragen
+
+| # | Vraag | Gevolg |
+|---|---|---|
+| V1 | Wat zijn de **exacte LiteLLM-model-id's** van de vijf modellen (bijv. `gpt-6-luna` of `openai/gpt-6-luna`)? | Nodig voor `PREFERRED_MODEL_IDS`. Tot dan staan er placeholder-id's en test de demo met eigen id's. |
+| V2 | De nummering in het issue slaat 2 over (1, 3, 4, 5, 6). **Ontbreekt er een model?** | De lijst zou dan zes modellen hebben. |
+| V3 | Moet de lijst **zonder nieuwe build** te wijzigen zijn? Bijvoorbeeld via een tag in LiteLLM's `model_info` (`bonzaiwork_preferred: true`) die de server via `/model/info` leest. | Bij ja vervangt dit B2. De server leest dan de vlag in plaats van de env. Meer werk, maar beheer blijft in LiteLLM. |
+| V4 | Moeten **bestaande projecten** ook naar de voorkeursmodellen (eenmalige migratie, of een melding "Overstappen op voorkeursmodellen")? | Dit plan doet niets met bestaande projecten (B7). |
+| V5 | Is een derde knop **"Alles aanvinken"** nodig? Dat is een vaste lijst van de huidige modellen. De schakelaar aan betekent ook toekomstige modellen. | Niet gevraagd in het issue, daarom weggelaten (P3). |
