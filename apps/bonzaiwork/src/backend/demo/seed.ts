@@ -360,6 +360,12 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
       icon: "file-text",
       keyValue: workspaceKeys ? null : "unused",
     }),
+    project("p-mijn-brein", "Mijn brein", now - 2 * DAY, {
+      description: "Mijn voorkeuren, kennis en eigen werkwijzen",
+      color: "sage",
+      icon: "book",
+      keyValue: keyless("sk-demo-brein-3b7c"),
+    }),
     project("p-verhuizing", "Verhuizing kantoor", now - 400 * DAY, {
       description: "Planning en checklist voor de verhuizing naar de Vaartsche Rijn",
       color: "sage",
@@ -637,6 +643,8 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
     file("offertes/2026-031-bakkerij-van-dijk.md", 2_457, tVanDijk + 3 * MIN),
     file("offertes/2026-032-fysiopraktijk-de-linde.md", 2_301, now - 3 * DAY),
     file("offertes/2026-033-tegelhandel-mertens.md", 3_880, now - 2 * DAY),
+    file("knowledge/offertes/kortingsbeleid.md", 1_204, now - 3 * HOUR),
+    file("knowledge/producten/pakketten.md", 1_870, now - DAY),
   ];
   base.files[marketing] = [file("nieuwsbrieven/2026-10-oktober.md", 4_102, now - 30 * DAY), file("webinar/draaiboek.md", 5_330, now - 8 * DAY)];
   base.files[service] = [file("AGENTS.md", 188, now - 40 * DAY), file("huisstijl.md", 1_920, now - 120 * DAY), file("faq/antwoorden-oktober.md", 2_840, tFaq + 5 * MIN), file("tickets/oktober-export.csv", 88_420, now - 7 * DAY)];

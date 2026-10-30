@@ -20,6 +20,7 @@ import {
 import { missedOccurrence, nextOccurrence } from "~/lib/schedule";
 import { readLocalJson, writeLocalJson, writeLocal } from "~/lib/storage";
 
+import { createDemoBrains } from "./brains";
 import { planReply, titleFrom, type Step } from "./replies";
 import { createSeed, type DemoState } from "./seed";
 
@@ -42,6 +43,7 @@ const CAPABILITIES: Capabilities = {
   revealPath: false,
   notifications: false,
   globalConfig: true,
+  brains: true,
 };
 
 const MIN = 60_000;
@@ -1161,6 +1163,14 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
         return clone(state.runs[routineId] ?? []);
       },
     },
+
+    brains: createDemoBrains({
+      now: Date.now(),
+      home: state.defaultFolder,
+      storageKey,
+      search: typeof window === "undefined" ? "" : window.location.search,
+      projectPath: (projectId) => state.projects.find((entry) => entry.id === projectId)?.path ?? null,
+    }),
 
     settings: {
       async env() {

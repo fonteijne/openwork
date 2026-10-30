@@ -50,6 +50,8 @@ export type Capabilities = {
   notifications: boolean;
   /** Skills and commands for every project can be edited (not only read). */
   globalConfig: boolean;
+  /** Brains: projects that are shared git repositories, and the personal brain (§7.5). */
+  brains: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -343,6 +345,71 @@ export type RoutineInput = Pick<Routine, "projectId" | "name" | "prompt" | "mode
 export type RoutinePatch = Partial<RoutineInput> & { state?: Exclude<RoutineState, "needs_attention"> };
 
 // ---------------------------------------------------------------------------
+// Brains (docs/bonzaiwork/project-breinen-plan.md §8; frontend-contract §7.5)
+// ---------------------------------------------------------------------------
+
+export type BrainKind = "project" | "personal";
+export type BrainMode = "auto" | "manual" | "read_only";
+export type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "needs_trust" | "error";
+
+/** Something a shared brain brings that can run code; it stays out of the folder until trusted (§7.1). */
+export type TrustItem = { path: string; kind: "config" | "plugin" | "agent" | "command" | "script"; mcpServers: string[] };
+
+export type BrainStatus = {
+  kind: BrainKind;
+  state: BrainState;
+  mode: BrainMode;
+  /** SSH form; null for a personal brain with history only. */
+  remote: string | null;
+  branch: string;
+  ahead: number;
+  behind: number;
+  lastSyncAt: number | null;
+  conflictFiles: string[];
+  conflictBy: string | null;
+  /** Dutch, from the server. */
+  error: string | null;
+  pendingTrust: TrustItem[];
+  unshared: { path: string; reason: "not_markdown" | "too_large" }[];
+  warnings: string[];
+  excluded: string[];
+};
+
+export type Brain = { projectId: string; path: string; status: BrainStatus };
+
+export type BrainHistoryEntry = { commit: string; author: string; at: number; title: string; chatId: string | null; files: string[] };
+
+export type RemoteProblem =
+  | "host_unknown" | "host_changed" | "no_access" | "key_locked" | "not_found" | "read_only"
+  | "rejected" | "unreachable" | "offline" | "ssh_missing" | "unknown";
+
+export type RemoteCheck =
+  | { ok: true; sshUrl: string; name: string; empty: boolean }
+  | { ok: false; sshUrl: string | null; name: string | null; problem: RemoteProblem | "link"; message: string; host: { name: string; fingerprints: string[] } | null };
+
+export type CloneJob = { state: "running" | "done" | "failed"; error: string | null; status: BrainStatus | null };
+
+export type TrustTier = "unverified" | "machine" | "human" | "human_before_change";
+
+/** A knowledge concept as the sidebar shows it (OKF trust, status, staleness). */
+export type ConceptView = {
+  type: string;
+  title: string | null;
+  description: string | null;
+  tags: string[];
+  status: "draft" | "stable" | "deprecated";
+  stale: boolean;
+  generated: { by: string; at: string | null } | null;
+  verified: { by: string; at: string | null }[];
+  tier: TrustTier;
+  sources: { id: string | null; title: string | null; resource: string | null }[];
+};
+
+export type PreferenceProposal = { id: string; preference: string; reason: string | null; at: number };
+
+export type HistoryAuthor = { name: string; email: string };
+
+// ---------------------------------------------------------------------------
 // App settings
 // ---------------------------------------------------------------------------
 
@@ -461,6 +528,38 @@ export interface Backend {
     remove(routineId: string): Promise<void>;
     run(routineId: string): Promise<RoutineRun>;
     runs(routineId: string): Promise<RoutineRun[]>;
+  };
+
+  brains: {
+    list(): Promise<Brain[]>;
+    /** Checks the link and access before cloning ("Verbinding testen"). */
+    checkRemote(url: string): Promise<RemoteCheck>;
+    /** Stores an unknown host after the user compared its fingerprint. */
+    trustHost(url: string, fingerprints: string[]): Promise<void>;
+    /** Clones into `folderPath`, or into a new folder named after the project in the default folder. */
+    clone(url: string, target: { folderPath: string | null; name: string }): Promise<{ jobId: string; folderPath: string }>;
+    job(jobId: string): Promise<CloneJob>;
+    /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
+    register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
+    unregister(projectId: string): Promise<void>;
+    /** Before a turn: updates the project brain and the personal brain (at most ~5 s). */
+    prepare(projectId: string, chatId: string): Promise<void>;
+    share(projectId: string): Promise<BrainStatus>;
+    setMode(projectId: string, mode: BrainMode): Promise<BrainStatus>;
+    history(projectId: string): Promise<BrainHistoryEntry[]>;
+    keepMineApart(projectId: string): Promise<BrainStatus>;
+    trust(projectId: string, paths: string[]): Promise<BrainStatus>;
+    repair(projectId: string): Promise<BrainStatus>;
+    setExcluded(projectId: string, folders: string[]): Promise<BrainStatus>;
+    attachRemote(projectId: string, url: string): Promise<BrainStatus>;
+    /** With a path: "Zet deze notitie terug"; without: "Draai deze beurt terug". */
+    restore(projectId: string, commit: string, path: string | null): Promise<BrainStatus>;
+    concept(projectId: string, path: string): Promise<ConceptView | null>;
+    verify(projectId: string, path: string): Promise<ConceptView | null>;
+    author(): Promise<{ author: HistoryAuthor | null; suggested: HistoryAuthor | null }>;
+    setAuthor(author: HistoryAuthor): Promise<void>;
+    proposals(): Promise<PreferenceProposal[]>;
+    decide(proposalId: string, decision: "accept" | "reject", text: string | null): Promise<void>;
   };
 
   settings: {

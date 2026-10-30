@@ -64,6 +64,8 @@ export type BrainStatus = {
   unshared: Unshared[];
   /** Advice that blocks nothing (a long AGENTS.md, a source put back). */
   warnings: string[];
+  /** Personal brain: folders the AI does not open. */
+  excluded: string[];
 };
 
 export type Author = { name: string; email: string };
@@ -846,6 +848,7 @@ export class BrainSync {
       pendingTrust: this.pending,
       unshared: this.unshared,
       warnings: this.warnings,
+      excluded: [...this.record.excluded],
     };
   }
 

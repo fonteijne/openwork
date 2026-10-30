@@ -22,6 +22,9 @@ import { useUi } from "../shell/ui-store";
 import { ChatActions } from "./chat-actions";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
+import { BrainCards } from "~/features/brain/cards";
+import { BrainPill } from "~/features/brain/status-pill";
+import { BrainTurnLine } from "~/features/brain/turn-line";
 import { AssistantTurn, UserMessage, type TurnActions } from "./message-view";
 import { KeyBlocked } from "./project-home";
 
@@ -217,6 +220,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
         }
         actions={
           <>
+            <BrainPill projectId={project.id} className="max-sm:hidden" />
             <ChatActions chat={chat} trigger={<Button variant="quiet" size="icon" aria-label={copy.chat.actions}><Ellipsis /></Button>} />
             <Tooltip label={wide && sidecarPinned ? copy.chat.sidecarHide : copy.chat.sidecarShow}>
               <Button
@@ -298,6 +302,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
                 <span className="bw-shimmer">{copy.chat.thinking}</span>
               </div>
             ) : null}
+            {!running && items.length ? <BrainTurnLine projectId={project.id} /> : null}
             {revertAt >= 0 ? (
               <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
                 <RotateCcw className="size-4 shrink-0" />
@@ -362,7 +367,9 @@ export function ChatView(props: { project: Project; chatId: string }) {
                   }
                 }}
               />
-            ) : null}
+            ) : (
+              <BrainCards projectId={project.id} />
+            )}
             <Composer
               ref={composer}
               project={project}

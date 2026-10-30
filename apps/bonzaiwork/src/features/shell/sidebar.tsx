@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { CalendarClock, ChevronLeft, FolderPlus, LayoutGrid, MessageSquarePlus, Search, Settings, SlidersHorizontal } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { useProject, useProjects, useStatus } from "~/backend/queries";
+import { usePersonalBrain, useProject, useProjects, useStatus } from "~/backend/queries";
 import type { Project } from "~/backend/types";
 import { BrandMark } from "~/components/brand";
 import { ProjectIcon } from "~/components/project-icon";
@@ -57,9 +57,11 @@ function GlobalNav(props: { route: Route }) {
   const projects = useProjects();
   const setNewProject = useUi((state) => state.setNewProject);
   const status = useStatus();
-  const active = useMemo(() => (projects.data ?? []).filter((project) => !project.archivedAt).sort((a, b) => a.name.localeCompare(b.name, "nl")), [projects.data]);
-  const pinned = active.filter((project) => project.pinned);
-  const others = active.filter((project) => !project.pinned);
+  const personalId = usePersonalBrain()?.projectId ?? null;
+  const active = useMemo(() => (projects.data ?? []).filter((project) => !project.archivedAt || project.id === personalId).sort((a, b) => a.name.localeCompare(b.name, "nl")), [projects.data, personalId]);
+  // "Mijn brein" always heads the pinned list (brains plan §5.1).
+  const pinned = [...active.filter((project) => project.id === personalId), ...active.filter((project) => project.pinned && project.id !== personalId)];
+  const others = active.filter((project) => !project.pinned && project.id !== personalId);
   return (
     <>
       <nav className="flex flex-col gap-px px-2 pt-1" aria-label={copy.appName}>
