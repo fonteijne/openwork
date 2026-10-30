@@ -1,6 +1,6 @@
 # Project-breinen: implementatieplan
 
-Status: **voorstel, beslissingen B1–B6 en N1–N3 genomen** (§9). Nog niets gebouwd.
+Status: **voorstel, beslissingen B1–B6 en N1–N5 genomen** (§9). Nog niets gebouwd.
 
 ## 1. Het idee in één alinea
 
@@ -201,9 +201,10 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
      opties zijn de globale skills- en instructiepaden van die config-map vanuit de hooks laten wijzen
      naar `~/BonzaiWork/Persoonlijk`, of de MCP-route hieronder.
   2. **Schrijven vanuit elk project**: leert de AI in project X iets persoonlijks ("ik wil samenvattingen
-     altijd in drie punten"), dan legt hij dat vast met het MCP-hulpmiddel `persoonlijk_brein_schrijven`.
-     Dat schrijft alleen Markdown binnen het persoonlijke brein (bij een gekozen map: alleen in de
-     BonzaiWork-submap, §5.1.1); de `Stop`-hook deelt het daarna als er een repo aan hangt.
+     altijd in drie punten"), dan legt hij dat vast met `persoonlijk_brein_schrijven` (nieuwe notitie) of
+     `persoonlijk_brein_bewerken` (bestaande notitie). Dat kan overal in het persoonlijke brein, behalve
+     in uitgesloten mappen (N4), en alleen in `.md`-bestanden (N5). Elke wijziging komt in de
+     geschiedenis en is terug te draaien (§5.1.1); de `Stop`-hook deelt hem daarna als er een repo aan hangt.
 - **Wat waar hoort**: teamkennis in het projectbrein, persoonlijke voorkeuren en eigen werkwijzen in het
   persoonlijke brein. Bij twijfel vraagt de AI het (staat in de vaste instructie, §6). Het persoonlijke
   brein schrijft nooit naar een projectbrein en omgekeerd.
@@ -212,20 +213,39 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
 
 Waarom kiezen in plaats van kopiëren: een kopie geeft twee versies die uit elkaar lopen, en verplaatsen
 breekt wat de collega al heeft (Obsidian, de sync via iCloud of Obsidian Sync, plugins). Met kiezen blijft
-hun eigen werkwijze precies zoals hij was en ziet BonzaiWork altijd de actuele notities.
+hun eigen werkwijze werken en ziet BonzaiWork altijd de actuele notities. Het doel is dat iedereen naar
+BonzaiWork migreert: tijdens de overgang kan Obsidian ernaast blijven draaien, en BonzaiWork wordt
+geleidelijk het hoofdgereedschap voor dezelfde map.
 
-- **BonzaiWork blijft in één submap**: de app maakt in de gekozen map één map `BonzaiWork/` aan met
-  `instructies.md` (de persoonlijke instructies die volledig in elke chat gaan, N3), `skills/` en
-  `geleerd/` (waar de AI nieuwe notities schrijft). In Obsidian zijn dat gewone notities, dus de collega
-  kan ze lezen en bijwerken. Heeft de map al een `AGENTS.md` in de hoofdmap, dan telt die ook mee.
-- **De rest van de map is alleen lezen** voor de AI (zoeken en lezen via `persoonlijk_brein_zoeken/lezen`).
-  Bestaande notities wijzigen kan alleen als de gebruiker dat aanzet ("Mag BonzaiWork ook bestaande
-  notities bijwerken?", standaard uit; N4).
+- **Eigen bestanden in één submap**: de app maakt in de gekozen map één map `BonzaiWork/` aan met
+  `instructies.md` (de persoonlijke instructies die volledig in elke chat gaan, N3) en `skills/`. In
+  Obsidian zijn dat gewone notities, dus de collega kan ze lezen en bijwerken. Heeft de map al een
+  `AGENTS.md` in de hoofdmap, dan telt die ook mee.
+- **De AI mag in de hele map schrijven (N4)**: nieuwe notities aanmaken en bestaande bijwerken, vanuit
+  elk project, zonder per wijziging toestemming te vragen. Nieuwe notities zet hij waar ze in de
+  bestaande indeling passen (de map met vergelijkbare notities); past niets, dan in `Inbox/` (of de
+  inboxmap die de vault al heeft). Bewerken gaat per passage (oude tekst → nieuwe tekst), nooit door een
+  hele notitie te overschrijven.
+- **Vangnet: geschiedenis van elke wijziging.** Een vault in iCloud of OneDrive heeft geen git, dus een
+  verkeerde wijziging zou anders niet terug te halen zijn. BonzaiWork houdt daarom een **eigen,
+  onzichtbare geschiedenis** bij: een git-map in de app-gegevens (`userData/bonzaiwork/history/<id>.git`,
+  met de vault als werkmap; er komt geen `.git` in de vault en er gaat niets naar buiten). Bij elke
+  `Stop`-hook legt hij de `.md`-wijzigingen vast, met de chat erbij. In "Mijn brein → Geschiedenis":
+  wat is er veranderd, vanuit welke chat, en **"Zet deze notitie terug"** of **"Draai deze beurt terug"**.
+  Synchroniseert BonzaiWork de vault zelf via een repo, dan is die repo de geschiedenis.
+- **Niet tegelijk met de gebruiker schrijven**: `persoonlijk_brein_bewerken` geeft de versie mee die de AI
+  las; is de notitie intussen veranderd (de collega typt in Obsidian, de cloud-sync haalde iets binnen),
+  dan weigert de tool en leest de AI opnieuw. Zo overschrijft de AI nooit werk van de gebruiker.
+- **Niet verwijderen of hernoemen in fase 1**: hernoemen breekt `[[wikilinks]]` (Obsidian werkt die bij,
+  wij nog niet). Opruimen stelt de AI voor; de gebruiker doet het. Hernoemen met bijwerken van links
+  komt in fase 2.
 - **Alleen de instructies gaan altijd mee**, niet de hele map. Een vault met duizenden notities komt dus
   niet in elke chat; de AI zoekt erin als dat helpt. Dat houdt N3 werkbaar.
+- **Alleen Markdown (N5)**: de AI ziet, zoekt en schrijft alleen `.md`-bestanden. Afbeeldingen, pdf's en
+  andere bijlagen in de vault blijven onzichtbaar en onaangeroerd.
 - **Mappen uitsluiten**: bij het kiezen (en later in de instellingen) vinkt de gebruiker mappen uit die de
-  AI nooit mag lezen, bijvoorbeeld `Dagboek/` of `Gezondheid/`. Standaard uit: `.obsidian/`, `.trash/`,
-  `.logseq/`, `.git/`, bijlagenmappen met alleen afbeeldingen en pdf's (tekst-only in fase 1).
+  AI nooit mag lezen of wijzigen, bijvoorbeeld `Dagboek/` of `Gezondheid/`. Altijd uit: `.obsidian/`,
+  `.trash/`, `.logseq/`, `.git/`.
 - **Bestaande sync blijft van de gebruiker**: staat de map in iCloud, OneDrive, Dropbox of gebruikt hij
   Obsidian Sync, dan doet BonzaiWork geen git en raakt die sync niet aan. Is de map al een git-repo (bijv.
   de Obsidian Git-plugin), dan vraagt de app: "Synchroniseert iets anders deze map al?" Ja → BonzaiWork
@@ -233,9 +253,10 @@ hun eigen werkwijze precies zoals hij was en ziet BonzaiWork altijd de actuele n
   sync doen zoals bij een projectbrein.
 - **Cloudmappen**: bestanden die alleen online staan (iCloud "Optimaliseer opslag", OneDrive "Bestanden op
   aanvraag") slaat zoeken over in plaats van ze te downloaden; `instructies.md` laat de app lokaal houden
-  waar het systeem dat toestaat. Fase 0 test dit op macOS en Windows.
-- **Obsidian-gewoonten**: `[[wikilinks]]` en frontmatter laat de AI ongemoeid en gebruikt hij ook in
-  nieuwe notities in `BonzaiWork/geleerd/`, zodat ze in de graph van de collega passen.
+  waar het systeem dat toestaat. Een notitie bewerken die alleen online staat, doet de tool pas als het
+  systeem hem heeft opgehaald. Fase 0 test dit op macOS en Windows.
+- **Obsidian-gewoonten**: `[[wikilinks]]`, tags en frontmatter laat de AI heel en gebruikt hij ook in
+  nieuwe notities, zodat ze in de graph van de collega passen.
 - **Project "Mijn brein"** wijst naar de gekozen map. Bijlagen uit chats komen daar in
   `.opencode/openwork/inbox/`; Obsidian en Logseq tonen mappen met een punt niet.
 
@@ -252,8 +273,11 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   |---|---|
   | `breinen_lijst` | naam, beschrijving (eerste alinea van `AGENTS.md`), laatst bijgewerkt |
   | `brein_zoeken(brein, vraag)` | zoekt in Markdown en skills van dat brein, geeft fragmenten met pad |
-  | `brein_lezen(brein, pad)` | leest één bestand (alleen tekst, binnen dat brein, niet uit `.git` of de inbox) |
-  | `persoonlijk_brein_lezen/zoeken/schrijven` | idem voor het persoonlijke brein, plus schrijven (§5.1) |
+  | `brein_lezen(brein, pad)` | leest één `.md`-bestand binnen dat brein (niet uit `.git` of de inbox) |
+  | `persoonlijk_brein_lezen/zoeken` | idem voor het persoonlijke brein, zonder uitgesloten mappen |
+  | `persoonlijk_brein_schrijven/bewerken` | nieuwe notitie / passage vervangen, met versiecontrole (§5.1.1) |
+
+  Alle breinen-tools werken alleen met `.md`-bestanden (N5).
 
 - Vóór lezen werkt de tool dat brein bij als het rustig is (snelle fetch, max. ~3 s), zodat je de versie
   van het team ziet.
@@ -378,13 +402,8 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
 | N1 | Persoonlijk brein verplicht als privérepo? Kan een bestaand second brain? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel. Een bestaand second brain wordt **gekozen, niet gekopieerd** (§5.1.1) |
 | N2 | Mag de AI uit eigen beweging in andere breinen kijken? | **Alleen als de gebruiker erom vraagt, of na een voorstel van de AI** dat de gebruiker goedkeurt (§5.2) |
 | N3 | Persoonlijke instructies altijd volledig in elke chat? | **Ja**, tot de bestaande grens van 192 KiB |
-
-Nog open:
-
-| # | Vraag | Voorstel |
-|---|---|---|
-| N4 | Mag de AI bestaande notities in een gekozen second brain wijzigen? | Standaard **nee**: alleen schrijven in `BonzaiWork/`; per gebruiker aan te zetten |
-| N5 | Welke formaten in fase 1? | Markdown en platte tekst (Obsidian, Logseq, gewone mappen). Notion/Evernote-exports zijn ook Markdown/HTML en werken na exporteren; pdf's en afbeeldingen later |
+| N4 | Mag de AI bestaande notities in een gekozen second brain wijzigen? | **Ja**, in de hele map (behalve uitgesloten mappen); iedereen migreert naar BonzaiWork. Met een eigen geschiedenis om terug te draaien en zonder werk van de gebruiker te overschrijven (§5.1.1) |
+| N5 | Welke formaten? | **Alleen Markdown** (`.md`-bestanden en mappen) |
 
 ## 10. Fasering
 
@@ -403,9 +422,9 @@ Nog open:
   per beurt, push met retry, offline, alleen-lezen), registry, routes, geheimenscan.
 - Project-brein toevoegen (verbinding testen, clone, vertrouwensstap), statuspil, regel onder de chat,
   conflictkaart met "Bewaar mijn versie apart", instellingen-sectie, demo-backend.
-- Persoonlijk brein: lokale map vanuit de onboarding, project "Mijn brein", optionele privérepo,
-  instructies (volledig) en skills in elk project,
-  `persoonlijk_brein_*`-tools.
+- Persoonlijk brein: nieuwe map of bestaande vault kiezen in de onboarding, mappen uitsluiten, project
+  "Mijn brein", optionele privérepo, instructies (volledig) en skills in elk project,
+  `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), eigen geschiedenis met terugzetten.
 - Sjabloon-`AGENTS.md` en `git *`-deny.
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
   in project X wordt geleerd, staat in het persoonlijke brein en werkt in project Y; offline werken en
@@ -428,7 +447,12 @@ Nog open:
   "server", twee clones als twee gebruikers (via `file://`; SSH zit niet in de sync-logica). Scenario's:
   fast-forward, rebase, push geweigerd → opnieuw, conflict → niets kwijt, offline → later delen,
   `Permission denied` → alleen-lezen, geheim → geen commit, inbox nooit mee, persoonlijk brein schrijft
-  nooit buiten zijn map, breinen-MCP leest niet uit `.git` of via symlinks naar buiten.
+  nooit buiten zijn map of in een uitgesloten map, breinen-MCP leest niet uit `.git`, niet via symlinks
+  naar buiten en alleen `.md`.
+- **Gekozen vault** (fixture: een kleine Obsidian-vault met wikilinks, frontmatter, `.obsidian/` en
+  bijlagen): bewerken met verouderde versie → geweigerd; elke beurt staat in de eigen geschiedenis en is
+  terug te zetten; de vault krijgt geen `.git`; bijlagen en `.obsidian/` blijven ongewijzigd; vault die al
+  een git-repo is, wordt niet aangeraakt als iets anders hem synchroniseert.
 - **Links en SSH**: unit-tests voor het omzetten van links; een test tegen een lokale `sshd` (in CI een
   container) met een testsleutel in een agent: onbekende host → vingerafdruk, gewijzigde host-sleutel →
   stop, vergrendelde sleutel → juiste melding.
