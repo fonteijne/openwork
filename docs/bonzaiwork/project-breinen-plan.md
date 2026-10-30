@@ -1,6 +1,7 @@
 # Project-breinen: implementatieplan
 
-Status: **voorstel, alle beslissingen genomen** (B1–B6, N1–N6, I1–I3; §9). Nog niets gebouwd.
+Status: **voorstel, alle beslissingen genomen** (B1–B6, N1–N6, I1–I3; §9). **Fase 0 gedaan**: bevindingen in
+[`project-breinen-fase0.md`](./project-breinen-fase0.md) en hieronder verwerkt. Nog niets gebouwd.
 
 ## 1. Het idee in één alinea
 
@@ -36,7 +37,7 @@ gebeurt altijd, is te testen en geeft één duidelijke status.
 | `SessionStart` | Project openen, en elke 5 min zolang de app open en het project rustig is | `fetch`; staat er iets nieuws en is de map schoon, dan bijwerken |
 | `UserPromptSubmit` | Vlak vóór elke beurt (chat én routine) | Projectbrein en persoonlijk brein bijwerken; de beurt wacht max. ~5 s, daarna gaat hij door met een melding |
 | `Stop` | Als **alle** chats in het project weer stil zijn (met 15 s rust) | Vastleggen (`commit`) en versturen (`push`), voor het projectbrein én het persoonlijke brein als dat veranderde |
-| `PreToolUse` | Engine-toestemmingen, **globaal** gezet door de hooks (niet in de repo) | De AI mag zelf geen git uitvoeren en niet in `.git/**` schrijven (`deny`). Best effort: zie §7.4 |
+| `PreToolUse` | Engine-policies, **globaal** gezet door de hooks (niet in de repo) | De AI mag zelf geen git uitvoeren en niet in `.git/**` schrijven (`tool.use` → deny; een brein kan dat niet opheffen). Best effort: zie §7.4 |
 
 De instructie aan de AI blijft daardoor kort en inhoudelijk (§6). Hooks die een brein zélf meebrengt
 (scripts in de repo die bij elke beurt draaien) bouwen we bewust **niet**: dat is code uitvoeren uit een
@@ -45,23 +46,23 @@ gedeelde repo op ieders laptop. Het gedrag is vast; per brein kies je alleen een
 ## 3. Waar het in de code komt
 
 Uitgangspunt van de fork blijft: zo min mogelijk upstream-patches (`PATCHES.md`). **Doel: 0 nieuwe
-patches; fase 0 beslist.** Wat er al in ons eigen bestand `apps/server/src/downstream-hooks.ts` past (staat
-al in PATCHES als nieuw bestand), via wat de hooks nu al krijgen:
+patches; fase 0 heeft beslist** (gemeten op de echte engine, [fase 0](./project-breinen-fase0.md)). Wat in
+ons eigen bestand `apps/server/src/downstream-hooks.ts` past (staat al in PATCHES als nieuw bestand):
 
 | Nodig | Zonder patch? | Hoe |
 |---|---|---|
-| Sessie-activiteit (§3.3) | ja | `engine.connection()` (al gebruikt door `workspaceForSession`) |
-| MCP-entry "breinen" in de globale engine-config (§5.2) | ja | `writeGlobalRuntimeOpencodeConfig`, zoals `updateEngineProviders` |
-| Persoonlijke instructies per beurt (§5.1) | waarschijnlijk | eigen instructie-entry per sessie via `engine.connection()` (§5.1) |
-| Globale `git`-deny en `.git/**`-deny (§7.4) | **onbekend** | toestemmingen lopen via de `permissions`-optie van `managed-opencode-v2.ts`, die `server.ts` vult; de hooks hebben daar geen ingang |
-| `ask`/`allow` per breinen-MCP-tool (§5.2) | **onbekend** | idem |
-| `deny` per pad: uitgesloten mappen en de persoonlijke instructiebestanden in "Mijn brein" (§5.1.1, §7.3) | **onbekend** | idem |
-| Niet-vertrouwde plugins en MCP's uit een brein uitzetten (§7.1) | **onbekend** | idem, of `experimental.policies` zoals voor providers |
+| Sessie-activiteit (§3.3) | **ja** | `/api/event` per map via `engine.connection()`: `session.execution.*` met `sessionID` |
+| MCP-entry "breinen" in de globale engine-config (§5.2) | **ja** | `mcp` in de globale runtime-config (`writeGlobalRuntimeOpencodeConfig`), zoals `updateEngineProviders`; met `codemode: false` |
+| Persoonlijke instructies en app-regels in elke beurt (§5.1, §6.6) | **ja, anders dan gedacht** | `<OPENCODE_CONFIG_DIR>/AGENTS.md`: de engine laadt hem zelf in elke chat, ook in sub-taken. Een eigen instructie-entry werkt ook, maar sub-taken erven hem niet |
+| Persoonlijke skills in elk project (§5.1) | **ja** | junction `<OPENCODE_CONFIG_DIR>/skills` → skills van het persoonlijke brein |
+| Globale `git`-deny en `.git/**`-deny (§7.4) | **ja** | `experimental.policies` `tool.use` (`shell:git *`, `edit:.git/*`): `downstreamEnginePolicies()` wordt bij elke config-schrijf opnieuw gelezen; het bestaande `reloadEngineProviders()` veroorzaakt die schrijf |
+| `allow` per breinen-MCP-tool (§5.2) | **ja** | MCP-tools zonder regel draaien zonder te vragen |
+| `ask` per breinen-MCP-tool (§5.2) | **nee** | policies kennen alleen allow/deny. **Eén regel** in de bestaande hook van `managed-opencode-v2.ts` (`...downstreamEnginePermissions()`); geen nieuwe PATCHES-rij |
+| `deny` per pad: uitgesloten mappen, `_meta/voorkeuren.md` (§5.1.1, §7.3) | **ja, met grenzen** | `tool.use` `read:<pad>` / `edit:<pad>`. Paden zijn relatief aan de map en de regel geldt in alle projecten; `grep` en `shell` gaan erlangs |
+| Niet-vertrouwde onderdelen uit een brein uitzetten (§7.1) | **ja, zonder patch** | MCP's en skills: `integration.use` → deny. Plugins, agents en commando's met shell: geen policy; die houdt `git sparse-checkout` buiten de map tot de gebruiker vertrouwt |
 
-Voor de drie onbekende punten is de waarschijnlijke uitweg een uitbreiding van de bestaande hook in
-`managed-opencode-v2.ts` (staat al in PATCHES), zodat downstream-hooks ook toestemmingsregels en policies
-kunnen aanleveren. Dat is geen nieuwe rij, wel een grotere patch en een groter upstream-voorstel. Het
-uitzetten van niet-vertrouwde onderdelen is het riskantste punt: lukt dat niet, dan valt B5 (§7.1).
+Uitkomst: geen nieuw gepatcht bestand. De hook in `managed-opencode-v2.ts` wordt "2 regels + import"
+(PATCHES-rij bijwerken als we hem bouwen). B5 blijft overeind (§7.1).
 
 ```
 packages/bonzaiwork-brains/          NIEUW
@@ -94,9 +95,14 @@ docs/bonzaiwork/frontend-contract.md §7.5 Breinen (nieuw)
 ### 3.1 Git: meegeleverd (B1)
 
 `dugite` (de ingebouwde git van GitHub Desktop) gaat mee in de build: werkt op macOS, Windows en Linux
-zonder installatie en zonder de Xcode-popup op macOS. Kost ~30–40 MB. Altijd met
-`GIT_TERMINAL_PROMPT=0`, een timeout per commando en `core.autocrlf=false`. De server leest al
-`git check-ignore` (`apps/server/src/opencode-v2-instructions.ts`); dat werkt dan ook in breinen.
+zonder installatie en zonder de Xcode-popup op macOS. Volledig is hij 107–152 MB; **uitgedund** (zonder Git
+Credential Manager, LFS en dergelijke) macOS 16 MB, Linux 19 MB, Windows 57 MB, als `extraResources` per
+platform zoals de engine-binaries ([fase 0 §1](./project-breinen-fase0.md#1-git-meeleveren-b1)). Altijd
+geïsoleerd: een opgebouwde omgeving (geen `GIT_*` van de gebruiker), `GIT_TERMINAL_PROMPT=0`,
+`GIT_CONFIG_NOSYSTEM=1` (dugite's eigen systeemconfig op Windows zet o.a. `autocrlf=true` en een verplicht
+LFS-filter), een eigen `GIT_CONFIG_GLOBAL`, de `-c`-opties van §7.4 en een timeout per commando. De server
+roept voor `git check-ignore` (`apps/server/src/opencode-v2-instructions.ts`) de git van het `PATH` aan,
+niet dugite; zie fase 0 §1.4.
 
 ### 3.2 Toegang: altijd SSH, met de sleutels die er al zijn (B2)
 
@@ -106,7 +112,8 @@ GitHub en GitLab (ook een eigen GitLab-server). Iedereen heeft al een SSH-sleute
 - Git krijgt `GIT_SSH_COMMAND` naar de **SSH van het systeem** (macOS `/usr/bin/ssh`, Windows
   `%WINDIR%\System32\OpenSSH\ssh.exe`, Linux `ssh`), zodat precies dezelfde sleutels, `~/.ssh/config` en
   ssh-agent (inclusief de macOS-sleutelhanger) gebruikt worden als in de terminal. Altijd met
-  `-o BatchMode=yes`: nooit een vraag waar niemand op kan antwoorden.
+  `-o BatchMode=yes`: nooit een vraag waar niemand op kan antwoorden. Op Windows extra belangrijk: dugite
+  brengt een eigen MSYS-ssh mee die de agent-service van Windows niet ziet; die gaat uit de bundel.
 - **Alleen SSH, in alle fases**: clone, fetch en push gaan altijd via SSH met de sleutels die al op de
   laptop staan. Geen HTTPS, geen toegangstokens, geen inloggen via de browser; de app vraagt en bewaart
   nooit een wachtwoord of token voor git.
@@ -119,18 +126,20 @@ GitHub en GitLab (ook een eigen GitLab-server). Iedereen heeft al een SSH-sleute
   Verandert een sleutel later, dan stopt de sync met een duidelijke melding (geen stilzwijgend accepteren).
 - **Foutmeldingen in gewone taal**: geen toegang tot de repo ("Je account heeft geen toegang tot dit
   brein"), sleutel met wachtwoord maar niet in de agent ("Je SSH-sleutel is vergrendeld; ontgrendel hem
-  in je sleutelhanger of ssh-agent"), geen sleutel gevonden, host onbereikbaar.
+  in je sleutelhanger of ssh-agent"), geen sleutel gevonden, host onbereikbaar. Patronen per geval in
+  [fase 0 §2.1](./project-breinen-fase0.md#21-wat-git-en-ssh-melden). Een vergrendelde sleutel geeft
+  dezelfde fout als "geen toegang"; alleen `ssh -v` (in "Verbinding testen") laat het verschil zien.
 - Knop **"Verbinding testen"** in "Nieuw project" (`git ls-remote`), zodat problemen vóór het clonen
   zichtbaar zijn.
 
 ### 3.3 Weten wanneer een beurt klaar is (de `Stop`-hook)
 
-1. **Server-side** (robuust, dekt ook routines en een gesloten venster): `DownstreamServerHost` krijgt
-   `onSessionActivity(listener)`, gevoed door wat de server al weet
-   (`apps/server/src/opencode-plugins/session-activity.ts`, de v2-status).
-2. **UI-side** als eerste stap of terugval: de live backend weet al wanneer een run stopt en roept
-   `POST /bonzaiwork/brains/:id/sync` aan. Routines roepen de sync-service rechtstreeks aan (hun planner
-   draait in het serverproces, contract §7.4).
+**Server-side** (dekt ook routines, sub-taken en een gesloten venster): `DownstreamServerHost` krijgt
+`onSessionActivity(listener)` en `runningSessions(workspaceId)`. De eerste volgt per lokale workspace
+`/api/event` van de engine, die per beurt `session.execution.started` en daarna `.succeeded`, `.failed` of
+`.interrupted` stuurt, met `sessionID` ([fase 0 §3](./project-breinen-fase0.md#3-weten-wanneer-een-beurt-klaar-is-stop-hook)).
+Een UI-terugval is daardoor niet nodig. `POST /bonzaiwork/brains/:id/sync` blijft voor de knop
+"Wijzigingen delen" (modus handmatig).
 
 Bijwerken vóór de beurt gaat via de UI: `chats.send` wacht op `POST /bonzaiwork/brains/:id/pull` (max.
 ~5 s) voordat de prompt naar de engine gaat. Niet gekozen: een eigen OpenCode v2-plugin met
@@ -146,7 +155,9 @@ Bijwerken vóór de beurt gaat via de UI: `chats.send` wacht op `POST /bonzaiwor
    voortgang. Een ondiepe clone wint niets bij een repo van Markdown, en geeft problemen bij rebasen, bij
    de voorouder-controle van §7.4 en in de geschiedenis. Is de repo groter dan ~500 MB, dan waarschuwt de
    app vóór het clonen. Mislukt het, dan blijft er niets halfs achter.
-3. **Vertrouwensstap** (§7.1): de app laat zien wat het brein meebrengt en vraagt bevestiging.
+3. **Vertrouwensstap** (§7.1): de app laat zien wat het brein meebrengt en vraagt bevestiging. Daarom
+   clonet stap 2 met `--no-checkout`; de riskante paden gaan op de sparse-checkout-lijst, en pas dan volgt
+   de checkout.
 4. De UI registreert de map als workspace via de bestaande `POST /workspaces/local`
    (`ensureWorkspaceFiles` schrijft niets in de map) en daarna `PUT /bonzaiwork/brains/:workspaceId`.
 5. Lokale uitsluitingen in `.git/info/exclude` (niet gedeeld): `.opencode/openwork/inbox/` (bijlagen uit
@@ -162,9 +173,10 @@ Een **bestaand project dat al een git-repo met SSH-remote is**, krijgt in de pro
 - `git fetch`, dan: map schoon → fast-forward. Nog niet vastgelegde wijzigingen → eerst vastleggen
   (§4.3), dan `rebase` op de remote.
 - Nooit bijwerken terwijl een chat in dit project loopt. De periodieke fetch haalt dan alleen op.
-- Veranderde er iets in `.opencode/` of `opencode.json`, dan daarna `POST /workspace/:id/engine/reload`
-  (bestaat al), zodat nieuwe skills en commando's meteen werken. Raakte de wijziging verbindingen, plugins
-  of agents, dan eerst opnieuw de vertrouwensstap.
+- Geen `engine/reload` nodig: de engine pikt nieuwe skills, commando's, `AGENTS.md` en zelfs MCP's uit
+  `opencode.json` zelf op (fase 0 §6.1). Daarom kijkt de sync **vóór** het bijwerken (`git diff --name-only
+  HEAD FETCH_HEAD`) of verbindingen, plugins, agents of commando's met shell veranderen; zo ja, dan gaan
+  die eerst op de sparse-checkout-lijst en vraagt de app opnieuw (§7.1).
 
 ### 4.3 Vastleggen en versturen, per beurt (B3)
 
@@ -233,26 +245,25 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
      elke chat (N3), tot een eigen grens (N6). **Niet via de bestaande route**: `readConfiguredInstructions`
      (`opencode-v2-instructions.ts`) laadt alleen bestanden binnen de workspace (`../` en paden buiten de
      `insideRoot`-check slaat hij over), en zijn 192 KiB is één budget voor álle geconfigureerde
-     instructies samen, waarbij een te groot bestand stil wordt overgeslagen. Daarom een **eigen
-     instructie-entry**, op dezelfde manier als `server.ts` (r. 1562) zijn eigen entries per sessie zet:
-     een `PUT` op `/api/experimental/session/:id/instructions/entries/bonzaiwork.personal` via
-     `engine.connection()`.
-     - **Wanneer**: in de `pull`-route die de UI vóór elke `chats.send` afwacht. Die route krijgt daarvoor
-       `{ sessionId }` mee (§8.1), want de entry is per sessie. Slash-commando's (`/verwerk`,
-       `/onderhoud`) gaan in de UI ook via `chats.send` (`engine.command`), dus die zijn gedekt. De
-       routine-runner doet hetzelfde vóór zijn prompt. Wat de UI níét ziet: beurten die de engine zelf
-       start, zoals sub-taken. `server.ts` (r. 1538) zet zijn entries vóór `prompt`, `command` én
-       `generate`; wij alleen waar de UI of de runner langskomt.
-     - **Los van het netwerk**: eerst het persoonlijke brein bijwerken (max. ~5 s), daarna de entry zetten,
-       **ook als bijwerken mislukte**, met de lokale versie. Wie offline is of een trage host heeft, krijgt
-       zo toch zijn voorkeuren.
-     - Fase 0, **ja/nee**: werkt een eigen entry-sleutel naast die van de server, zijn `command`-beurten
-       gedekt, en erven sub-taken (child sessions) de entry? Zo nee, dan een hook in `server.ts` (patch).
+     instructies samen, waarbij een te groot bestand stil wordt overgeslagen. Daarom (fase 0 §5) via de
+     **config-map van de engine**: die draait met een eigen `OPENCODE_CONFIG_DIR`
+     (`managed-opencode-v2.ts`) en laadt `<OPENCODE_CONFIG_DIR>/AGENTS.md` zelf als globale instructie,
+     in elke chat van elk project, **ook in sub-taken**, bij commando's en bij routines. De hooks schrijven
+     daar één bestand: de app-regels (§6.6) plus `AGENTS.md` + `_meta/voorkeuren.md` van het persoonlijke
+     brein (host-methode `setEngineGlobalContext`).
+     - **Wanneer**: bij elke wijziging van die twee bestanden (na een pull, of als de gebruiker ze in
+       Obsidian bewerkt), en bij het starten. De `pull`-route die de UI vóór elke `chats.send` afwacht,
+       werkt eerst het persoonlijke brein bij (max. ~5 s) en schrijft daarna het bestand, **ook als
+       bijwerken mislukte**, met de lokale versie. Veranderde het, dan wacht de route ~0,5 s: de engine
+       ziet een nieuw bestand via zijn file-watcher (gemeten: vanaf ~100 ms altijd).
+     - **Kopie, geen symlink**: een bestandssymlink vraagt op Windows beheerdersrechten.
+     - Een eigen instructie-entry per sessie (`PUT …/instructions/entries/bonzaiwork.personal`) werkt ook,
+       bij prompts en commando's, maar **sub-taken erven hem niet** (gemeten); daarom niet gekozen.
      - Boven de grens van N6 laat de app een waarschuwing zien in "Mijn brein" en stuurt hij het bestand
        ingekort mee, nooit stil niets.
-     **Skills**: de engine draait met een eigen `OPENCODE_CONFIG_DIR` (`managed-opencode-v2.ts`), dus
-     `~/.config/opencode` werkt niet. Fase 0 kiest tussen de globale skillspaden van die config-map
-     vanuit de hooks naar het persoonlijke brein laten wijzen, of de skills via de breinen-MCP aanbieden.
+     **Skills**: `~/.config/opencode` werkt niet (eigen config-map), maar `<OPENCODE_CONFIG_DIR>/skills/`
+     wel, in elk project en live. De hooks zetten daar een **junction** (Windows, zonder rechten) of
+     symlink naar de skills-map van het persoonlijke brein.
   2. **Schrijven vanuit elk project**: leert de AI in project X iets persoonlijks ("ik wil samenvattingen
      altijd in drie punten"), dan legt hij dat vast met `persoonlijk_brein_schrijven` (nieuwe notitie) of
      `persoonlijk_brein_bewerken` (bestaande notitie). Dat kan overal in het persoonlijke brein, behalve
@@ -309,11 +320,11 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
   AI nooit mag lezen of wijzigen, bijvoorbeeld `Dagboek/` of `Gezondheid/`. Altijd uit: `.obsidian/`,
   `.trash/`, `.logseq/`, `.git/`. **Let op**: de breinen-MCP houdt zich hieraan, maar in het project
   "Mijn brein" werkt de AI met de gewone engine-tools (lezen, zoeken, bewerken, bash) en die kennen deze
-  lijst niet. Afdwingen kan alleen met toestemmingsregels per pad (`deny` voor lezen en bewerken van die
-  mappen), en dat is dezelfde open vraag als in §3 (toestemmingen vanuit de hooks). Tot fase 0 dat
-  oplost, zegt de app eerlijk: "Uitgesloten voor zoeken en voor andere projecten; in Mijn brein zelf kan
-  de AI ze nog zien." Bash blijft hoe dan ook een omweg; voor echt gevoelige mappen is het advies ze
-  buiten de vault te zetten.
+  lijst niet. Fase 0 (§3): engine-policies `read:<map>/*` en `edit:<map>/*` → deny houden de lees- en
+  bewerktools tegen, zonder patch. Twee grenzen: het pad is relatief aan de map en de regel geldt in
+  **alle** projecten (een map `Dagboek/` in een ander project is dan ook dicht), en `grep` en bash gaan
+  erlangs (gemeten). De app zegt daarom eerlijk: "De AI opent deze mappen niet, maar kan er wel in
+  zoeken." Voor echt gevoelige mappen blijft het advies ze buiten de vault te zetten.
 - **Bestaande sync blijft van de gebruiker**: staat de map in iCloud, OneDrive, Dropbox of gebruikt hij
   Obsidian Sync, dan synchroniseert BonzaiWork niet via git en raakt die sync niet aan (de geschiedenis
   staat buiten de map, zie "Vangnet"). Is de map al een git-repo (bijv.
@@ -334,8 +345,9 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
 In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die al op deze laptop staan.
 
 - De server-hooks bieden een **lokale MCP-server "breinen"** (loopback-route met een lokaal token, zoals de
-  LiteLLM-proxy) en zetten die in de globale engine-config (`mcp`-sectie van de runtime-config; nieuwe
-  host-methode in `downstream-hooks.ts`). Zo is hij in elk project beschikbaar zonder per-project-instelling.
+  LiteLLM-proxy) en zetten die in de globale engine-config (`mcp`-sectie van de globale runtime-config, met
+  `codemode: false`; host-methode `updateEngineMcp` in `downstream-hooks.ts`). Zo is hij in elk project
+  beschikbaar zonder per-project-instelling.
 - Hulpmiddelen:
 
   | Tool | Wat |
@@ -358,9 +370,12 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   vraagt. Denkt de AI dat een ander brein helpt, dan stelt hij dat in één zin voor ("Het Sales-brein heeft
   een offerte-workflow; zal ik daar kijken?") en wacht op antwoord. `breinen_lijst` mag hij altijd
   gebruiken, anders weet hij niet wat hij kan voorstellen. Afgedwongen, niet alleen gevraagd:
-  - `brein_zoeken` en `brein_lezen` staan in de engine-toestemmingen op **ask**, met het brein als
-    resource. Een eigen voorstel van de AI wordt zo de bekende toestemmingskaart "Mag BonzaiWork in het
-    Sales-brein kijken?" (Toestaan / Altijd in dit gesprek / Weigeren).
+  - `brein_zoeken` en `brein_lezen` staan in de engine-toestemmingen op **ask** (acties
+    `breinen_brein_zoeken`/`breinen_brein_lezen`; vraagt de ene regel in `managed-opencode-v2.ts`, §3).
+    Een eigen voorstel van de AI wordt zo de bekende toestemmingskaart "Mag BonzaiWork in het Sales-brein
+    kijken?" (Toestaan / Altijd in dit gesprek / Weigeren). De engine geeft als resource altijd `*`, niet
+    het brein: de UI leest het brein uit de tool-call en onthoudt "Altijd in dit gesprek" zelf per brein
+    (fase 0 §4.3).
   - Vroeg de gebruiker er zelf om, dan hoeft die niet nog eens te klikken: noemt het laatste bericht van
     de gebruiker dat brein (naam of map), dan keurt de UI de kaart automatisch één keer goed.
   - Het persoonlijke brein valt hierbuiten: dat hoort bij de gebruiker en de `persoonlijk_brein_*`-tools
@@ -620,8 +635,8 @@ Net als bij git (§2), deterministisch in code (`packages/bonzaiwork-brains/src/
 ICM houdt de ingang klein en zonder inhoud (laag 0, ~300–800 tokens, onder ~60 regels). De regels voor het
 schrijven van kennis staan daarom in `_meta/schema.md`, en de regels van de app zelf (synchroniseren, geen
 git, andere breinen alleen op verzoek, persoonlijk versus team) staan **niet in de repo**: die zet
-BonzaiWork per beurt in een eigen instructie-entry `bonzaiwork.rules`, net als de persoonlijke instructies
-(§5.1; dezelfde fase 0-vraag). Zo heeft elk feit één plek en kan een team de app-regels niet per ongeluk
+BonzaiWork in de globale instructies van de engine, samen met de persoonlijke instructies (§5.1; fase 0
+§5). Zo heeft elk feit één plek en kan een team de app-regels niet per ongeluk
 weghalen.
 
 ```markdown
@@ -659,7 +674,7 @@ Dezelfde opbouw (`AGENTS.md`, `_meta/`, `knowledge/`, en `workflows/` voor eigen
 verschillen:
 
 - **Voorkeuren in `_meta/voorkeuren.md`** (rol, schrijfstijl, hoe ik samenvattingen wil), niet in
-  `AGENTS.md` (die blijft routering). De persoonlijke instructie-entry (§5.1) bestaat uit `AGENTS.md` +
+  `AGENTS.md` (die blijft routering). De persoonlijke instructies (§5.1) bestaan uit `AGENTS.md` +
   `_meta/voorkeuren.md`, volledig (N3), binnen de grens van N6. Een geleerde voorkeur werkt zo meteen overal.
 - **Persoonlijke werkwijzen** in `workflows/` zijn in elk project te starten, net als die van het
   projectbrein; hun stappen lezen dan uit het persoonlijke brein én het huidige project.
@@ -702,17 +717,21 @@ Een gedeelde repo is invoer van anderen die op ieders laptop draait. Een `openco
 kan lokale MCP-servers (een commando), plugins, agents met ruime rechten of commando's meebrengen.
 Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest niet. Daarom:
 
-- **Vertrouwensstap** bij het toevoegen: lijst van lokale verbindingen, plugins en agents in gewone taal;
-  elke gebruiker beslist zelf. Zonder akkoord laden die onderdelen niet.
+- Fase 0 (§6.2) mat wat er gebeurt: een plugin in `.opencode/plugins/` draait al bij het **openen** van de
+  map, een MCP uit `opencode.json` start meteen, en `` !` `` in een commando-sjabloon draait shell zonder
+  toestemming zodra iemand het commando kiest.
+- **Vertrouwensstap** bij het toevoegen: lijst van lokale verbindingen, plugins, agents en commando's die
+  opdrachten uitvoeren, in gewone taal; elke gebruiker beslist zelf. Zonder akkoord laden die onderdelen
+  niet: ze staan op de **sparse-checkout-lijst** en komen dus niet in de map (wel in de repo en in elke
+  commit; getest met commit, rebase en push), en MCP-namen krijgen daarnaast een `integration.use`-deny in
+  de globale policies (fase 0 §6.3).
 - Komt er via een pull zo'n onderdeel bij of verandert het, dan opnieuw vragen vóór het laadt (diff op
   `opencode.json`, `.opencode/plugins/`, `.opencode/agents/`, `mcp`-sectie).
 - **Scripts in werkwijzen** (een stap of controle die een commando noemt, of `_tools/` in het brein) zijn
   ook code uit een gedeelde repo. Ze staan in de vertrouwensstap, draaien alleen als het brein vertrouwd
   is, en altijd met toestemming van de engine.
 - De keuzes staan per gebruiker in `brains.json` (niet in de repo).
-- Het mechanisme om onderdelen uit te zetten bestaat nog niet voor de hooks (§3, tabel). Fase 0 moet
-  aantonen dat het kan; zonder dat geen fase 1 met gedeelde breinen die `opencode.json` of `.opencode/`
-  meebrengen.
+- Het mechanisme om onderdelen uit te zetten werkt zonder patch (§3, tabel; fase 0 §6.3).
 
 ### 7.2 Geheimen
 
@@ -721,7 +740,7 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
 - Bijlagen uit de chat-inbox gaan nooit mee.
 - De app leest, kopieert of bewaart **geen** SSH-sleutels; dat blijft bij het systeem en de ssh-agent.
 
-### 7.3 Grenzen van de breinen-MCP en de instructie-entries
+### 7.3 Grenzen van de breinen-MCP en de globale instructies
 
 - Alleen tekstbestanden binnen geregistreerde breinmappen (geen symlinks naar buiten, geen `.git`, geen
   inbox); schrijven alleen in het persoonlijke brein; token alleen op loopback, net als de LiteLLM-proxy.
@@ -732,15 +751,16 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
   bestanden, en is er een aparte tool `voorkeur_voorstellen` die **altijd** een kaart toont met de
   wijziging ("Toevoegen aan je voorkeuren: …" → Toevoegen / Aanpassen / Weigeren). De andere bestanden in
   het persoonlijke brein blijven op allow (N4); die gaan niet vanzelf in elke chat. Wijzigingen die de
-  gebruiker zelf (in Obsidian) in die twee bestanden doet, gaan gewoon mee. Fase 0 kijkt of dit ook voor
-  de gewone bewerk-tools in "Mijn brein" kan (`deny` op die twee paden), anders geldt hier dezelfde
-  kanttekening als bij uitgesloten mappen (§5.1.1).
-- **De instructie-entries zijn niet afgeschermd.** De engine-proxy van de server weigert schrijven alleen
-  voor zijn eigen twee sleutels (`server.ts` r. 1533). Elke houder van een client-token kan
-  `bonzaiwork.personal` en `bonzaiwork.rules` via `/opencode2` overschrijven of verwijderen. Het risico is
-  klein (wie dat token heeft, kan ook gewoon chatten), en de sync zet de entries vóór elke beurt opnieuw.
-  Afschermen vraagt de sleutels van downstream-hooks aan die weigerlijst toe te voegen (patch in
-  `server.ts`); dat nemen we mee als er toch een `server.ts`-hook komt (fase 0).
+  gebruiker zelf (in Obsidian) in die twee bestanden doet, gaan gewoon mee. Voor de gewone bewerk-tools in
+  "Mijn brein" (fase 0): `edit:_meta/voorkeuren.md` → deny kan (de regel geldt in alle projecten, maar
+  alleen het persoonlijke brein heeft dat bestand). `edit:AGENTS.md` niet: dat zou elk `AGENTS.md` in elk
+  project dichtzetten. Voor `AGENTS.md` (alleen routering) geldt dus dezelfde kanttekening als bij
+  uitgesloten mappen (§5.1.1), en bash blijft een omweg.
+- **De globale instructies staan buiten elk project.** Omdat ze in de config-map van de engine staan en
+  niet als instructie-entry (§5.1), kan een client-token ze niet via `/opencode2` overschrijven (dat kon
+  bij entries wel: de server schermt alleen zijn eigen twee sleutels af). Of de gewone bewerk-tools voor
+  die map buiten het project om toestemming vragen (`external_directory`), is niet gemeten; zo niet, dan
+  een `edit`-deny op dat pad.
 
 ### 7.4 De AI en git
 
@@ -748,9 +768,10 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
 (met de gewone bewerk-tools) haalt de regel weg, en een bash-patroon is te omzeilen (`cd x && git …`,
 `sh -c "git …"`, `/usr/bin/git`). Daarom in lagen, geen ervan in de repo:
 
-1. **Globale toestemmingen via de hooks** (afhankelijk van fase 0, §3): bash-patronen met `git` op `deny`,
-   en schrijven naar `.git/**` in elke breinmap op `deny`. Dat vangt het normale geval, geen kwaadwillende
-   omweg.
+1. **Globale engine-policies via de hooks** (fase 0, §3): `tool.use` `shell:git *` → deny (ook in ketens
+   als `ls && git status`) en `edit:.git/*` → deny (ook met een absoluut pad). Een brein kan ze niet
+   opheffen met zijn eigen policies (gemeten). Dat vangt het normale geval, geen kwaadwillende omweg: een
+   schrijfopdracht via bash in `.git/` gaat er gemeten langs.
 2. **De sync controleert zelf**, vóór elke commit en push: is de remote nog die uit `brains.json`, staat
    `HEAD` op de verwachte branch, en is `origin/<branch>` zoals die bij de vorige geslaagde sync was een
    **voorouder van `HEAD`**? Wat al gedeeld is, is dan niet herschreven; het rebasen van eigen, nog niet
@@ -772,7 +793,9 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
    `.git/hooks/pre-commit` neerzetten of `core.fsmonitor` in `.git/config`, en dan voert dugite die code
    uit bij de volgende `commit` of `status` van de sync, met de rechten van de app. Daarom:
    - De sync roept git **altijd** aan met `-c core.hooksPath=<lege map in userData>
-     -c core.fsmonitor=false -c commit.gpgsign=false` (command-line `-c` gaat vóór de repo-config).
+     -c core.fsmonitor=false -c commit.gpgsign=false` (command-line `-c` gaat vóór de repo-config). Fase 0:
+     met deze opties draaien `pre-commit`, `commit-msg`, `post-commit`, `reference-transaction` en een
+     fsmonitor uit de repo niet, zonder wel (`scripts/bonzaiwork/spikes/brains/git-safety.sh`).
    - `.git/config` geldt als onbetrouwbaar. Ook filters (`filter.<naam>.clean/smudge`), `diff.external`,
      `include.path` en dergelijke kunnen code starten. De sync bewaart daarom zijn eigen kopie van de
      verwachte `.git/config` in `userData` en vergelijkt vóór elke git-actie; wijkt hij af, dan geen
@@ -795,7 +818,7 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
 | `DELETE /bonzaiwork/brains/:workspaceId` | host | synchronisatie uitzetten (map blijft) |
 | `GET /bonzaiwork/brains` | client | alle breinen met status (voor de lijst en `breinen_lijst`) |
 | `GET /bonzaiwork/brains/:workspaceId/status` | client | `BrainStatus` |
-| `POST /bonzaiwork/brains/:workspaceId/pull` | client | `{ sessionId }`: projectbrein en persoonlijk brein bijwerken (max. ~5 s), daarna de instructie-entries van die sessie zetten, ook als bijwerken mislukte (§5.1) |
+| `POST /bonzaiwork/brains/:workspaceId/pull` | client | projectbrein en persoonlijk brein bijwerken (max. ~5 s), daarna de globale instructies bijwerken, ook als bijwerken mislukte (§5.1) |
 | `POST /bonzaiwork/brains/:workspaceId/sync` | client | vastleggen + versturen |
 | `GET /bonzaiwork/brains/:workspaceId/history` | client | laatste commits: wie, wat, wanneer, welke chat |
 | `POST /bonzaiwork/brains/:workspaceId/resolve` | client | `{ strategy: "ai" \| "keep-mine-apart" }` |
@@ -886,23 +909,23 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 
 ## 10. Fasering
 
-**Fase 0: uitzoeken (2–3 dagen)**
-- `dugite` in `electron-builder.bonzaiwork.mjs` op macOS en Windows; grootte en signing.
-- SSH via het systeem op Windows (OpenSSH-client en ssh-agent-service) en macOS (sleutelhanger); wat
-  gebeurt er bij een sleutel met wachtwoord die niet in de agent zit.
-- `DownstreamServerHost`: sessie-activiteit en een MCP-entry in de globale engine-config (verwacht: ja).
-- **Ja/nee**: eigen instructie-entries per sessie (`bonzaiwork.personal` en `bonzaiwork.rules`), ook voor
-  sub-taken (§5.1, §6.6). Nee → hook in `server.ts`.
-- **Ja/nee**: toestemmingsregels vanuit de hooks (globale `git`- en `.git/**`-deny, `ask`/`allow` per
-  breinen-MCP-tool, `deny` op uitgesloten mappen en op `AGENTS.md`/`_meta/voorkeuren.md` van het
-  persoonlijke brein). Nee → uitbreiding van de hook in `managed-opencode-v2.ts`.
-- dugite met `-c core.hooksPath=… -c core.fsmonitor=false`: een hook en een fsmonitor in de repo draaien
-  aantoonbaar niet (§7.4, laag 4).
-- Hoe komen persoonlijke skills in elke chat (§5.1, punt 1).
-- Laadt de v2-engine nieuwe skills na een pull vanzelf, of altijd `engine/reload`?
-- **Ja/nee, blokkerend voor B5**: lokale MCP's, plugins en agents uit een niet-vertrouwd brein uitzetten,
-  zonder of met (welke) patch.
-- Uitkomst van fase 0: de tabel in §3 ingevuld, en `PATCHES.md` bijgewerkt als er toch een patch komt.
+**Fase 0: uitzoeken (2–3 dagen)**: gedaan, zie [`project-breinen-fase0.md`](./project-breinen-fase0.md) en de
+tabel in §3. Wat alleen op macOS en Windows te testen is (signing, sleutelhanger, agent-service,
+cloudmappen, de file-watcher op macOS), staat daar in §8 en gebeurt aan het begin van fase 1.
+- `dugite`: grootte en signing → 107–152 MB, uitgedund 16–57 MB; signing nog op macOS/Windows (fase 0 §1, §8).
+- SSH via het systeem → foutpatronen gemeten; vergrendelde sleutel alleen met `ssh -v` te herkennen;
+  Windows: systeem-ssh expliciet, agent-service staat standaard uit (fase 0 §2).
+- `DownstreamServerHost`: sessie-activiteit en een MCP-entry → **ja** (fase 0 §3, §4.1).
+- Eigen instructie-entries per sessie → **ja** voor prompts en commando's, **nee** voor sub-taken. Gekozen:
+  `<OPENCODE_CONFIG_DIR>/AGENTS.md`, die ook sub-taken krijgen; geen hook in `server.ts` (fase 0 §5).
+- Toestemmingsregels vanuit de hooks → `deny` (git, `.git/**`, paden): **ja**, via policies; `allow`: standaard;
+  `ask`: **nee**, één regel in de bestaande hook van `managed-opencode-v2.ts` (fase 0 §4.2, §6.4).
+- dugite met `-c core.hooksPath=… -c core.fsmonitor=false` → hooks en fsmonitor draaien **niet** (fase 0 §6.5).
+- Persoonlijke skills in elke chat → junction `<OPENCODE_CONFIG_DIR>/skills` (fase 0 §5).
+- Nieuwe skills na een pull → **vanzelf**, zonder `engine/reload`; ook MCP's, dus vertrouwen vóór bijwerken (fase 0 §6.1).
+- **Blokkerend voor B5**: niet-vertrouwde onderdelen uitzetten → **ja, zonder patch**: policies voor MCP's en
+  skills, sparse-checkout voor plugins, agents en commando's met shell (fase 0 §6.3).
+- Uitkomst: de tabel in §3 is ingevuld; `PATCHES.md` verandert pas als de `ask`-regel gebouwd wordt.
 
 **Fase 1: MVP**
 - `packages/bonzaiwork-brains`: git/ssh, links omzetten, host-sleutels, sync-machine (mutex, pull, commit
@@ -915,7 +938,7 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 - Breinsjabloon (§6): `AGENTS.md` als ICM-ingang, `_meta/schema.md`, `_templates/`, `knowledge/` met
   root-`index.md` (`okf_version: "0.2"`), `log.md` en `references/`, een lege `workflows/`; skills en
   commando's voor verwerken, vastleggen, onderhoud en `/werkwijze` (met `icm-architect`, I2). App-regels
-  als eigen instructie-entry `bonzaiwork.rules` (§6.6).
+  in de globale instructies van de engine (§6.6).
 - Werkwijzen als bestanden: de AI volgt de contracten via de routering in `AGENTS.md`; de sync controleert
   de structuur vóór commit en deelt `output/` niet (§6.5, I1). Globale `git`- en `.git/**`-deny via de
   hooks; controle van remote, branch en geschiedenis in de sync (§7.4). In de sync
@@ -976,8 +999,11 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 - **Wat er meegaat**: een nieuwe pptx gaat niet mee en staat als "niet gedeeld" in de status; een gewijzigd
   script dat al gedeeld was, gaat wel mee; AI-wijzigingen en eigen wijzigingen landen in aparte commits met
   de juiste `generated.by`.
-- **Instructie-entries**: offline of met een onbereikbare host zet de pull-route de entry toch, met de
-  lokale versie; `persoonlijk_brein_schrijven` weigert `AGENTS.md` en `_meta/voorkeuren.md`.
+- **Globale instructies**: offline of met een onbereikbare host schrijft de pull-route ze toch, met de
+  lokale versie; een sub-taak krijgt ze ook; `persoonlijk_brein_schrijven` weigert `AGENTS.md` en
+  `_meta/voorkeuren.md`.
+- **Engine** (`scripts/bonzaiwork/spikes/brains/engine-probe.mjs`): bij elke engine-update opnieuw; elk
+  veranderd antwoord is een blokkade voor de update.
 - **Links en SSH**: unit-tests voor het omzetten van links; een test tegen een lokale `sshd` (in CI een
   container) met een testsleutel in een agent: onbekende host → vingerafdruk, gewijzigde host-sleutel →
   stop, vergrendelde sleutel → juiste melding.
