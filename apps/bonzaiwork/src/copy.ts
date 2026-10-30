@@ -520,6 +520,35 @@ export const copy = {
     pastOnce: "Kies een moment in de toekomst.",
   },
 
+  feedback: {
+    open: "Feedback sturen",
+    title: "Feedback sturen",
+    category: "Soort feedback",
+    bug: "Er gaat iets mis",
+    idea: "Ik heb een idee",
+    bugLabel: "Wat ging er mis?",
+    bugPlaceholder: "Bijvoorbeeld: ik klikte op Versturen en de chat bleef hangen.",
+    ideaLabel: "Wat zou je willen?",
+    ideaPlaceholder: "Bijvoorbeeld: een knop om een chat als PDF te bewaren.",
+    attachTitle: "Meesturen",
+    screenshot: "Screenshot meesturen",
+    screenshotAlt: "Screenshot van BonzaiWork",
+    noScreenshot: "Geen screenshot beschikbaar",
+    showLogs: "Logs bekijken",
+    collecting: "Logs verzamelen…",
+    attachHint: "We zetten screenshot en logs in een map in Downloads; die sleep je in het formulier op GitHub. Sleutels, wachtwoorden en e-mailadressen halen we eruit.",
+    unavailable: "Screenshot en logs zijn hier niet beschikbaar. Beschrijf de fout zo precies mogelijk.",
+    githubHint: "Je maakt de melding zelf af op GitHub. Daar log je in met je GitHub-account.",
+    submit: "Verder op GitHub",
+    submitAnyway: "Toch verder op GitHub",
+    saveFailed: "De bestanden zijn niet opgeslagen. Ga toch verder en voeg zelf een screenshot toe.",
+    savedTitle: "Bijna klaar",
+    savedBody: (folder: string) => `Het formulier staat open in je browser. Sleep de bestanden uit de map ${folder} naar het formulier en klik op Create.`,
+    openFolder: "Map openen",
+    done: "Klaar",
+    opened: "Formulier geopend in je browser",
+  },
+
   palette: {
     placeholder: "Zoek een project, chat of actie",
     projects: "Projecten",
@@ -532,6 +561,7 @@ export const copy = {
     newProject: "Nieuw project",
     newChat: "Nieuwe chat in dit project",
     toggleTheme: "Thema wisselen",
+    feedback: "Feedback sturen",
   },
 
   common: {

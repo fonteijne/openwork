@@ -1,0 +1,27 @@
+name: "BonzaiWork: ik heb een idee"
+description: Stel een verbetering voor BonzaiWork voor (meestal via Feedback sturen in de app)
+title: "[Idee]: "
+labels:
+  - feature
+  - feedback
+body:
+  - type: textarea
+    id: beschrijving
+    attributes:
+      label: Wat zou je willen?
+    validations:
+      required: true
+  - type: textarea
+    id: waarom
+    attributes:
+      label: Waarom helpt dit je? (optioneel)
+      description: Wat kun je dan wat nu niet of lastig kan?
+    validations:
+      required: false
+  - type: textarea
+    id: omgeving
+    attributes:
+      label: Versie en systeem
+      description: Vult de app zelf in.
+    validations:
+      required: false

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { CalendarClock, FolderPlus, LayoutGrid, MessageSquare, MessageSquarePlus, Moon, Search, Settings } from "lucide-react";
+import { CalendarClock, FolderPlus, LayoutGrid, Megaphone, MessageSquare, MessageSquarePlus, Moon, Search, Settings } from "lucide-react";
 
 import { useProjects } from "~/backend/queries";
 import { ProjectIcon } from "~/components/project-icon";
@@ -43,6 +43,7 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
   const open = useUi((state) => state.paletteOpen);
   const setOpen = useUi((state) => state.setPalette);
   const setNewProject = useUi((state) => state.setNewProject);
+  const setFeedback = useUi((state) => state.setFeedback);
   const projects = useProjects();
   const chatEntries = useChatEntries(props.projectId);
   const [query, setQuery] = useState("");
@@ -76,6 +77,7 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
       { id: "go-projects", group: copy.palette.actions, label: copy.palette.goProjects, icon: <LayoutGrid />, run: () => navigate({ name: "projects" }) },
       { id: "go-routines", group: copy.palette.actions, label: copy.palette.goRoutines, icon: <CalendarClock />, run: () => navigate({ name: "routines", routineId: null }) },
       { id: "go-settings", group: copy.palette.actions, label: copy.palette.goSettings, icon: <Settings />, run: () => navigate({ name: "settings" }) },
+      { id: "feedback", group: copy.palette.actions, label: copy.palette.feedback, icon: <Megaphone />, run: () => setFeedback(true) },
       {
         id: "theme",
         group: copy.palette.actions,
@@ -98,7 +100,7 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
     const needle = query.trim().toLowerCase();
     if (!needle) return [...chatEntries.slice(0, 5), ...projectEntries, ...actions];
     return all.filter((entry) => entry.label.toLowerCase().includes(needle) || entry.hint?.toLowerCase().includes(needle)).slice(0, 30);
-  }, [projects.data, chatEntries, query, props.projectId, setNewProject]);
+  }, [projects.data, chatEntries, query, props.projectId, setNewProject, setFeedback]);
 
   useEffect(() => {
     list.current?.querySelector(`[data-index="${highlight}"]`)?.scrollIntoView({ block: "nearest" });
