@@ -1,9 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { createGit, type Git } from "./git.ts";
+import { handleMcpRequest, type PersonalAccess } from "./mcp.ts";
+import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
+import { applyTemplate } from "./template.ts";
 import { remoteProblemMessage } from "./messages.ts";
 import { BrainRegistry } from "./registry.ts";
 import { parseRemote } from "./remote.ts";
@@ -21,14 +25,20 @@ export type SessionActivity = { workspaceId: string; sessionId: string; state: "
 export type EnginePolicy = { action: "provider.use" | "tool.use" | "integration.use"; resource: string; effect: "allow" | "deny" };
 
 export type BrainsHost = {
+  port: number;
   readOnly: boolean;
   workspaces(): Array<{ id: string; path: string }>;
   reloadEngineProviders(): Promise<void>;
   onSessionActivity(listener: (activity: SessionActivity) => void): () => void;
   runningSessions(workspaceId: string): Promise<string[] | null>;
   sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
+  updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
+  setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
   log: Log;
 };
+
+/** A preference the AI proposed with voorkeur_voorstellen; the user decides on a card (plan §7.3). */
+export type PreferenceProposal = { id: string; preference: string; reason: string | null; at: number };
 
 export type BrainsRoute = {
   method: string;
@@ -125,6 +135,12 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   let policySignature = "";
   let stopActivity: (() => void) | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  const mcpToken = `bwb_${randomBytes(32).toString("base64url")}`;
+  let personalDirty = false;
+  let globalContext = "";
+  let personalWarning: string | null = null;
+  const proposalsFile = join(stateDirectory, "proposals.json");
+  let proposals: PreferenceProposal[] = [];
 
   let markStarted = () => {};
   const started = new Promise<void>((resolve) => { markStarted = resolve; });
@@ -141,9 +157,102 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform });
   }
 
+  const personal = (): BrainSync | undefined => [...syncs.values()].find((sync) => sync.snapshot.kind === "personal");
+
   function enginePolicies(): EnginePolicy[] {
     const mcp = [...new Set([...syncs.values()].flatMap((sync) => sync.untrustedMcpServers))].sort();
-    return [...BASE_ENGINE_POLICIES, ...mcp.map((name): EnginePolicy => ({ action: "integration.use", resource: `mcp:${name}`, effect: "deny" }))];
+    // Excluded folders and the preferences file (plan §5.1.1, §7.3). Paths are relative to the
+    // project folder and count in every project (fase 0 §6.4); grep and bash still get past.
+    const own = personal();
+    const folders = own ? own.snapshot.excluded : [];
+    const escape = (path: string) => path.replace(/[*?]/g, "");
+    return [
+      ...BASE_ENGINE_POLICIES,
+      ...(own ? [{ action: "tool.use", resource: `edit:${PREFERENCES_FILE}`, effect: "deny" } satisfies EnginePolicy] : []),
+      ...folders.flatMap((folder): EnginePolicy[] => [
+        { action: "tool.use", resource: `read:${escape(folder)}/*`, effect: "deny" },
+        { action: "tool.use", resource: `edit:${escape(folder)}/*`, effect: "deny" },
+      ]),
+      ...mcp.map((name): EnginePolicy => ({ action: "integration.use", resource: `mcp:${name}`, effect: "deny" })),
+    ];
+  }
+
+  /**
+   * Instructions and skills in every chat (plan §5.1; fase 0 §5): app rules
+   * plus the personal AGENTS.md and preferences, and the personal skills.
+   * Returns whether the engine got something new.
+   */
+  async function refreshGlobalContext(): Promise<boolean> {
+    if (!host) return false;
+    const own = personal();
+    const root = own?.snapshot.path ?? null;
+    const instructions = await composeInstructions(root);
+    personalWarning = instructions.truncated ? "Je persoonlijke instructies zijn groter dan 32 KiB en worden ingekort meegestuurd. Maak ze korter." : null;
+    const skills = root && (await stat(join(root, ".opencode", "skills")).catch(() => null))?.isDirectory() ? join(root, ".opencode", "skills") : null;
+    const signature = JSON.stringify([instructions.text, skills]);
+    if (signature === globalContext) return false;
+    await host.setEngineGlobalContext({ instructions: instructions.text, skillsDirectory: skills });
+    globalContext = signature;
+    return true;
+  }
+
+  async function saveProposals(): Promise<void> {
+    await mkdir(dirname(proposalsFile), { recursive: true });
+    const temporary = `${proposalsFile}.tmp-${randomBytes(6).toString("hex")}`;
+    await writeFile(temporary, `${JSON.stringify(proposals, null, 2)}\n`, { mode: 0o600 });
+    await rename(temporary, proposalsFile);
+  }
+
+  async function loadProposals(): Promise<void> {
+    const raw = await readFile(proposalsFile, "utf8").catch(() => "[]");
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      proposals = Array.isArray(parsed) ? parsed.flatMap((item: unknown): PreferenceProposal[] => {
+        if (typeof item !== "object" || item === null) return [];
+        const id: unknown = Reflect.get(item, "id");
+        const preference: unknown = Reflect.get(item, "preference");
+        const reason: unknown = Reflect.get(item, "reason");
+        const at: unknown = Reflect.get(item, "at");
+        return typeof id === "string" && typeof preference === "string"
+          ? [{ id, preference, reason: typeof reason === "string" ? reason : null, at: typeof at === "number" ? at : Date.now() }] : [];
+      }) : [];
+    } catch {
+      proposals = [];
+    }
+  }
+
+  const access: PersonalAccess = {
+    root: () => personal()?.snapshot.path ?? null,
+    excluded: () => personal()?.snapshot.excluded ?? [],
+    wrote: () => { personalDirty = true; },
+    propose: async (preference, reason) => {
+      const proposal = { id: `pref_${randomBytes(6).toString("hex")}`, preference, reason, at: Date.now() };
+      proposals = [...proposals, proposal];
+      await saveProposals();
+      return proposal.id;
+    },
+  };
+
+  /** Accepted: the preference goes into _meta/voorkeuren.md and counts from the next turn. */
+  async function decide(id: string, decision: "accept" | "reject", edited: string | null): Promise<Response> {
+    const proposal = proposals.find((item) => item.id === id);
+    if (!proposal) return failure(404, "proposal_not_found", "Proposal not found.");
+    proposals = proposals.filter((item) => item.id !== id);
+    await saveProposals();
+    const own = personal();
+    if (decision === "accept" && own) {
+      const file = join(own.snapshot.path, PREFERENCES_FILE);
+      const current = await readFile(file, "utf8").catch(() => "# Mijn voorkeuren\n");
+      const line = `- ${(edited ?? proposal.preference).replace(/\s+/g, " ").trim()}`;
+      const next = /^## Geleerd\s*$/m.test(current)
+        ? current.replace(/^## Geleerd\s*$/m, (heading) => `${heading}\n\n${line}`).replace(/\n\n\n+/g, "\n\n")
+        : `${current.trimEnd()}\n\n## Geleerd\n\n${line}\n`;
+      await mkdir(dirname(file), { recursive: true });
+      await writeFile(file, next);
+      await own.share();
+      await refreshGlobalContext();
+    }
+    return json({ ok: true, proposals });
   }
 
   /** Writes the engine config again when the policies changed (untrusted MCPs come and go). */
@@ -184,8 +293,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   }
 
   function onActivity(activity: SessionActivity): void {
-    const sync = syncs.get(activity.workspaceId);
-    if (!sync) return;
+    // Every project counts: a chat anywhere may write in the personal brain.
+    if (!syncs.has(activity.workspaceId) && !personal()) return;
     const set = running.get(activity.workspaceId) ?? new Set<string>();
     running.set(activity.workspaceId, set);
     const timer = quietTimers.get(activity.workspaceId);
@@ -208,13 +317,22 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   async function finish(workspaceId: string): Promise<void> {
     const sync = syncs.get(workspaceId);
     const chatId = lastChat.get(workspaceId);
-    if (!sync || !chatId) return;
+    if (!chatId) return;
     // The engine may know of a run the event stream missed.
     const busy = await host?.runningSessions(workspaceId);
     if (busy && busy.length > 0) return;
+    const title = await chatTitle(chatId);
     try {
-      await sync.finishTurn({ title: await chatTitle(chatId), chatId });
+      if (sync) await sync.finishTurn({ title, chatId });
+      // What a chat elsewhere wrote in the personal brain is recorded under that chat too.
+      const own = personal();
+      if (own && own !== sync && personalDirty) {
+        personalDirty = false;
+        await own.finishTurn({ title, chatId });
+      }
+      if (sync?.snapshot.kind === "personal") personalDirty = false;
       await refreshPolicies();
+      await refreshGlobalContext();
     } catch (error) {
       log("error", "Brain could not record a turn", { brain: workspaceId, error: String(error) });
     }
@@ -305,17 +423,33 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       if (job.path !== workspace.path) return failure(409, "folder_mismatch", "The workspace is not the cloned folder.");
       sync?.dispose();
       job.sync.dispose();
+      if (kind === "personal" && personal()) return failure(409, "personal_exists", "There is a personal brain already.");
       const record: BrainRecord = { ...job.sync.snapshot, id: workspaceId, kind, mode };
       await registry.upsert(record);
       jobs.delete(jobId);
       sync = await activate(record, workspace.path);
+    } else if (!sync && kind === "personal") {
+      if (personal()) return failure(409, "personal_exists", "There is a personal brain already.");
+      if (!git) return failure(503, "starting", "BonzaiWork is still starting.");
+      const excluded = Array.isArray(body.excluded) ? body.excluded.filter((value): value is string => typeof value === "string") : [];
+      const created = await BrainSync.initLocal({
+        git, id: workspaceId, path: workspace.path, gitDir: join(stateDirectory, "history", `${workspaceId}.git`), excluded,
+        author, save: (next) => registry.upsert(next), log, platform,
+      });
+      await applyTemplate(workspace.path, { kind: "personal", name: text(body, "name") || "Mijn brein", description: "", now: new Date() });
+      await registry.upsert(created.snapshot);
+      created.dispose();
+      sync = await activate(created.snapshot, workspace.path);
+      await sync.share();
+      await refreshGlobalContext();
     } else if (!sync) {
-      return failure(400, "invalid_body", "Send the jobId of a clone.");
+      return failure(400, "invalid_body", "Send the jobId of a clone, or kind personal.");
     } else if (sync.snapshot.mode !== mode) {
       await sync.setMode(mode);
     }
     const status = trusted.length ? await sync.trust(trusted) : await sync.status();
     await refreshPolicies();
+    if (kind === "personal") await refreshGlobalContext();
     return json({ workspaceId, status });
   }
 
@@ -336,16 +470,26 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   /** UserPromptSubmit (plan §2): waits at most ~5 s, then the turn goes on. */
   async function pull(request: Request, workspaceId: string): Promise<Response> {
     const sync = known(workspaceId);
-    if (!sync) return notABrain();
+    const own = personal();
+    if (!sync && !own) return notABrain();
     const body = (await readBody(request)) ?? {};
     const sessionId = text(body, "sessionId");
     const others = (await host?.runningSessions(workspaceId))?.filter((id) => id !== sessionId) ?? [];
     // Never update while another chat in this project runs (plan §4.2); fetching is fine.
-    const work = others.length ? sync.fetchOnly() : sync.prepareTurn();
+    const work = sync ? (others.length ? sync.fetchOnly() : sync.prepareTurn()) : Promise.resolve(null);
+    const personalWork = own && own !== sync ? own.prepareTurn() : Promise.resolve(null);
+    const both = Promise.all([work, personalWork]);
     const timeout = new Promise<null>((resolve) => setTimeout(resolve, prepareTimeoutMs, null));
-    const status = await Promise.race([work, timeout]);
-    void work.then(() => refreshPolicies()).catch(() => undefined);
-    return json({ status: status ?? await sync.status(), waited: status === null ? "timeout" : others.length ? "fetched" : "updated" });
+    const done = await Promise.race([both, timeout]);
+    void both.then(() => refreshPolicies()).catch(() => undefined);
+    // Also when updating failed or took too long: the local version of the preferences counts (plan §5.1).
+    if (await refreshGlobalContext()) await new Promise((resolve) => setTimeout(resolve, 500));
+    return json({
+      status: sync ? (done?.[0] ?? await sync.status()) : null,
+      personal: own ? (own === sync ? null : done?.[1] ?? await own.status()) : null,
+      warning: personalWarning,
+      waited: done === null ? "timeout" : others.length ? "fetched" : "updated",
+    });
   }
 
   async function act(workspaceId: string, run: (sync: BrainSync) => Promise<unknown>): Promise<Response> {
@@ -367,7 +511,21 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     return json({ author: registry.author, suggested: registry.author ? null : suggestedAuthor(environment) });
   }
 
+  const mcpRoutes = ["POST", "GET", "DELETE"].map((method): BrainsRoute => ({
+    method, path: "/bonzaiwork/brains/mcp", auth: "none", handle: (request) => handleMcpRequest(request, mcpToken, access),
+  }));
+
   const routes: BrainsRoute[] = ([
+    { method: "GET", path: "/bonzaiwork/brains/proposals", auth: "client", handle: async () => json({ proposals }) },
+    {
+      method: "POST", path: "/bonzaiwork/brains/proposals/:proposalId", auth: "client",
+      handle: async (request, params) => {
+        const body = (await readBody(request)) ?? {};
+        const decision = body.decision === "accept" ? "accept" : body.decision === "reject" ? "reject" : null;
+        if (!decision) return failure(400, "invalid_decision", "Send accept or reject.");
+        return decide(params.proposalId, decision, text(body, "text") || null);
+      },
+    },
     { method: "POST", path: "/bonzaiwork/brains/check-remote", auth: "host-token", handle: (request) => checkRemote(request) },
     { method: "POST", path: "/bonzaiwork/brains/trust-host", auth: "host-token", handle: (request) => trustHost(request) },
     { method: "POST", path: "/bonzaiwork/brains/clone", auth: "host-token", handle: (request) => clone(request) },
@@ -405,6 +563,40 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     },
     { method: "POST", path: "/bonzaiwork/brains/:workspaceId/repair", auth: "host-token", handle: (_request, params) => act(params.workspaceId, (sync) => sync.repair()) },
     {
+      method: "PUT", path: "/bonzaiwork/brains/:workspaceId/excluded", auth: "host-token",
+      handle: async (request, params) => {
+        const body = (await readBody(request)) ?? {};
+        const folders = Array.isArray(body.folders) ? body.folders.filter((value): value is string => typeof value === "string") : [];
+        return act(params.workspaceId, (sync) => sync.setExcluded(folders));
+      },
+    },
+    {
+      method: "POST", path: "/bonzaiwork/brains/:workspaceId/remote", auth: "host-token",
+      handle: async (request, params) => {
+        const sync = known(params.workspaceId);
+        if (!sync) return notABrain();
+        if (isCloudFolder(sync.snapshot.path)) return failure(409, "cloud_folder", "This folder is synced by a cloud service already.");
+        const body = (await readBody(request)) ?? {};
+        const parsed = parseRemote(text(body, "url") ?? "");
+        const local = allowFileProtocol && text(body, "url")?.startsWith("file://") ? text(body, "url") : null;
+        if (!local && !parsed.ok) return failure(400, "link_invalid", "This is not a repository link.");
+        return act(params.workspaceId, (brain) => brain.attachRemote(local ?? (parsed.ok ? parsed.link.sshUrl : "")));
+      },
+    },
+    {
+      method: "POST", path: "/bonzaiwork/brains/:workspaceId/restore", auth: "client",
+      handle: async (request, params) => {
+        const body = (await readBody(request)) ?? {};
+        const commit = text(body, "commit") ?? "";
+        const path = text(body, "path");
+        return act(params.workspaceId, async (sync) => {
+          const status = path ? await sync.restoreFile(commit, path) : await sync.revertCommit(commit);
+          await refreshGlobalContext();
+          return status;
+        });
+      },
+    },
+    {
       method: "POST", path: "/bonzaiwork/brains/:workspaceId/setup", auth: "host-token",
       handle: async (request, params) => {
         const body = (await readBody(request)) ?? {};
@@ -426,10 +618,14 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       },
     },
   ] satisfies BrainsRoute[]).map((route) => ({ ...route, handle: whenStarted(route.handle) }));
+  // The MCP routes first: `/bonzaiwork/brains/mcp` must never match `/bonzaiwork/brains/:workspaceId`.
+  routes.unshift(...mcpRoutes.map((route) => ({ ...route, handle: whenStarted(route.handle) })));
 
   return {
     routes,
     enginePolicies,
+    /** Tests: the tools without the engine. */
+    personalAccess: access,
     async start(next: BrainsHost) {
       host = next;
       try {
@@ -439,7 +635,13 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         });
         await ensureKnownHosts(sshOptions.knownHostsFile);
         await registry.load();
+        await loadProposals();
         await reconcile();
+        await refreshGlobalContext();
+        // The engine reaches the brain tools in every project through this one entry (plan §5.2).
+        await next.updateEngineMcp({
+          breinen: { type: "remote", url: `http://127.0.0.1:${next.port}/bonzaiwork/brains/mcp`, headers: { authorization: `Bearer ${mcpToken}` }, codemode: false },
+        });
         stopActivity = next.onSessionActivity(onActivity);
         reconcileTimer = setInterval(() => { void reconcile().catch(() => undefined); }, 10_000);
         reconcileTimer.unref?.();

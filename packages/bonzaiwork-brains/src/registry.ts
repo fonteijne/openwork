@@ -32,6 +32,7 @@ function readRecord(value: unknown): BrainRecord | null {
     id: value.id, kind, path: value.path, gitDir: stringOrNull(value.gitDir), mode, remote: stringOrNull(value.remote),
     branch: value.branch, trusted, lastSyncedRemote: stringOrNull(value.lastSyncedRemote),
     lastSyncAt: typeof value.lastSyncAt === "number" ? value.lastSyncAt : null, gitConfig: stringOrNull(value.gitConfig),
+    excluded: Array.isArray(value.excluded) ? value.excluded.filter((folder): folder is string => typeof folder === "string") : [],
   };
 }
 

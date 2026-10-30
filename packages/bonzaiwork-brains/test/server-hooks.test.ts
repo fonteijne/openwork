@@ -13,12 +13,20 @@ afterEach(async () => {
   await world?.dispose();
 });
 
-type FakeHost = BrainsHost & { emit(activity: SessionActivity): void; reloads: number; running: string[]; workspaceList: Array<{ id: string; path: string }> };
+type FakeHost = BrainsHost & {
+  emit(activity: SessionActivity): void; reloads: number; running: string[]; workspaceList: Array<{ id: string; path: string }>;
+  mcp: Record<string, Record<string, unknown> | null>; context: { instructions: string | null; skillsDirectory: string | null } | null;
+};
 
 function fakeHost(): FakeHost {
   const listeners = new Set<(activity: SessionActivity) => void>();
   const host: FakeHost = {
+    port: 4242,
     readOnly: false,
+    mcp: {},
+    context: null,
+    updateEngineMcp: async (servers) => { Object.assign(host.mcp, servers); return true; },
+    setEngineGlobalContext: async (input) => { host.context = input; },
     reloads: 0,
     running: [],
     workspaceList: [],

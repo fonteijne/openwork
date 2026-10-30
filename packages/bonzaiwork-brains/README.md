@@ -15,6 +15,7 @@ Project-breinen: git-repo's die BonzaiWork vóór een beurt bijwerkt en erna dee
 | `src/okf.ts` | OKF v0.2 vóór elke commit: conformiteit, `generated` (AI en mens apart), `index.md` per map, `log.md`, `references/` onveranderlijk; "Klopt" (`verified`) en de vertrouwenstrede voor de UI |
 | `src/icm.ts` | Structuurcontrole van stapcontracten in `workflows/`; waarschuwingen voor een lange `AGENTS.md` en kennis die naar werkwijzen linkt |
 | `src/template.ts`, `templates/` | Het breinsjabloon (team en persoonlijk), skills `okf-ingest`, `okf-query`, `okf-lint` en het meegeleverde `icm-architect` (MIT), commando's `/verwerk`, `/vastleggen`, `/onderhoud`, `/werkwijze`. `src/template-files.ts` bundelt ze als tekst |
+| `src/personal.ts`, `src/mcp.ts` | Het persoonlijke brein: cloudmappen, de globale instructies (app-regels + `AGENTS.md` + `_meta/voorkeuren.md`, max. 32 KiB), veilige paden, en de lokale MCP-server `breinen` met `persoonlijk_brein_lezen/zoeken/schrijven/bewerken` en `voorkeur_voorstellen` |
 | `src/registry.ts`, `src/server-hooks.ts` | `brains.json`, de routes `/bonzaiwork/brains/*`, de `Stop`-hook en de engine-policies |
 | `src/sync.ts` | `BrainSync`: clone, bijwerken, vastleggen per beurt, delen met retry, offline, alleen-lezen, conflict met "Bewaar mijn versie apart", controles van plan §7.4 |
 

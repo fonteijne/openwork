@@ -105,10 +105,24 @@ export const LOCAL_EXCLUDES = [
   "/.opencode/opencode.jsonc",
 ];
 
-export function withLocalExcludes(current: string): string {
+/** Never part of a personal brain, whatever the user ticks (plan §5.1.1). */
+export const ALWAYS_EXCLUDED_FOLDERS = [".obsidian", ".trash", ".logseq", ".git"];
+
+/**
+ * A personal brain keeps history of Markdown only (N5), outside the folders
+ * the user excluded; attachments never make the history big.
+ */
+export function personalExcludes(excluded: readonly string[]): string[] {
+  const folders = [...ALWAYS_EXCLUDED_FOLDERS, ...excluded]
+    .map((folder) => folder.replace(/^\/+|\/+$/g, ""))
+    .filter((folder) => folder && !folder.includes(".."));
+  return ["*", "!*/", "!*.md", ...[...new Set(folders)].map((folder) => `/${folder.replace(/[\\*?[\]!#]/g, (char) => `\\${char}`)}/`)];
+}
+
+export function withLocalExcludes(current: string, extra: readonly string[] = []): string {
   const start = current.indexOf(EXCLUDE_START);
   const end = current.indexOf(EXCLUDE_END);
   const before = start >= 0 && end > start ? current.slice(0, start) + current.slice(end + EXCLUDE_END.length).replace(/^\n/, "") : current;
   const base = before.trimEnd();
-  return `${base ? `${base}\n` : ""}${EXCLUDE_START}\n${LOCAL_EXCLUDES.join("\n")}\n${EXCLUDE_END}\n`;
+  return `${base ? `${base}\n` : ""}${EXCLUDE_START}\n${[...extra, ...LOCAL_EXCLUDES].join("\n")}\n${EXCLUDE_END}\n`;
 }

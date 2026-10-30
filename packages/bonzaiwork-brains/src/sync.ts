@@ -8,7 +8,7 @@ import { applyTemplate } from "./template.ts";
 import { remoteProblemMessage, SYNC_MESSAGES } from "./messages.ts";
 import { scanForSecrets } from "./secrets.ts";
 import { classifyGitError, type RemoteProblem } from "./ssh.ts";
-import { findTrustItems, sparsePatterns, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
+import { findTrustItems, personalExcludes, sparsePatterns, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
 
 /**
  * One brain's synchronisation (plan §2, §4): fetch and update before a turn,
@@ -38,6 +38,8 @@ export type BrainRecord = {
   lastSyncAt: number | null;
   /** The .git/config BonzaiWork expects (plan §7.4, laag 4). */
   gitConfig: string | null;
+  /** Personal brain: folders the AI never reads or changes (plan §5.1.1). */
+  excluded: string[];
 };
 
 export type Unshared = { path: string; reason: "not_markdown" | "too_large" };
@@ -239,6 +241,11 @@ export class BrainSync {
    * checkout, fast-forward and rebase.
    */
   private async applyTrust(ref: string): Promise<void> {
+    // A personal brain is the user's own folder: nothing in it is someone else's code.
+    if (this.record.kind === "personal") {
+      this.pending = [];
+      return;
+    }
     const refs = [ref, ...(await this.hasCommit("HEAD") ? ["HEAD"] : [])];
     const items = new Map<string, TrustItem>();
     for (const source of refs) {
@@ -254,7 +261,22 @@ export class BrainSync {
   private async writeLocalExcludes(): Promise<void> {
     const file = join(this.gitDir, "info", "exclude");
     await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, withLocalExcludes(await readFile(file, "utf8").catch(() => "")));
+    const extra = this.record.kind === "personal" ? personalExcludes(this.record.excluded) : [];
+    await writeFile(file, withLocalExcludes(await readFile(file, "utf8").catch(() => ""), extra));
+  }
+
+  /** Excluded folders of a personal brain; their files leave the history from now on, not the folder. */
+  setExcluded(folders: readonly string[]): Promise<BrainStatus> {
+    return this.lock(async () => {
+      const excluded = [...new Set(folders.map((folder) => folder.replace(/^\/+|\/+$/g, "")).filter((folder) => folder && !folder.includes("..")))].sort();
+      await this.persist({ excluded });
+      await this.writeLocalExcludes();
+      for (const folder of excluded) await this.run(["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", folder]);
+      if (await this.hasCommit("HEAD") && (await this.run(["diff", "--cached", "--quiet"])).exitCode === 1) {
+        await this.ok(["commit", "-q", "--no-verify", "-m", "Mappen uitgesloten\n\nVia BonzaiWork"], { config: this.author() });
+      }
+      return this.statusNow();
+    });
   }
 
   /** The trust step: these items may load from now on, exactly as they are. */
@@ -502,12 +524,13 @@ export class BrainSync {
 
   /** Brings the folder up to date; local work is recorded first, nothing is lost (plan §4.2). */
   private async update(): Promise<void> {
-    if (!this.record.remote) return;
     if (this.problem?.kind === "conflict") return;
     if (this.record.mode !== "read_only") {
       const own = await this.commitOwn();
       if (own.blockedBy) return;
     }
+    // Without a remote there is nothing to fetch: history only (local_only).
+    if (!this.record.remote) return;
     if (!await this.fetch()) return;
     if (this.problem?.kind === "offline") this.problem = null;
     await this.integrate();
@@ -701,6 +724,60 @@ export class BrainSync {
     });
   }
 
+  /** "Zet deze notitie terug": the file as it was before `commit`, as a commit of its own. */
+  restoreFile(commit: string, path: string): Promise<BrainStatus> {
+    return this.lock(async () => {
+      if (!/^[0-9a-f]{7,64}$/.test(commit) || path.includes("..") || !await this.guard()) return this.statusNow();
+      await this.commitOwn();
+      const before = await this.run(["cat-file", "-e", `${commit}^:${path}`]);
+      if (before.exitCode === 0) await this.ok(["checkout", `${commit}^`, "--", path]);
+      else await this.run(["rm", "-q", "--", path]);
+      if ((await this.run(["diff", "--cached", "--quiet"])).exitCode === 1) {
+        await this.ok(["commit", "-q", "--no-verify", "-F", "-"], { input: `Teruggezet: ${path}\n\nVia BonzaiWork\n`, config: this.author() });
+        if (this.record.mode === "auto") await this.push();
+      }
+      return this.statusNow();
+    });
+  }
+
+  /** "Draai deze beurt terug": undoes one commit with a new one; history keeps both. */
+  revertCommit(commit: string): Promise<BrainStatus> {
+    return this.lock(async () => {
+      if (!/^[0-9a-f]{7,64}$/.test(commit) || !await this.guard()) return this.statusNow();
+      await this.commitOwn();
+      const subject = (await this.run(["log", "-1", "--format=%s", commit])).stdout.trim();
+      const reverted = await this.run(["revert", "--no-commit", commit], { config: this.author() });
+      if (reverted.exitCode !== 0) {
+        await this.run(["revert", "--abort"]);
+        this.warnings = [SYNC_MESSAGES.revertConflict];
+        return this.statusNow();
+      }
+      await this.ok(["commit", "-q", "--no-verify", "-F", "-"], { input: `Teruggedraaid: ${subject}\n\nVia BonzaiWork\n`, config: this.author() });
+      if (this.record.mode === "auto") await this.push();
+      return this.statusNow();
+    });
+  }
+
+  /**
+   * Links a private repository to a brain that had history only (plan
+   * §5.1): add the origin and send the history; then the same sync as a
+   * project brain. The repository must be empty or have this history.
+   */
+  attachRemote(remote: string): Promise<BrainStatus> {
+    return this.lock(async () => {
+      if (this.record.remote || !await this.guard()) return this.statusNow();
+      await this.commitOwn();
+      await this.ok(["remote", "add", "origin", remote]);
+      await this.persist({ remote, lastSyncedRemote: null });
+      await this.rememberConfig();
+      if (await this.fetch()) {
+        if (await this.hasCommit(this.remoteRef())) await this.integrate();
+        if (!this.problem) await this.push();
+      }
+      return this.statusNow();
+    });
+  }
+
   /** Sets up the brain template where it is missing (an empty repository), then shares it. */
   setUp(input: { name: string; description: string }): Promise<{ written: string[]; status: BrainStatus }> {
     return this.lock(async () => {
@@ -787,6 +864,28 @@ export class BrainSync {
   // --- adding a brain ---------------------------------------------------------
 
   /**
+   * A personal brain in a folder that stays where it is (plan §5.1.1): the
+   * history lives outside it (`gitDir`, in userData), no `.git` in the
+   * vault, Markdown only, nothing ever sent until a remote is linked.
+   */
+  static async initLocal(input: Omit<BrainSyncOptions, "record"> & { id: string; path: string; gitDir: string; excluded?: readonly string[] }): Promise<BrainSync> {
+    await mkdir(input.path, { recursive: true });
+    await mkdir(dirname(input.gitDir), { recursive: true });
+    const fresh = await readdir(input.gitDir).catch(() => null) === null;
+    const sync = new BrainSync({
+      ...input,
+      record: {
+        id: input.id, kind: "personal", path: input.path, gitDir: input.gitDir, mode: "auto", remote: null, branch: "main",
+        trusted: {}, lastSyncedRemote: null, lastSyncAt: null, gitConfig: null, excluded: [...(input.excluded ?? [])],
+      },
+    });
+    if (fresh) await sync.ok(["init", "-q", "-b", "main"]);
+    await sync.writeLocalExcludes();
+    await sync.rememberConfig();
+    return sync;
+  }
+
+  /**
    * Plan §4.1: a full clone without checkout, the untrusted items excluded,
    * then the checkout. On failure nothing half is left behind.
    */
@@ -811,7 +910,7 @@ export class BrainSync {
       const branch = head.stdout.trim().replace(/^origin\//, "") || "main";
       const sync = new BrainSync({
         ...input,
-        record: { id: input.id, kind: input.kind, path: input.path, gitDir: null, mode: input.mode, remote: input.remote, branch, trusted: {}, lastSyncedRemote: null, lastSyncAt: null, gitConfig: null },
+        record: { id: input.id, kind: input.kind, path: input.path, gitDir: null, mode: input.mode, remote: input.remote, branch, trusted: {}, lastSyncedRemote: null, lastSyncAt: null, gitConfig: null, excluded: [] },
       });
       await sync.writeLocalExcludes();
       const remoteRef = `refs/remotes/origin/${branch}`;

@@ -8,9 +8,13 @@
  *     turn in which the model writes a file: after the quiet period the commit
  *     is on the bare repository, under the chat title and the user's name;
  *  2. the AI's own `git` is blocked by the engine policy from the hooks;
- *  3. an MCP from the brain's opencode.json does not load until trusted.
+ *  3. an MCP from the brain's opencode.json does not load until trusted;
+ *  4. a personal brain: the engine reaches the "breinen" MCP, the app rules
+ *     and the user's preferences are in the chat's context, and a note the
+ *     model writes through the tool lands in the personal brain's history.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -34,6 +38,7 @@ function check(name: string, ok: boolean, detail = "") {
 }
 
 const toolResults: string[] = [];
+const contexts: string[] = [];
 
 /** Stand-in LiteLLM: "SCHRIJF" makes it write a file, "GIT" makes it run git. */
 async function startLiteLLM(): Promise<{ server: Server; url: string }> {
@@ -57,8 +62,11 @@ async function startLiteLLM(): Promise<{ server: Server; url: string }> {
       chunk({}, "tool_calls");
     };
     const userText = last.role === "user" ? JSON.stringify(last.content) : "";
+    if (tools.length) contexts.push(JSON.stringify(messages));
     if (last.role === "tool") toolResults.push(JSON.stringify(last.content));
-    if (userText.includes("SCHRIJF") && tools.includes("write")) call("write", { path: "knowledge/e2e.md", content: "---\ntype: Process\n---\n# Uit de chat\n" });
+    const personalTool = tools.find((name) => name.endsWith("persoonlijk_brein_schrijven"));
+    if (userText.includes("PERSOONLIJK") && personalTool) call(personalTool, { pad: "knowledge/geleerd.md", inhoud: "---\ntype: Analysis\ntitle: Geleerd\n---\n# Geleerd\n" });
+    else if (userText.includes("SCHRIJF") && tools.includes("write")) call("write", { path: "knowledge/e2e.md", content: "---\ntype: Process\n---\n# Uit de chat\n" });
     else if (userText.includes("GIT") && tools.includes("shell")) call("shell", { command: "git log -1" });
     else { chunk({ content: "Klaar." }); chunk({}, "stop"); }
     res.end("data: [DONE]\n\n");
@@ -199,6 +207,33 @@ async function main() {
       return names.includes("rogue") ? names : null;
     }, 30_000).catch(() => null);
     check("the MCP loads once trusted", loaded !== null, JSON.stringify(loaded));
+
+    // 4. The personal brain.
+    const personalFolder = join(home, "BonzaiWork", "Persoonlijk");
+    const personal = await api("/workspaces/local", { method: "POST", headers: host, body: { folderPath: personalFolder, name: "Mijn brein", preset: "starter" } });
+    const personalId = text(personal.body.activeId);
+    const made = await api(`/bonzaiwork/brains/${personalId}`, { method: "PUT", headers: host, body: { kind: "personal", excluded: ["Dagboek"] } });
+    check("personal brain registered", made.status === 200 && text(record(made.body.status).state) === "local_only", JSON.stringify(made.body).slice(0, 200));
+    await writeFile(join(personalFolder, "_meta", "voorkeuren.md"), "# Mijn voorkeuren\n\nVOORKEUR-E2E: antwoord altijd kort.\n");
+    const breinen = await waitFor("breinen MCP connected", async () => {
+      const response = await fetch(`${engine}/api/mcp`, { headers: owner });
+      const entry = list(record(await response.json()).data).map(record).find((item) => text(item.name) === "breinen");
+      return entry && text(record(entry.status).status) === "connected" ? entry : null;
+    }, 60_000).catch(() => null);
+    check("the engine reaches the breinen MCP in a project brain", breinen !== null);
+    const before = contexts.length;
+    await turn("PERSOONLIJK leg dit vast");
+    const context = contexts.slice(before)[0] ?? "";
+    check("app rules in the chat's context", context.includes("Voer zelf nooit git uit"));
+    check("the user's preferences in the chat's context", context.includes("VOORKEUR-E2E"));
+    check("the model wrote in the personal brain", toolResults.some((result) => result.includes("knowledge/geleerd.md geschreven")), toolResults.slice(-2).join(" | ").slice(0, 300));
+    const historyDir = join(home, "bonzaiwork", "history", `${personalId}.git`);
+    const recorded = await waitFor("personal history", async () => {
+      const result = spawnSync("git", ["--git-dir", historyDir, "--work-tree", personalFolder, "log", "-1", "--format=%s", "--name-only"], { encoding: "utf8" });
+      return result.stdout.includes("knowledge/geleerd.md") ? result.stdout.trim() : null;
+    }, 30_000).catch(() => null);
+    check("recorded in the personal brain under the chat title", recorded?.startsWith("Offerte vastleggen") ?? false, String(recorded));
+    check("no .git in the personal folder", !existsSync(join(personalFolder, ".git")));
     await log.flush();
   } finally {
     server?.kill("SIGTERM");
