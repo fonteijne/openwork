@@ -6,8 +6,8 @@ Status: **voorstel, beslissingen B1–B6 en N1–N5 genomen** (§9). Nog niets g
 
 Een nieuw project kan, behalve een lege map in `~/BonzaiWork/<naam>` of een bestaande map, ook een
 **git-repo zijn die BonzaiWork via SSH clonet** in `~/BonzaiWork/<naam>`. Zo'n repo is een
-**project-brein**: de gedeelde kennis en workflows van een team, ingericht als **LLM-wiki naar Karpathy**
-(§6): bronnen in `raw/`, door de AI bijgehouden pagina's in `wiki/`, het schema in `AGENTS.md` en
+**project-brein**: de gedeelde kennis en workflows van een team. De kennis is een bundel in Google's
+**Open Knowledge Format (OKF)** in `knowledge/` (§6), de instructies voor de AI staan in `AGENTS.md` en
 werkwijzen als skills in `.opencode/`. BonzaiWork werkt in die map zoals in elk ander project, maar **haalt vóór het
 werk de nieuwste versie op** en **legt na elke beurt de wijzigingen vast en verstuurt ze**.
 
@@ -53,7 +53,7 @@ packages/bonzaiwork-brains/          NIEUW
   src/git.ts                         git (dugite) + systeem-ssh aanroepen, zonder prompt, met timeouts
   src/remote.ts                      repo-links herkennen en naar SSH-vorm omzetten; host-sleutels
   src/sync.ts                        per brein: wachtrij, mutex, status, pull/commit/push, conflicten
-  src/wiki.ts                        LLM-wiki vóór elke commit: index.md genereren, logregel, raw/ bewaken
+  src/okf.ts                         OKF vóór elke commit: conformiteit, generated, index.md, log.md, references/ bewaken
   templates/                         schema-AGENTS.md (team en persoonlijk), skills en commando's (§6)
   src/registry.ts                    welke mappen een brein zijn (userData/bonzaiwork/brains.json)
   src/routes.ts                      /bonzaiwork/brains/*
@@ -181,8 +181,8 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
   - **"Bewaar mijn versie apart"** (fase 1): push naar `bonzaiwork/<gebruiker>/<datum>` en zet de map
     terug op de gedeelde versie.
 - Tot het conflict is opgelost, pauzeert het bijwerken van dit brein; chatten blijft kunnen.
-- De twee bestanden die iedereen raakt, geven nooit een conflict: `wiki/index.md` maakt de sync opnieuw,
-  `wiki/log.md` voegt git samen met `merge=union` (§6.3).
+- De bestanden die iedereen raakt, geven nooit een conflict voor de gebruiker: een `index.md` maakt de
+  sync opnieuw, `log.md` voegt hij per datum samen (§6.4).
 
 ## 5. Persoonlijk brein en andere breinen (B6)
 
@@ -227,13 +227,13 @@ hun eigen werkwijze werken en ziet BonzaiWork altijd de actuele notities. Het do
 BonzaiWork migreert: tijdens de overgang kan Obsidian ernaast blijven draaien, en BonzaiWork wordt
 geleidelijk het hoofdgereedschap voor dezelfde map.
 
-- **Wiki-structuur erbij**: de app voegt in de gekozen map `AGENTS.md` (het schema, met "Mijn voorkeuren";
-  gaat volledig in elke chat, N3), `raw/`, `wiki/` en de skills toe (§6.5). In Obsidian zijn dat gewone
+- **OKF-bundel erbij**: de app voegt in de gekozen map `AGENTS.md` (met "Mijn voorkeuren"; gaat volledig
+  in elke chat, N3), `knowledge/` en de skills toe (§6.6). In Obsidian zijn dat gewone
   notities, dus de collega kan ze lezen en bijwerken. Bestond er al een `AGENTS.md`, dan vult de app die
   aan in plaats van hem te vervangen.
 - **De AI mag in de hele map schrijven (N4)**: nieuwe notities aanmaken en bestaande bijwerken, vanuit
-  elk project, zonder per wijziging toestemming te vragen. Nieuwe kennis komt in `wiki/` volgens het
-  schema; bestaande notities werkt hij bij waar ze staan. Bewerken gaat per passage (oude tekst → nieuwe tekst), nooit door een
+  elk project, zonder per wijziging toestemming te vragen. Nieuwe kennis komt als concept in `knowledge/`
+  (§6); bestaande notities werkt hij bij waar ze staan. Bewerken gaat per passage (oude tekst → nieuwe tekst), nooit door een
   hele notitie te overschrijven.
 - **Vangnet: geschiedenis van elke wijziging.** Omdat de AI vrij mag schrijven, moet elke wijziging terug
   te halen zijn. Bij elke `Stop`-hook legt BonzaiWork de `.md`-wijzigingen vast in git, met de chat erbij.
@@ -255,8 +255,8 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
 - **Niet tegelijk met de gebruiker schrijven**: `persoonlijk_brein_bewerken` geeft de versie mee die de AI
   las; is de notitie intussen veranderd (de collega typt in Obsidian, de cloud-sync haalde iets binnen),
   dan weigert de tool en leest de AI opnieuw. Zo overschrijft de AI nooit werk van de gebruiker.
-- **Niet verwijderen of hernoemen in fase 1**: hernoemen breekt `[[wikilinks]]` (Obsidian werkt die bij,
-  wij nog niet). Opruimen stelt de AI voor; de gebruiker doet het. Hernoemen met bijwerken van links
+- **Niet verwijderen of hernoemen in fase 1**: hernoemen breekt links (in `knowledge/` is het pad
+  bovendien de identiteit van een concept; Obsidian werkt links in notities bij, wij nog niet). Opruimen stelt de AI voor; de gebruiker doet het. Hernoemen met bijwerken van links
   komt in fase 2.
 - **Alleen de instructies gaan altijd mee**, niet de hele map. Een vault met duizenden notities komt dus
   niet in elke chat; de AI zoekt erin als dat helpt. Dat houdt N3 werkbaar.
@@ -272,11 +272,11 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
   blijft van git af (twee programma's die allebei committen geven conflicten). Nee → BonzaiWork mag de
   sync doen zoals bij een projectbrein.
 - **Cloudmappen**: bestanden die alleen online staan (iCloud "Optimaliseer opslag", OneDrive "Bestanden op
-  aanvraag") slaat zoeken over in plaats van ze te downloaden; `AGENTS.md` en `wiki/index.md` laat de app lokaal houden
+  aanvraag") slaat zoeken over in plaats van ze te downloaden; `AGENTS.md` en `knowledge/index.md` laat de app lokaal houden
   waar het systeem dat toestaat. Een notitie bewerken die alleen online staat, doet de tool pas als het
   systeem hem heeft opgehaald. Fase 0 test dit op macOS en Windows.
-- **Obsidian-gewoonten**: `[[wikilinks]]`, tags en frontmatter laat de AI heel en gebruikt hij ook in
-  nieuwe notities, zodat ze in de graph van de collega passen.
+- **Obsidian-gewoonten**: in bestaande notities laat de AI `[[wikilinks]]`, tags en frontmatter heel. In
+  `knowledge/` gebruikt hij OKF: relatieve Markdown-links, die Obsidian ook volgt en in de graph toont.
 - **Project "Mijn brein"** wijst naar de gekozen map. Bijlagen uit chats komen daar in
   `.opencode/openwork/inbox/`; Obsidian en Logseq tonen mappen met een punt niet.
 
@@ -292,7 +292,7 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   | Tool | Wat |
   |---|---|
   | `breinen_lijst` | naam, beschrijving (eerste alinea van `AGENTS.md`), laatst bijgewerkt |
-  | `brein_zoeken(brein, vraag)` | begint bij `wiki/index.md` van dat brein, zoekt daarna in de pagina's en skills; geeft fragmenten met pad |
+  | `brein_zoeken(brein, vraag)` | volgt de `index.md`'s van de OKF-bundel van dat brein (root → map → concept), valt terug op tekstzoeken; geeft fragmenten met pad |
   | `brein_lezen(brein, pad)` | leest één `.md`-bestand binnen dat brein (niet uit `.git` of de inbox) |
   | `persoonlijk_brein_lezen/zoeken` | idem voor het persoonlijke brein, zonder uitgesloten mappen |
   | `persoonlijk_brein_schrijven/bewerken` | nieuwe notitie / passage vervangen, met versiecontrole (§5.1.1) |
@@ -302,7 +302,7 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
 - Vóór lezen werkt de tool dat brein bij als het rustig is (snelle fetch, max. ~3 s), zodat je de versie
   van het team ziet.
 - **Alleen lezen**: wil je iets uit brein A in brein B gebruiken, dan schrijft de AI het in het huidige
-  project (met bronvermelding "uit het Sales-brein, `wiki/concepts/offertes.md`"). Het andere brein verandert
+  project (met bronvermelding "uit het Sales-brein, `knowledge/offertes/offerteproces.md`"). Het andere brein verandert
   nooit vanuit een andere chat; dat voorkomt verrassingen voor dat team.
 - In de chat ziet de gebruiker de stap in woorden: "Las *Offertes* in het Sales-brein".
 - **Alleen op verzoek, of na een voorstel (N2).** De AI kijkt in een ander brein als de gebruiker erom
@@ -317,119 +317,162 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   - Het persoonlijke brein valt hierbuiten: dat hoort bij de gebruiker en de `persoonlijk_brein_*`-tools
     staan op **allow**.
 
-## 6. Wat er in een brein staat: een LLM-wiki (naar Karpathy)
+## 6. Wat er in een brein staat: een OKF-bundel
 
-Elk brein volgt het [LLM Wiki-patroon van Andrej Karpathy](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
-De AI zoekt niet bij elke vraag opnieuw in losse documenten (RAG). Hij **bouwt en onderhoudt een blijvende,
-onderling gelinkte wiki in Markdown**: kennis wordt één keer verwerkt en daarna actueel gehouden ("a
-persistent, compounding artifact"). Mensen kiezen bronnen en stellen vragen; de AI doet het bijhouden. Dat
-past bij BonzaiWork: de sync maakt de wiki gedeeld, git geeft de geschiedenis (bij Karpathy is de wiki ook
-een git-repo), en Obsidian kan ernaast blijven als lezer.
+Elk brein bevat een bundel in het **Open Knowledge Format (OKF) v0.2** van Google Cloud
+([spec](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md),
+[aankondiging](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing)).
+OKF is een open, leveranciersonafhankelijk formaat (Apache 2.0) dat het LLM-wiki-patroon van Karpathy
+vastlegt als standaard: **een map met Markdown-bestanden met YAML-frontmatter**, één bestand per
+concept, onderling gelinkt met gewone Markdown-links. Er is geen SDK, database of account nodig. We
+volgen de spec; alleen waar hij iets openlaat, kiezen we zelf (en zeggen we dat).
 
-"Nieuw gedeeld brein" (fase 2) zet deze structuur en de eerste commit in een lege repo die de gebruiker op
-GitHub of GitLab aanmaakte. Een bestaande repo zonder deze structuur krijgt hem pas na "Inrichten als wiki"
-(§6.5).
+Waarom OKF in plaats van een eigen indeling: breinen worden **draagbaar** (elke editor, GitHub/GitLab,
+Google's Knowledge Catalog en visualizer, en tools die OKF exporteren, zoals Mem, kunnen ze lezen of
+leveren), de regels staan vast in een spec die we niet zelf hoeven te onderhouden, en de spec heeft al
+velden voor bronnen, vertrouwen en houdbaarheid die precies passen bij een brein dat een AI bijhoudt.
 
-### 6.1 Drie lagen
+### 6.1 Structuur
 
 ```
-AGENTS.md                 schema: waar dit brein over gaat, conventies, werkwijzen (team schaaft het bij)
-raw/                      bronnen: onveranderlijk; de AI leest ze en wijzigt ze nooit
-  2026-10-30-kickoff-notulen.md
-wiki/                     door de AI bijgehouden pagina's
-  index.md                catalogus: elke pagina met link en één regel; de AI leest hem eerst
-  log.md                  chronologisch, alleen toevoegen
-  overview.md             het grote plaatje van dit brein
-  summaries/              één pagina per bron
-  entities/               producten, systemen, teams, organisaties, rollen
-  concepts/               begrippen, werkwijzen, beslissingen
-  comparisons/            analyses en afwegingen, vaak ontstaan uit een goede vraag
-.opencode/skills/         wiki-ingest, wiki-query, wiki-lint, plus eigen teamworkflows
-.opencode/commands/       /verwerk, /vastleggen, /onderhoud (Nederlands: die typt de gebruiker)
-.gitattributes            wiki/log.md merge=union
+AGENTS.md                 instructies voor de AI (geen concept, valt buiten de bundel)
+.opencode/skills/         werkwijzen die de AI uitvoert (OpenCode-skills, buiten de bundel)
+.opencode/commands/       /verwerk, /vastleggen, /onderhoud
 opencode.json             alleen: permission.bash "git *" → deny
+knowledge/                de OKF-bundel
+  index.md                root-index; frontmatter alleen okf_version: "0.2"
+  log.md                  updategeschiedenis, nieuwste eerst
+  references/             bronnen (OKF-conventie voor extern materiaal); onveranderlijk
+    index.md
+    2026-10-30-kickoff-notulen.md
+  offertes/               indeling naar onderwerp, door het team bepaald
+    index.md
+    offerteproces.md      één concept = één bestand; het pad is de identiteit
+    kortingsbeleid.md
+  producten/
+    index.md
+    ...
 ```
 
-Alles op bestandsniveau is **Engels**, in Karpathy's termen: mappen (`raw/`, `wiki/`, `summaries/`,
-`entities/`, `concepts/`, `comparisons/`), bestanden (`index.md`, `log.md`, `overview.md`), paginasoorten,
-frontmatter-sleutels, logsoorten (`ingest`, `query`, `lint`) en skillnamen. Zo blijft het patroon herkenbaar
-en werken skills van anderen die het volgen hier ook. Wat de gebruiker ziet of typt, blijft Nederlands: de
-commando's (`/verwerk`, `/vastleggen`, `/onderhoud`), de UI-teksten, de tekst van het schema en de inhoud
-van de pagina's.
+Twee keuzes die de spec openlaat:
 
-Elke wiki-pagina heeft frontmatter, en pagina's linken met `[[wikilinks]]` (de Obsidian-graph toont dan
-knooppunten en wezen):
+- **De bundel staat in `knowledge/`, niet in de root.** OKF eist dat élk `.md`-bestand in de bundel
+  frontmatter met `type` heeft. `AGENTS.md` en de skills (`SKILL.md`) zijn geen kennisconcepten en hebben
+  dat niet; buiten de bundel blijft die conform. De spec staat een bundel als submap van een grotere repo
+  uitdrukkelijk toe.
+- **Links zijn relatief** (`[kortingsbeleid](kortingsbeleid.md)`, `[proces](../offertes/offerteproces.md)`).
+  De spec raadt bundel-absolute paden (`/offertes/...`) aan, maar staat relatieve toe. Omdat de bundel in
+  een submap staat, zouden absolute paden op GitHub/GitLab en in Obsidian breken; relatieve werken overal.
+  Geen `[[wikilinks]]`: die zijn geen OKF.
 
-```yaml
+Er zijn geen vaste mappen per paginasoort meer (zoals Karpathy's `summaries/`, `concepts/`): OKF ordent
+naar onderwerp, en de soort staat in `type`.
+
+### 6.2 Een concept
+
+```markdown
 ---
-type: concept            # summary | entity | concept | comparison | overview
-summary: Hoe we een offerte opbouwen en wie hem goedkeurt.   # één regel, voor de index
-sources: [raw/2026-10-30-kickoff-notulen.md]
-updated: 2026-10-30
-tags: [offertes]
+type: Process
+title: Offerteproces
+description: Hoe we een offerte opbouwen en wie hem goedkeurt.
+tags: [offertes, sales]
+sources:
+  - id: kickoff
+    resource: ../references/2026-10-30-kickoff-notulen.md
+    title: Kickoff-notulen
+generated:
+  by: bonzaiwork/0.3.0
+  at: 2026-10-30T10:12:00+01:00
+verified:
+  - by: human:j.jansen
+    at: 2026-10-30T11:02:00+01:00
+status: stable
 ---
+# Stappen
+1. Sales maakt een concept in het offertesjabloon.[^kickoff]
+2. Boven de kortingsgrens keurt de teamleider goed; zie [kortingsbeleid](kortingsbeleid.md).
+
+[^kickoff]: Afgesproken in de kickoff.
 ```
 
-### 6.2 Drie werkwijzen
+| Veld | OKF | Hoe BonzaiWork het gebruikt |
+|---|---|---|
+| `type` | **verplicht**, vrije tekst | De AI kiest uit de lijst in `AGENTS.md` (startlijst: `Process`, `Playbook`, `Decision`, `Policy`, `Product`, `System`, `Team`, `Glossary Term`, `Analysis`, `Meeting Summary`); het team vult hem aan |
+| `title`, `description`, `tags` | aanbevolen | `description` is de ene regel in de index |
+| `resource` | aanbevolen | Link naar het echte ding (een systeem, dashboard, map), als die er is |
+| `sources` + voetnoten | herkomst | Elke bewering uit een bron krijgt een voetnoot `[^id]` die naar `sources[].id` wijst |
+| `generated` | vertrouwen | **Zet BonzaiWork zelf** bij elke wijziging in een beurt: `by: bonzaiwork/<versie>`, `at: nu` |
+| `verified` | vertrouwen | Knop **"Klopt"** bij een concept in de UI voegt `{ by: human:<gebruiker>, at }` toe. De UI toont de trede uit de spec: niet nagekeken / door een mens nagekeken (en "nagekeken vóór de laatste wijziging" als `generated.at` later is) |
+| `status` | levenscyclus | Nieuw door de AI → `draft`; na "Klopt" → `stable`; vervangen → `deprecated` (blijft staan, met link naar de opvolger) |
+| `stale_after` | levenscyclus | De AI zet het bij tijdgevoelige kennis (prijzen, contactpersonen, planning); `/onderhoud` pakt verlopen concepten op |
+
+De Attested Computations uit de spec (uitvoerbare, geattesteerde berekeningen) gebruiken we niet.
+
+### 6.3 Werkwijzen
+
+Karpathy's drie werkwijzen blijven, nu met OKF-velden:
 
 | Werkwijze | Wanneer | Wat de AI doet |
 |---|---|---|
-| **Ingest** (`/verwerk`, skill `wiki-ingest`) | De gebruiker sleept een bestand in de chat, plakt een tekst, of zet een `.md` in `raw/` | Bron als Markdown in `raw/` (een bijlage uit de chat wordt omgezet; alleen `.md` blijft bewaard, N5). Kort de belangrijkste punten bespreken met de gebruiker. Een pagina in `summaries/` schrijven, en de pagina's in `entities/` en `concepts/` bijwerken die de bron raakt ("a single source might touch 10–15 wiki pages"). Eén regel in `log.md` |
-| **Query** (skill `wiki-query`; vastleggen met `/vastleggen`) | Elke gewone vraag in de chat | Eerst `wiki/index.md`, dan de relevante pagina's; antwoord met links naar die pagina's. Is het antwoord blijvend waardevol, dan vraagt hij "Zal ik dit vastleggen?" en maakt met `/vastleggen` een pagina (vaak in `comparisons/`) |
-| **Lint** (`/onderhoud`, skill `wiki-lint`) | Op verzoek, of als wekelijkse routine | Zoekt tegenstrijdigheden, beweringen die nieuwere bronnen achterhaald hebben, weespagina's, begrippen die vaak terugkomen maar geen pagina hebben, ontbrekende links en gaten in de kennis. Kleine dingen lost hij zelf op, de rest meldt hij. Eén regel in `log.md` |
+| **Verwerken** (`/verwerk`, skill `okf-ingest`) | De gebruiker sleept een bestand in de chat, plakt een tekst, of zet een `.md` in `references/` | Bron als Markdown in `references/` (met frontmatter `type: Reference`, `title`, en `resource` naar het origineel; alleen `.md`, N5). Kort de belangrijkste punten bespreken. Concepten aanmaken of bijwerken die de bron raakt, elk met de bron in `sources` en voetnoten bij de beweringen |
+| **Vragen** (skill `okf-query`) | Elke gewone vraag | Eerst de `index.md` van de root en daarna van de relevante mappen (progressive disclosure, zoals OKF bedoelt), dan de concepten; antwoord met links. Blijvend waardevol antwoord → "Zal ik dit vastleggen?" → `/vastleggen` maakt een concept (vaak `type: Analysis`) |
+| **Onderhoud** (`/onderhoud`, skill `okf-lint`) | Op verzoek of als wekelijkse routine | Tegenstrijdigheden, verlopen `stale_after`, oude `draft`s, concepten zonder bron, weesconcepten, onderwerpen zonder concept, gebroken links (OKF tolereert ze; ze kunnen ook "nog te schrijven kennis" zijn, dus melden, niet weghalen) |
 
-In een **gedeeld** brein zou de wekelijkse onderhoudsroutine bij elk teamlid draaien. Daarom kijkt de
-routine eerst in `log.md`: staat er de afgelopen 7 dagen al een `lint`-regel (van wie dan ook), dan
-slaat hij over.
+In een gedeeld brein slaat de wekelijkse routine over als `log.md` de afgelopen 7 dagen al een
+onderhoudsronde toont (van wie dan ook).
 
-### 6.3 Wat BonzaiWork zelf doet, niet de AI
+Teamworkflows die de AI **uitvoert** blijven OpenCode-skills in `.opencode/skills/`. De beschrijving van
+zo'n werkwijze voor mensen is een concept (`type: Playbook`), en de skill linkt ernaar. Een skill
+automatisch afleiden uit een `Playbook`-concept kan later (fase 3).
 
-Bij Karpathy houdt het model ook `index.md` en `log.md` bij. In een team met sync per beurt geeft dat twee
-problemen: iedereen schrijft bij elke verwerking in dezelfde twee bestanden (dus conflicten), en een model
-vergeet weleens een regel. Daarom, net als bij git (§2), deterministisch in de sync-machine
-(`packages/bonzaiwork-brains/src/wiki.ts`), vlak vóór elke commit:
+### 6.4 Wat BonzaiWork zelf doet, niet de AI
 
-- **`index.md` wordt gegenereerd** uit de frontmatter (`type`, `summary`), gegroepeerd per soort en
-  alfabetisch. De AI leest hem, maar bewerkt hem nooit (dat staat in het schema). Geeft een rebase een
-  conflict in `index.md`, dan maakt de sync hem opnieuw en gaat verder; dat conflict komt nooit bij de
-  gebruiker.
-- **`log.md` voegt samen zonder conflict**: `.gitattributes` zet `wiki/log.md merge=union` (ingebouwd in
-  git), zodat twee toevoegingen tegelijk allebei blijven staan. De AI schrijft regels in Karpathy's vaste
-  vorm, zodat `grep "^## \[" wiki/log.md` werkt:
-  `## [2026-10-30] ingest | Kickoff-notulen` (soorten: `ingest`, `query` voor een vastgelegd antwoord, `lint`). Veranderden
-  er wiki-pagina's zonder logregel, dan voegt de sync `## [datum] update | <chattitel>` toe.
-- **`raw/` blijft onveranderlijk**: een commit die een bestaand bestand in `raw/` wijzigt of verwijdert,
-  weigert de sync; dat bestand gaat terug naar de vorige versie, met een melding. Nieuwe bronnen toevoegen
-  mag altijd.
-- **Ontbrekende frontmatter**: een pagina zonder `summary` staat in de index als "(no summary)",
-  en `/onderhoud` pakt hem op.
+Net als bij git (§2), deterministisch in de sync-machine (`packages/bonzaiwork-brains/src/okf.ts`), vlak
+vóór elke commit:
 
-### 6.4 Het schema (`AGENTS.md`)
+- **Conformiteit volgens de spec**: elk `.md` in `knowledge/` (behalve `index.md`/`log.md`) heeft
+  leesbare frontmatter met een niet-lege `type`. Zo niet, dan maakt de sync geen commit en vraagt de AI in
+  dezelfde chat het te herstellen (één poging); lukt dat niet, dan een melding. Onbekende sleutels laten we
+  staan (de spec vraagt dat).
+- **`generated` invullen** bij elk concept dat in de beurt veranderde.
+- **`index.md` per map genereren** (de spec staat toe dat producers dat doen): zonder frontmatter, behalve
+  `okf_version: "0.2"` in de root; een sectie met submappen en een sectie per `type`, elk een lijst links
+  met `description`. De AI leest ze, maar bewerkt ze nooit. Een rebase-conflict in een `index.md` lost de
+  sync op door hem opnieuw te maken.
+- **`log.md` schrijven**: per beurt één regel onder de datum van vandaag, nieuwste datum bovenaan, zoals de
+  spec voorschrijft: `- **Update** [Offerteproces](offertes/offerteproces.md): <chattitel>` (labels
+  `Creation`, `Update`, `Deprecation`). Omdat de sync dit schrijft en niet de AI, mist er nooit een. Een
+  rebase-conflict in `log.md` lost de sync op door beide kanten per datum samen te voegen.
+- **`references/` blijft onveranderlijk**: een bestaand bestand daarin wijzigen of verwijderen weigert de
+  sync (terugzetten en melden); nieuwe bronnen toevoegen mag altijd.
 
-Het sjabloon; het team schaaft vooral het laatste deel bij, net zoals Karpathy het schema "samen met het
-model" laat groeien:
+### 6.5 `AGENTS.md`
 
 ```markdown
 # <Naam van het brein>
 
 <Eén alinea: waar dit brein over gaat en voor wie.>
 
-## Hoe dit brein werkt
+## Kennis
 
-Dit is een LLM-wiki. Mensen voegen bronnen toe en stellen vragen; jij houdt de wiki bij.
+De kennis van dit brein staat in `knowledge/`, in het Open Knowledge Format (OKF) v0.2.
 
-- `raw/` bevat de bronnen. Lees ze; wijzig of verwijder ze nooit. Een nieuwe bron voeg je toe als Markdown.
-- `wiki/` is van jou: `summaries/` (één per bron), `entities/`, `concepts/`, `comparisons/` en
-  `overview.md`. Elke pagina heeft frontmatter met `type` (summary, entity, concept, comparison of
-  overview), `summary` (één regel), `sources` en `updated`. Link met
-  [[wikilinks]]. Werk bestaande pagina's bij in plaats van een tweede over hetzelfde te maken.
-- Lees bij elke vraag eerst `wiki/index.md`. Bewerk `index.md` nooit; BonzaiWork maakt hem.
-- Voeg na elke verwerking, vastgelegde vraag of onderhoudsronde één regel toe onderaan `wiki/log.md`:
-  `## [JJJJ-MM-DD] ingest|query|lint | Titel`.
-- Spreekt een nieuwe bron een pagina tegen, zet dat dan op de pagina, met beide bronnen. Kies niet
+- Eén concept per bestand, ingedeeld naar onderwerp. Werk een bestaand concept bij in plaats van een tweede
+  over hetzelfde te maken.
+- Elk concept heeft frontmatter met `type` (verplicht; kies uit de lijst hieronder), `title`,
+  `description` (één zin) en `tags`. Kennis uit een bron krijgt de bron in `sources` en een voetnoot
+  `[^id]` bij de bewering.
+- Link met gewone, relatieve Markdown-links. Een link naar een concept dat nog niet bestaat mag.
+- Nieuwe concepten krijgen `status: draft`. Tijdgevoelige kennis krijgt `stale_after`. Wat vervangen is,
+  wordt `deprecated` met een link naar de opvolger; niet verwijderen.
+- Bronnen staan in `knowledge/references/`. Lees ze; wijzig of verwijder ze nooit.
+- Lees bij een vraag eerst `knowledge/index.md` en de index van de map die past. Bewerk `index.md`,
+  `log.md`, `generated` en `verified` nooit; dat doet BonzaiWork.
+- Spreekt een nieuwe bron een concept tegen, zet dat dan in het concept, met beide bronnen. Kies niet
   stilzwijgend.
-- Werkwijzen: /verwerk (bron verwerken), /vastleggen (antwoord als pagina bewaren), /onderhoud (controle).
-  Een werkwijze van het team die vaker terugkomt, wordt een skill in `.opencode/skills/`.
+- Werkwijzen: /verwerk (bron verwerken), /vastleggen (antwoord als concept bewaren), /onderhoud (controle).
+
+Typen: Process, Playbook, Decision, Policy, Product, System, Team, Glossary Term, Analysis, Meeting Summary.
 
 ## Samenwerken
 
@@ -440,30 +483,31 @@ Andere breinen raadpleeg je alleen als de gebruiker erom vraagt; denk je dat er 
 
 ## Conventies van dit team
 
-<Eigen paginasoorten, naamgeving, taal, wat wel en niet in de wiki hoort. Groeit met het gebruik.>
+<Eigen typen, mapindeling, taal, wat wel en niet in het brein hoort. Groeit met het gebruik.>
 ```
 
-### 6.5 Het persoonlijke brein als wiki
+### 6.6 Het persoonlijke brein
 
-Dezelfde drie lagen en werkwijzen, met twee verschillen:
+Dezelfde opbouw (`AGENTS.md` + `knowledge/`), met twee verschillen:
 
-- **Voorkeuren in het schema.** Het persoonlijke `AGENTS.md` heeft een deel "Mijn voorkeuren" (hoe ik
-  samenvattingen wil, mijn rol, mijn schrijfstijl). Omdat dat bestand volledig in elke chat gaat (N3), werkt
-  een geleerde voorkeur meteen overal. Kennis gaat in `wiki/`, waar de AI in zoekt; zo blijft het schema
-  klein.
-- **Bestaand second brain (§5.1.1).** BonzaiWork voegt `AGENTS.md`, `raw/`, `wiki/` (met `index.md`,
-  `log.md`, `overview.md`) en de skills toe. De bestaande notities blijven waar ze staan: de AI leest ze en
-  mag ze bijwerken (N4), maar ze zijn geen bron (ze mogen veranderen) en geen wikipagina (ze zijn van de
-  gebruiker). Met **"Inrichten als wiki"** (`/inrichten`, fase 2) verwerkt de AI ze map voor map tot
-  wikipagina's, als bron ervan; de originele notities blijven staan. De gebruiker start dat zelf, per map,
-  zodat een grote vault niet in één keer omgaat.
+- **Voorkeuren in `AGENTS.md`**, in een deel "Mijn voorkeuren" (rol, schrijfstijl, hoe ik samenvattingen
+  wil). Dat bestand gaat volledig in elke chat (N3), dus een geleerde voorkeur werkt meteen overal. Kennis
+  gaat als concepten in `knowledge/`.
+- **Bestaand second brain (§5.1.1)**: BonzaiWork voegt `AGENTS.md` en `knowledge/` toe; de bestaande
+  notities blijven waar ze staan en buiten de bundel (ze hebben geen `type`, dus binnen de bundel zouden ze
+  niet conform zijn). De AI leest ze en mag ze bijwerken (N4). Met **"Omzetten naar OKF"**
+  (`/inrichten`, fase 2) maakt de AI er map voor map concepten van in `knowledge/`, met de oorspronkelijke
+  notitie als bron; de notities zelf blijven staan. De gebruiker start dat zelf, per map.
+- **Importeren**: een OKF-bundel uit een ander hulpmiddel (bijv. een Mem-export) kan in één keer in
+  `knowledge/` (fase 2): de sync controleert de conformiteit en laat onbekende velden staan.
 
-### 6.6 Zoeken als een brein groeit
+### 6.7 Zoeken als een brein groeit
 
-Karpathy: bij een kleine wiki is `index.md` genoeg, bij een grote helpt een zoekmachine (hij noemt `qmd`,
-hybride zoeken op Markdown). Fase 1: `index.md` plus gewone tekstzoektocht in `brein_zoeken` en
-`persoonlijk_brein_zoeken`. Fase 3: hybride zoeken (trefwoorden + betekenis) als breinen groot worden,
-met embeddings via LiteLLM (de enige provider) en de index lokaal.
+De `index.md` per map is OKF's eigen manier om een agent stap voor stap te laten zoeken; voor kleine en
+middelgrote breinen is dat genoeg. `brein_zoeken` en `persoonlijk_brein_zoeken` volgen dezelfde route
+(root-index → map-index → concept) en vallen terug op tekstzoeken, ook in `title`, `description` en
+`tags`. Fase 3: hybride zoeken (trefwoorden + betekenis) voor grote breinen, met embeddings via LiteLLM
+en de index lokaal.
 
 ## 7. Veiligheid
 
@@ -491,7 +535,9 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
 Alleen tekstbestanden binnen geregistreerde breinmappen (geen symlinks naar buiten, geen `.git`, geen
 inbox); schrijven alleen in het persoonlijke brein; token alleen op loopback, net als de LiteLLM-proxy.
 
-## 8. API (wordt contract §7.5)
+## 8. API en UI
+
+### 8.1 API (wordt contract §7.5)
 
 | Route | Auth | Doel |
 |---|---|---|
@@ -528,6 +574,37 @@ type BrainStatus = {
 
 `Capabilities.brains` gaat aan als `/bonzaiwork/brains` antwoordt (zelfde probe-patroon als de routines);
 zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
+
+### 8.2 UI
+
+Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headless, demo-backend). Woorden:
+"brein", "ophalen", "delen", "geschiedenis", "nagekeken" — niet "pull", "push", "commit", "frontmatter"
+(DESIGN.md C3, geen techniek in beeld).
+
+- **Onboarding**: stap "Je persoonlijke brein": "Kies je bestaande notitiemap", "Begin met een nieuw brein"
+  of "Haal je brein op uit een repo" (§5.1); daarna mappen uitsluiten (§5.1.1).
+- **Nieuw project**: derde keuze naast "Nieuwe map" en "Bestaande map": **"Uit een gedeeld brein"**.
+  Velden: link naar de repo (browserlink mag, §3.2), naam, map, knop "Verbinding testen". Geen velden voor
+  wachtwoorden of tokens. Daarna voortgang, zo nodig de vingerafdruk van een onbekende host, en de
+  vertrouwensstap (§7.1).
+- **Projectkop/zijbalk**: statuspil "Bijgewerkt · 2 min geleden" / "Bezig met delen…" / "3 wijzigingen nog
+  niet gedeeld" / "Actie nodig" / "Alleen lezen" / "Alleen op deze laptop". Klik → paneel met "Nu
+  bijwerken", "Wijzigingen delen" en de laatste geschiedenis.
+- **"Mijn brein"**: altijd bovenaan in de projectlijst, niet te archiveren.
+- **Chat**: onder een afgeronde beurt een stille regel "Gedeeld met het brein · 3 concepten" (of "Wordt
+  gedeeld zodra je weer online bent"). Lezen in een ander brein in woorden: "Las *Offerteproces* in het
+  Sales-brein". De toestemmingskaart voor een ander brein (§5.2) in de bestaande stijl.
+- **Concept in de sidecar**: titel, type en tags; de vertrouwenstrede uit OKF ("Door AI geschreven, niet
+  nagekeken" / "Nagekeken door Jan, 30 okt" / "Nagekeken vóór de laatste wijziging"), de `status`
+  ("Concept", "Vastgesteld", "Vervangen") en "Verlopen" na `stale_after`; knop **"Klopt"** (§6.2) en de
+  bronnen als links.
+- **Conflictkaart** boven de composer, in dezelfde stijl als de toestemmingskaarten (§4.5).
+- **Projectinstellingen → Brein**: link, branch, modus, synchronisatie uitzetten, vertrouwde onderdelen,
+  geschiedenis. Bij "Mijn brein" ook: map wisselen, uitgesloten mappen, privérepo koppelen.
+- **App-instellingen**: naam en e-mail voor de geschiedenis (en voor `human:<id>` bij "Klopt").
+- **Demo-backend**: een voorbeeldbrein in elke staat, zodat ontwerpreview zonder server kan.
+- **Smoketest** (`scripts/smoke-packaged.mjs`): nieuwe `data-testid`'s (`brain-url-input`, `brain-clone`,
+  `brain-status`) en een clone van een lokale bare repo via `file://`.
 
 ## 9. Beslissingen
 
@@ -566,9 +643,10 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
 - Persoonlijk brein: nieuwe map of bestaande vault kiezen in de onboarding, mappen uitsluiten, project
   "Mijn brein", optionele privérepo, instructies (volledig) en skills in elk project,
   `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), geschiedenis met terugzetten (`git init` zonder origin, of buiten de map bij cloud-sync).
-- LLM-wiki-sjabloon (§6): schema-`AGENTS.md`, `raw/` en `wiki/`, skills en commando's voor verwerken,
-  vastleggen en onderhoud, `git *`-deny. In de sync: `index.md` genereren, logregel als vangnet,
-  `merge=union` voor `log.md`, `raw/` onveranderlijk.
+- OKF-sjabloon (§6): `AGENTS.md`, `knowledge/` met root-`index.md` (`okf_version: "0.2"`), `log.md` en
+  `references/`, skills en commando's voor verwerken, vastleggen en onderhoud, `git *`-deny. In de sync
+  (`okf.ts`): conformiteit, `generated`, `index.md` per map, `log.md`, `references/` onveranderlijk.
+- UI: knop "Klopt" (`verified`) en de vertrouwenstrede en `status` bij een concept in de sidecar.
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
   in project X wordt geleerd, staat in het persoonlijke brein en werkt in project Y; offline werken en
   later delen werkt; een conflict verliest niets; de app leest of bewaart geen SSH-sleutels.
@@ -579,8 +657,8 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
 - "Laat de AI het samenvoegen", geschiedenis met chat-links, periodieke fetch, routines bij het brein,
   "Als brein synchroniseren" voor bestaande repo's, "Nieuw gedeeld brein".
 - Voorbeeldroutine: dagelijks "Wat is er nieuw in mijn breinen" (leest de nieuwe regels in elke `log.md`).
-- Wekelijkse onderhoudsroutine (slaat over als een teamlid al onderhoud deed), en "Inrichten als wiki"
-  voor een bestaand second brain of een bestaande repo.
+- Wekelijkse onderhoudsroutine (slaat over als een teamlid al onderhoud deed), "Omzetten naar OKF" voor
+  een bestaand second brain of een bestaande repo, en een OKF-bundel importeren.
 
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een
@@ -595,9 +673,11 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
   `Permission denied` → alleen-lezen, geheim → geen commit, inbox nooit mee, persoonlijk brein schrijft
   nooit buiten zijn map of in een uitgesloten map, breinen-MCP leest niet uit `.git`, niet via symlinks
   naar buiten en alleen `.md`.
-- **Wiki** (`wiki.ts`): `index.md` volgt uit de frontmatter en is na een rebase-conflict opnieuw gemaakt;
-  twee gelijktijdige logregels blijven allebei staan (`merge=union`); wijzigen of verwijderen in `raw/`
-  wordt geweigerd en teruggezet; wiki-wijziging zonder logregel krijgt er een.
+- **OKF** (`okf.ts`): een concept zonder `type` blokkeert de commit; `generated` staat bij elk gewijzigd
+  concept; elke `index.md` volgt uit de frontmatter en is na een rebase-conflict opnieuw gemaakt; twee
+  gelijktijdige `log.md`-regels blijven allebei staan, per datum, nieuwste eerst; wijzigen of verwijderen
+  in `references/` wordt geweigerd en teruggezet; onbekende frontmattersleutels blijven staan. De
+  voorbeeldbundels uit Google's repo gaan ongewijzigd door de conformiteitscontrole.
 - **Gekozen vault** (fixture: een kleine Obsidian-vault met wikilinks, frontmatter, `.obsidian/` en
   bijlagen): bewerken met verouderde versie → geweigerd; elke beurt staat in de eigen geschiedenis en is
   terug te zetten; een lokale vault zonder git krijgt `git init` zonder origin; een vault in een
