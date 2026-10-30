@@ -912,10 +912,15 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 - **Smoketest** (`scripts/smoke-packaged.mjs`): nieuwe `data-testid`'s (`brain-url-input`, `brain-clone`,
   `brain-status`) en een clone van een lokale bare repo via `file://`.
 
-Nog niet gebouwd (stand 30-10): "Werkwijze starten" in de composer (werkwijzen staan op de projectpagina,
-niet als stappenbalk in de sidecar), runs als chatgroep, het aantal concepten in de regel onder de beurt
-(hij zegt alleen "Gedeeld met het brein", en alleen als die chat zelf gedeeld werd), en een OKF-bundel
-importeren.
+Nog niet gebouwd (stand 30-10):
+- onboarding: de derde keuze "Haal je brein op uit een repo" en de stap mappen uitsluiten (dat kan nu
+  achteraf in "Mijn brein": privérepo koppelen, uitgesloten mappen);
+- "Werkwijze starten" in de composer (werkwijzen staan op de projectpagina, niet als stappenbalk in de
+  sidecar), runs als chatgroep, en een OKF-bundel importeren;
+- het aantal concepten in de regel onder de beurt (hij zegt alleen "Gedeeld met het brein", en alleen als
+  die chat zelf gedeeld werd);
+- de smoketest kloont nog geen brein: hij controleert alleen de meegeleverde git; `brain-url-input` en
+  `brain-clone` bestaan niet, `brain-status` wel. De clone, de beurt en het delen zitten in de e2e.
 
 ## 9. Beslissingen
 
