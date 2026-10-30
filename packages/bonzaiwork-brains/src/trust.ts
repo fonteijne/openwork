@@ -1,0 +1,114 @@
+/**
+ * What a shared brain can bring that runs code on the user's laptop, and how
+ * BonzaiWork keeps it out of the folder until that user trusts it (plan §7.1;
+ * fase 0 §6.2–§6.3). The engine loads these the moment they are on disk, so
+ * they are excluded with sparse-checkout before any checkout or update.
+ */
+export type TrustKind = "config" | "plugin" | "agent" | "command" | "script";
+
+export type TrustItem = {
+  path: string;
+  kind: TrustKind;
+  /** Blob id: a trusted item that changes asks again. */
+  blob: string;
+  /** MCP servers an opencode.json declares, for the trust step and the engine policies. */
+  mcpServers?: string[];
+};
+
+const CONFIG_FILES = new Set(["opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"]);
+
+export function riskKind(path: string): TrustKind | null {
+  if (CONFIG_FILES.has(path)) return "config";
+  if (/^\.opencode\/plugins?\//.test(path)) return "plugin";
+  if (/^\.opencode\/agents?\//.test(path)) return "agent";
+  if (/^\.opencode\/commands?\/.+\.md$/.test(path)) return "command";
+  if (/^_tools\//.test(path)) return "script";
+  return null;
+}
+
+/** A command template runs shell without asking when it contains !`…` (fase 0 §6.2). */
+export function commandRunsShell(content: string): boolean {
+  return /!`[^`]+`/.test(content);
+}
+
+function stripJsonComments(text: string): string {
+  return text.replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (match, string: string | undefined) => string ?? "");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** MCP names in an opencode.json, v1 (`mcp.<name>`) and v2 (`mcp.servers.<name>`) shape. */
+export function mcpServerNames(content: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripJsonComments(content).replace(/,(\s*[}\]])/g, "$1"));
+  } catch {
+    return [];
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.mcp)) return [];
+  const servers = isRecord(parsed.mcp.servers) ? parsed.mcp.servers : parsed.mcp;
+  return Object.keys(servers).filter((name) => name !== "timeout" && name !== "servers").sort();
+}
+
+export type TreeEntry = { path: string; blob: string };
+
+/** The items in a tree that need the user's decision; commands only when they run shell. */
+export async function findTrustItems(entries: readonly TreeEntry[], read: (blob: string) => Promise<string>): Promise<TrustItem[]> {
+  const items: TrustItem[] = [];
+  for (const entry of entries) {
+    const kind = riskKind(entry.path);
+    if (!kind) continue;
+    if (kind === "command" && !commandRunsShell(await read(entry.blob))) continue;
+    const mcpServers = kind === "config" ? mcpServerNames(await read(entry.blob)) : undefined;
+    items.push({ path: entry.path, kind, blob: entry.blob, ...(mcpServers?.length ? { mcpServers } : {}) });
+  }
+  return items;
+}
+
+/** Trusted means: the user accepted exactly this content. */
+export function untrusted(items: readonly TrustItem[], trusted: Readonly<Record<string, string>>): TrustItem[] {
+  return items.filter((item) => trusted[item.path] !== item.blob);
+}
+
+function sparseEscape(path: string): string {
+  return path.replace(/[\\*?[\]!#]/g, (char) => `\\${char}`);
+}
+
+/** Non-cone sparse-checkout: everything, minus each untrusted file. */
+export function sparsePatterns(excluded: readonly TrustItem[]): string[] {
+  return ["/*", ...excluded.map((item) => `!/${sparseEscape(item.path)}`)];
+}
+
+const EXCLUDE_START = "# >>> BonzaiWork (beheerd, niet gedeeld)";
+const EXCLUDE_END = "# <<< BonzaiWork";
+
+/**
+ * Local-only ignores in .git/info/exclude (plan §4.1): chat attachments, OS
+ * clutter, run output (I1), and new risky files, so an AI-made plugin is
+ * never shared by itself. Tracked files there still update via `add -u`.
+ */
+export const LOCAL_EXCLUDES = [
+  "/.opencode/openwork/inbox/",
+  ".DS_Store",
+  "Thumbs.db",
+  "/workflows/**/output/",
+  "/.opencode/plugin/",
+  "/.opencode/plugins/",
+  "/.opencode/agent/",
+  "/.opencode/agents/",
+  "/_tools/",
+  "/opencode.json",
+  "/opencode.jsonc",
+  "/.opencode/opencode.json",
+  "/.opencode/opencode.jsonc",
+];
+
+export function withLocalExcludes(current: string): string {
+  const start = current.indexOf(EXCLUDE_START);
+  const end = current.indexOf(EXCLUDE_END);
+  const before = start >= 0 && end > start ? current.slice(0, start) + current.slice(end + EXCLUDE_END.length).replace(/^\n/, "") : current;
+  const base = before.trimEnd();
+  return `${base ? `${base}\n` : ""}${EXCLUDE_START}\n${LOCAL_EXCLUDES.join("\n")}\n${EXCLUDE_END}\n`;
+}
