@@ -6,8 +6,9 @@ Status: **voorstel, beslissingen B1–B6 en N1–N5 genomen** (§9). Nog niets g
 
 Een nieuw project kan, behalve een lege map in `~/BonzaiWork/<naam>` of een bestaande map, ook een
 **git-repo zijn die BonzaiWork via SSH clonet** in `~/BonzaiWork/<naam>`. Zo'n repo is een
-**project-brein**: gedeelde kennis (`AGENTS.md`, `kennis/*.md`) en workflows (skills en commando's in
-`.opencode/`) van een team. BonzaiWork werkt in die map zoals in elk ander project, maar **haalt vóór het
+**project-brein**: de gedeelde kennis en workflows van een team, ingericht als **LLM-wiki naar Karpathy**
+(§6): bronnen in `raw/`, door de AI bijgehouden pagina's in `wiki/`, het schema in `AGENTS.md` en
+werkwijzen als skills in `.opencode/`. BonzaiWork werkt in die map zoals in elk ander project, maar **haalt vóór het
 werk de nieuwste versie op** en **legt na elke beurt de wijzigingen vast en verstuurt ze**.
 
 Daarnaast heeft elke gebruiker één **persoonlijk brein**: eigen voorkeuren, kennis en workflows die in
@@ -52,6 +53,8 @@ packages/bonzaiwork-brains/          NIEUW
   src/git.ts                         git (dugite) + systeem-ssh aanroepen, zonder prompt, met timeouts
   src/remote.ts                      repo-links herkennen en naar SSH-vorm omzetten; host-sleutels
   src/sync.ts                        per brein: wachtrij, mutex, status, pull/commit/push, conflicten
+  src/wiki.ts                        LLM-wiki vóór elke commit: index.md genereren, logregel, raw/ bewaken
+  templates/                         schema-AGENTS.md (team en persoonlijk), skills en commando's (§6)
   src/registry.ts                    welke mappen een brein zijn (userData/bonzaiwork/brains.json)
   src/routes.ts                      /bonzaiwork/brains/*
   src/mcp.ts                         lokale MCP-server "breinen": persoonlijk brein + andere breinen (§5)
@@ -178,6 +181,8 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
   - **"Bewaar mijn versie apart"** (fase 1): push naar `bonzaiwork/<gebruiker>/<datum>` en zet de map
     terug op de gedeelde versie.
 - Tot het conflict is opgelost, pauzeert het bijwerken van dit brein; chatten blijft kunnen.
+- De twee bestanden die iedereen raakt, geven nooit een conflict: `wiki/index.md` maakt de sync opnieuw,
+  `wiki/log.md` voegt git samen met `merge=union` (§6.3).
 
 ## 5. Persoonlijk brein en andere breinen (B6)
 
@@ -222,14 +227,13 @@ hun eigen werkwijze werken en ziet BonzaiWork altijd de actuele notities. Het do
 BonzaiWork migreert: tijdens de overgang kan Obsidian ernaast blijven draaien, en BonzaiWork wordt
 geleidelijk het hoofdgereedschap voor dezelfde map.
 
-- **Eigen bestanden in één submap**: de app maakt in de gekozen map één map `BonzaiWork/` aan met
-  `instructies.md` (de persoonlijke instructies die volledig in elke chat gaan, N3) en `skills/`. In
-  Obsidian zijn dat gewone notities, dus de collega kan ze lezen en bijwerken. Heeft de map al een
-  `AGENTS.md` in de hoofdmap, dan telt die ook mee.
+- **Wiki-structuur erbij**: de app voegt in de gekozen map `AGENTS.md` (het schema, met "Mijn voorkeuren";
+  gaat volledig in elke chat, N3), `raw/`, `wiki/` en de skills toe (§6.5). In Obsidian zijn dat gewone
+  notities, dus de collega kan ze lezen en bijwerken. Bestond er al een `AGENTS.md`, dan vult de app die
+  aan in plaats van hem te vervangen.
 - **De AI mag in de hele map schrijven (N4)**: nieuwe notities aanmaken en bestaande bijwerken, vanuit
-  elk project, zonder per wijziging toestemming te vragen. Nieuwe notities zet hij waar ze in de
-  bestaande indeling passen (de map met vergelijkbare notities); past niets, dan in `Inbox/` (of de
-  inboxmap die de vault al heeft). Bewerken gaat per passage (oude tekst → nieuwe tekst), nooit door een
+  elk project, zonder per wijziging toestemming te vragen. Nieuwe kennis komt in `wiki/` volgens het
+  schema; bestaande notities werkt hij bij waar ze staan. Bewerken gaat per passage (oude tekst → nieuwe tekst), nooit door een
   hele notitie te overschrijven.
 - **Vangnet: geschiedenis van elke wijziging.** Omdat de AI vrij mag schrijven, moet elke wijziging terug
   te halen zijn. Bij elke `Stop`-hook legt BonzaiWork de `.md`-wijzigingen vast in git, met de chat erbij.
@@ -268,7 +272,7 @@ geleidelijk het hoofdgereedschap voor dezelfde map.
   blijft van git af (twee programma's die allebei committen geven conflicten). Nee → BonzaiWork mag de
   sync doen zoals bij een projectbrein.
 - **Cloudmappen**: bestanden die alleen online staan (iCloud "Optimaliseer opslag", OneDrive "Bestanden op
-  aanvraag") slaat zoeken over in plaats van ze te downloaden; `instructies.md` laat de app lokaal houden
+  aanvraag") slaat zoeken over in plaats van ze te downloaden; `AGENTS.md` en `wiki/index.md` laat de app lokaal houden
   waar het systeem dat toestaat. Een notitie bewerken die alleen online staat, doet de tool pas als het
   systeem hem heeft opgehaald. Fase 0 test dit op macOS en Windows.
 - **Obsidian-gewoonten**: `[[wikilinks]]`, tags en frontmatter laat de AI heel en gebruikt hij ook in
@@ -288,7 +292,7 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   | Tool | Wat |
   |---|---|
   | `breinen_lijst` | naam, beschrijving (eerste alinea van `AGENTS.md`), laatst bijgewerkt |
-  | `brein_zoeken(brein, vraag)` | zoekt in Markdown en skills van dat brein, geeft fragmenten met pad |
+  | `brein_zoeken(brein, vraag)` | begint bij `wiki/index.md` van dat brein, zoekt daarna in de pagina's en skills; geeft fragmenten met pad |
   | `brein_lezen(brein, pad)` | leest één `.md`-bestand binnen dat brein (niet uit `.git` of de inbox) |
   | `persoonlijk_brein_lezen/zoeken` | idem voor het persoonlijke brein, zonder uitgesloten mappen |
   | `persoonlijk_brein_schrijven/bewerken` | nieuwe notitie / passage vervangen, met versiecontrole (§5.1.1) |
@@ -298,7 +302,7 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
 - Vóór lezen werkt de tool dat brein bij als het rustig is (snelle fetch, max. ~3 s), zodat je de versie
   van het team ziet.
 - **Alleen lezen**: wil je iets uit brein A in brein B gebruiken, dan schrijft de AI het in het huidige
-  project (met bronvermelding "uit het Sales-brein, `kennis/offertes.md`"). Het andere brein verandert
+  project (met bronvermelding "uit het Sales-brein, `wiki/concepten/offertes.md`"). Het andere brein verandert
   nooit vanuit een andere chat; dat voorkomt verrassingen voor dat team.
 - In de chat ziet de gebruiker de stap in woorden: "Las *Offertes* in het Sales-brein".
 - **Alleen op verzoek, of na een voorstel (N2).** De AI kijkt in een ander brein als de gebruiker erom
@@ -313,32 +317,148 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   - Het persoonlijke brein valt hierbuiten: dat hoort bij de gebruiker en de `persoonlijk_brein_*`-tools
     staan op **allow**.
 
-## 6. Wat er in een brein staat (sjabloon)
+## 6. Wat er in een brein staat: een LLM-wiki (naar Karpathy)
 
-"Nieuw gedeeld brein" (fase 2) maakt de bestanden en de eerste commit in een lege repo die de gebruiker op
-GitHub of GitLab aanmaakte. Bestaande repo's werken zonder sjabloon.
+Elk brein volgt het [LLM Wiki-patroon van Andrej Karpathy](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
+De AI zoekt niet bij elke vraag opnieuw in losse documenten (RAG). Hij **bouwt en onderhoudt een blijvende,
+onderling gelinkte wiki in Markdown**: kennis wordt één keer verwerkt en daarna actueel gehouden ("a
+persistent, compounding artifact"). Mensen kiezen bronnen en stellen vragen; de AI doet het bijhouden. Dat
+past bij BonzaiWork: de sync maakt de wiki gedeeld, git geeft de geschiedenis (bij Karpathy is de wiki ook
+een git-repo), en Obsidian kan ernaast blijven als lezer.
+
+"Nieuw gedeeld brein" (fase 2) zet deze structuur en de eerste commit in een lege repo die de gebruiker op
+GitHub of GitLab aanmaakte. Een bestaande repo zonder deze structuur krijgt hem pas na "Inrichten als wiki"
+(§6.5).
+
+### 6.1 Drie lagen
 
 ```
-AGENTS.md                      wat dit brein is, voor wie, en "Hoe je met dit brein werkt"
-kennis/                        gedeelde kennis, één onderwerp per Markdown-bestand
-.opencode/skills/<naam>/SKILL.md   workflows (de app bewaart skills al op deze plek)
-.opencode/commands/            vaste /commando's
-opencode.json                  alleen: permission.bash "git *" → deny
-.gitignore
+AGENTS.md                 schema: waar dit brein over gaat, conventies, werkwijzen (team schaaft het bij)
+raw/                      bronnen: onveranderlijk; de AI leest ze en wijzigt ze nooit
+  2026-10-30-kickoff-notulen.md
+wiki/                     door de AI bijgehouden pagina's
+  index.md                catalogus: elke pagina met link en één regel; de AI leest hem eerst
+  log.md                  chronologisch, alleen toevoegen
+  overzicht.md            het grote plaatje van dit brein
+  samenvattingen/         één pagina per bron
+  entiteiten/             producten, systemen, teams, organisaties, rollen
+  concepten/              begrippen, werkwijzen, beslissingen
+  vergelijkingen/         analyses en afwegingen, vaak ontstaan uit een goede vraag
+.opencode/skills/         wiki-verwerken, wiki-vastleggen, wiki-onderhoud, plus eigen teamworkflows
+.opencode/commands/       /verwerk, /vastleggen, /onderhoud
+.gitattributes            wiki/log.md merge=union
+opencode.json             alleen: permission.bash "git *" → deny
 ```
 
-De vaste instructie (in het sjabloon-`AGENTS.md` van een projectbrein):
+We houden Karpathy's namen aan (`raw/`, `wiki/`, `index.md`, `log.md`), zodat het patroon herkenbaar
+blijft en skills van anderen die het volgen hier ook werken. De submappen en paginasoorten zijn Nederlands.
 
-> Dit project is een gedeeld brein van een team. BonzaiWork haalt vóór je beurt de nieuwste versie op en
-> deelt je wijzigingen na je beurt; voer zelf geen git-commando's uit. Leg nieuwe of verbeterde teamkennis
-> vast in `kennis/` (één onderwerp per bestand; werk bestaande bestanden bij in plaats van dubbel te maken).
-> Een werkwijze die vaker terugkomt, wordt een skill in `.opencode/skills/`. Persoonlijke voorkeuren van de
-> gebruiker horen in het persoonlijke brein, niet hier; vraag het bij twijfel. Andere breinen kun je
-> raadplegen maar niet wijzigen, en alleen als de gebruiker erom vraagt;
-> denk je dat een ander brein helpt, stel het dan in één zin voor en wacht op antwoord. Zet nooit wachtwoorden, sleutels of persoonsgegevens in het brein.
+Elke wiki-pagina heeft frontmatter, en pagina's linken met `[[wikilinks]]` (de Obsidian-graph toont dan
+knooppunten en wezen):
 
-Het persoonlijke brein krijgt een eigen variant ("dit is het persoonlijke brein van de gebruiker; alleen
-voor eigen voorkeuren, kennis en werkwijzen"). De `deny` op `git *` is de `PreToolUse`-kant uit §2.
+```yaml
+---
+type: concept            # samenvatting | entiteit | concept | vergelijking | overzicht
+samenvatting: Hoe we een offerte opbouwen en wie hem goedkeurt.   # één regel, voor de index
+bronnen: [raw/2026-10-30-kickoff-notulen.md]
+bijgewerkt: 2026-10-30
+tags: [offertes]
+---
+```
+
+### 6.2 Drie werkwijzen
+
+| Werkwijze | Wanneer | Wat de AI doet |
+|---|---|---|
+| **Verwerken** (ingest, `/verwerk`) | De gebruiker sleept een bestand in de chat, plakt een tekst, of zet een `.md` in `raw/` | Bron als Markdown in `raw/` (een bijlage uit de chat wordt omgezet; alleen `.md` blijft bewaard, N5). Kort de belangrijkste punten bespreken met de gebruiker. Een samenvattingspagina schrijven, en de entiteit- en conceptpagina's bijwerken die de bron raakt ("a single source might touch 10–15 wiki pages"). Eén regel in `log.md` |
+| **Vragen** (query) | Elke gewone vraag in de chat | Eerst `wiki/index.md`, dan de relevante pagina's; antwoord met links naar die pagina's. Is het antwoord blijvend waardevol, dan vraagt hij "Zal ik dit vastleggen?" en maakt met `/vastleggen` een pagina (vaak in `vergelijkingen/`) |
+| **Onderhoud** (lint, `/onderhoud`) | Op verzoek, of als wekelijkse routine | Zoekt tegenstrijdigheden, beweringen die nieuwere bronnen achterhaald hebben, weespagina's, begrippen die vaak terugkomen maar geen pagina hebben, ontbrekende links en gaten in de kennis. Kleine dingen lost hij zelf op, de rest meldt hij. Eén regel in `log.md` |
+
+In een **gedeeld** brein zou de wekelijkse onderhoudsroutine bij elk teamlid draaien. Daarom kijkt de
+routine eerst in `log.md`: staat er de afgelopen 7 dagen al een `onderhoud`-regel (van wie dan ook), dan
+slaat hij over.
+
+### 6.3 Wat BonzaiWork zelf doet, niet de AI
+
+Bij Karpathy houdt het model ook `index.md` en `log.md` bij. In een team met sync per beurt geeft dat twee
+problemen: iedereen schrijft bij elke verwerking in dezelfde twee bestanden (dus conflicten), en een model
+vergeet weleens een regel. Daarom, net als bij git (§2), deterministisch in de sync-machine
+(`packages/bonzaiwork-brains/src/wiki.ts`), vlak vóór elke commit:
+
+- **`index.md` wordt gegenereerd** uit de frontmatter (`type`, `samenvatting`), gegroepeerd per soort en
+  alfabetisch. De AI leest hem, maar bewerkt hem nooit (dat staat in het schema). Geeft een rebase een
+  conflict in `index.md`, dan maakt de sync hem opnieuw en gaat verder; dat conflict komt nooit bij de
+  gebruiker.
+- **`log.md` voegt samen zonder conflict**: `.gitattributes` zet `wiki/log.md merge=union` (ingebouwd in
+  git), zodat twee toevoegingen tegelijk allebei blijven staan. De AI schrijft regels in Karpathy's vaste
+  vorm, zodat `grep "^## \[" wiki/log.md` werkt:
+  `## [2026-10-30] ingest | Kickoff-notulen` (soorten: `ingest`, `vastleggen`, `onderhoud`). Veranderden
+  er wiki-pagina's zonder logregel, dan voegt de sync `## [datum] wijziging | <chattitel>` toe.
+- **`raw/` blijft onveranderlijk**: een commit die een bestaand bestand in `raw/` wijzigt of verwijdert,
+  weigert de sync; dat bestand gaat terug naar de vorige versie, met een melding. Nieuwe bronnen toevoegen
+  mag altijd.
+- **Ontbrekende frontmatter**: een pagina zonder `samenvatting` staat in de index als "(geen samenvatting)",
+  en `/onderhoud` pakt hem op.
+
+### 6.4 Het schema (`AGENTS.md`)
+
+Het sjabloon; het team schaaft vooral het laatste deel bij, net zoals Karpathy het schema "samen met het
+model" laat groeien:
+
+```markdown
+# <Naam van het brein>
+
+<Eén alinea: waar dit brein over gaat en voor wie.>
+
+## Hoe dit brein werkt
+
+Dit is een LLM-wiki. Mensen voegen bronnen toe en stellen vragen; jij houdt de wiki bij.
+
+- `raw/` bevat de bronnen. Lees ze; wijzig of verwijder ze nooit. Een nieuwe bron voeg je toe als Markdown.
+- `wiki/` is van jou: samenvattingen, entiteiten, concepten, vergelijkingen en `overzicht.md`. Elke pagina
+  heeft frontmatter met `type`, `samenvatting` (één regel), `bronnen` en `bijgewerkt`. Link met
+  [[wikilinks]]. Werk bestaande pagina's bij in plaats van een tweede over hetzelfde te maken.
+- Lees bij elke vraag eerst `wiki/index.md`. Bewerk `index.md` nooit; BonzaiWork maakt hem.
+- Voeg na elke verwerking, vastgelegde vraag of onderhoudsronde één regel toe onderaan `wiki/log.md`:
+  `## [JJJJ-MM-DD] ingest|vastleggen|onderhoud | Titel`.
+- Spreekt een nieuwe bron een pagina tegen, zet dat dan op de pagina, met beide bronnen. Kies niet
+  stilzwijgend.
+- Werkwijzen: /verwerk (bron verwerken), /vastleggen (antwoord als pagina bewaren), /onderhoud (controle).
+  Een werkwijze van het team die vaker terugkomt, wordt een skill in `.opencode/skills/`.
+
+## Samenwerken
+
+BonzaiWork haalt vóór je beurt de nieuwste versie op en deelt je wijzigingen erna; voer zelf geen git uit.
+Persoonlijke voorkeuren van de gebruiker horen in het persoonlijke brein, niet hier; vraag bij twijfel.
+Andere breinen raadpleeg je alleen als de gebruiker erom vraagt; denk je dat er een helpt, stel het dan in
+één zin voor en wacht op antwoord. Zet nooit wachtwoorden, sleutels of privégegevens van personen in het brein.
+
+## Conventies van dit team
+
+<Eigen paginasoorten, naamgeving, taal, wat wel en niet in de wiki hoort. Groeit met het gebruik.>
+```
+
+### 6.5 Het persoonlijke brein als wiki
+
+Dezelfde drie lagen en werkwijzen, met twee verschillen:
+
+- **Voorkeuren in het schema.** Het persoonlijke `AGENTS.md` heeft een deel "Mijn voorkeuren" (hoe ik
+  samenvattingen wil, mijn rol, mijn schrijfstijl). Omdat dat bestand volledig in elke chat gaat (N3), werkt
+  een geleerde voorkeur meteen overal. Kennis gaat in `wiki/`, waar de AI in zoekt; zo blijft het schema
+  klein.
+- **Bestaand second brain (§5.1.1).** BonzaiWork voegt `AGENTS.md`, `raw/`, `wiki/` (met `index.md`,
+  `log.md`, `overzicht.md`) en de skills toe. De bestaande notities blijven waar ze staan: de AI leest ze en
+  mag ze bijwerken (N4), maar ze zijn geen bron (ze mogen veranderen) en geen wikipagina (ze zijn van de
+  gebruiker). Met **"Inrichten als wiki"** (`/inrichten`, fase 2) verwerkt de AI ze map voor map tot
+  wikipagina's, als bron ervan; de originele notities blijven staan. De gebruiker start dat zelf, per map,
+  zodat een grote vault niet in één keer omgaat.
+
+### 6.6 Zoeken als een brein groeit
+
+Karpathy: bij een kleine wiki is `index.md` genoeg, bij een grote helpt een zoekmachine (hij noemt `qmd`,
+hybride zoeken op Markdown). Fase 1: `index.md` plus gewone tekstzoektocht in `brein_zoeken` en
+`persoonlijk_brein_zoeken`. Fase 3: hybride zoeken (trefwoorden + betekenis) als breinen groot worden,
+met embeddings via LiteLLM (de enige provider) en de index lokaal.
 
 ## 7. Veiligheid
 
@@ -441,7 +561,9 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
 - Persoonlijk brein: nieuwe map of bestaande vault kiezen in de onboarding, mappen uitsluiten, project
   "Mijn brein", optionele privérepo, instructies (volledig) en skills in elk project,
   `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), geschiedenis met terugzetten (`git init` zonder origin, of buiten de map bij cloud-sync).
-- Sjabloon-`AGENTS.md` en `git *`-deny.
+- LLM-wiki-sjabloon (§6): schema-`AGENTS.md`, `raw/` en `wiki/`, skills en commando's voor verwerken,
+  vastleggen en onderhoud, `git *`-deny. In de sync: `index.md` genereren, logregel als vangnet,
+  `merge=union` voor `log.md`, `raw/` onveranderlijk.
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
   in project X wordt geleerd, staat in het persoonlijke brein en werkt in project Y; offline werken en
   later delen werkt; een conflict verliest niets; de app leest of bewaart geen SSH-sleutels.
@@ -451,11 +573,14 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
   bij een voorstel van de AI en automatisch goedkeuren als de gebruiker het brein zelf noemde.
 - "Laat de AI het samenvoegen", geschiedenis met chat-links, periodieke fetch, routines bij het brein,
   "Als brein synchroniseren" voor bestaande repo's, "Nieuw gedeeld brein".
-- Voorbeeldroutine: dagelijks "Wat is er nieuw in mijn breinen".
+- Voorbeeldroutine: dagelijks "Wat is er nieuw in mijn breinen" (leest de nieuwe regels in elke `log.md`).
+- Wekelijkse onderhoudsroutine (slaat over als een teamlid al onderhoud deed), en "Inrichten als wiki"
+  voor een bestaand second brain of een bestaande repo.
 
-**Fase 3: via voorstel**
+**Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een
   push op een beschermde branch faalt.
+- Hybride zoeken voor grote breinen (§6.6).
 
 ## 11. Testen
 
@@ -465,6 +590,9 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
   `Permission denied` → alleen-lezen, geheim → geen commit, inbox nooit mee, persoonlijk brein schrijft
   nooit buiten zijn map of in een uitgesloten map, breinen-MCP leest niet uit `.git`, niet via symlinks
   naar buiten en alleen `.md`.
+- **Wiki** (`wiki.ts`): `index.md` volgt uit de frontmatter en is na een rebase-conflict opnieuw gemaakt;
+  twee gelijktijdige logregels blijven allebei staan (`merge=union`); wijzigen of verwijderen in `raw/`
+  wordt geweigerd en teruggezet; wiki-wijziging zonder logregel krijgt er een.
 - **Gekozen vault** (fixture: een kleine Obsidian-vault met wikilinks, frontmatter, `.obsidian/` en
   bijlagen): bewerken met verouderde versie → geweigerd; elke beurt staat in de eigen geschiedenis en is
   terug te zetten; een lokale vault zonder git krijgt `git init` zonder origin; een vault in een
