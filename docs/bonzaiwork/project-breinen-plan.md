@@ -1,6 +1,6 @@
 # Project-breinen: implementatieplan
 
-Status: **voorstel, beslissingen B1–B6 genomen** (§9). Nog niets gebouwd.
+Status: **voorstel, beslissingen B1–B6 en N1–N3 genomen** (§9). Nog niets gebouwd.
 
 ## 1. Het idee in één alinea
 
@@ -16,7 +16,7 @@ laptop staat ("kijk eens hoe het Sales-brein dit doet"); dat is alleen lezen.
 
 ```
 ~/BonzaiWork/
-  Persoonlijk/          persoonlijk brein (één per gebruiker; eigen privérepo, aanbevolen)
+  Persoonlijk/          persoonlijk brein (één per gebruiker; lokaal, privérepo optioneel)
   Klantenservice/       project-brein (gedeelde teamrepo)
   Sales/                project-brein (gedeelde teamrepo)
   Losse notities/       gewoon project (lokale map, geen brein)
@@ -180,16 +180,18 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
 
 ### 5.1 Het persoonlijke brein
 
-- **Eén per gebruiker**, in `~/BonzaiWork/Persoonlijk`. Gemaakt in de onboarding: "Begin met een leeg
-  persoonlijk brein" of "Haal je persoonlijke brein op" (clone van je eigen privérepo via SSH, voor een
-  tweede laptop of na een herinstallatie).
-- **Aanbevolen: een privérepo** (back-up en meerdere apparaten), met dezelfde sync als een projectbrein.
-  Zonder repo blijft het lokaal (open punt N1, §9).
+- **Eén per gebruiker**, in `~/BonzaiWork/Persoonlijk`. De onboarding maakt het aan als **lokale map**
+  (N1); geen git nodig en geen waarschuwing over back-ups.
+- **Optioneel een privérepo**: in de instellingen van "Mijn brein" kan de gebruiker het koppelen aan een
+  eigen repo via SSH (dan dezelfde sync als een projectbrein), of bij een tweede laptop "Haal je
+  persoonlijke brein op" kiezen. Zonder repo is de status gewoon "Alleen op deze laptop".
 - Het is ook een **gewoon project** ("Mijn brein", altijd bovenaan, niet te archiveren): daar chat je om
   je eigen kennis en workflows te ordenen.
 - **Telt mee in elk project**, op twee manieren:
-  1. **Instructies en skills**: het `AGENTS.md` van het persoonlijke brein komt als extra instructie in
-     elke chat, en zijn skills staan in elk project in de composer. Fase 0 bepaalt hoe: de engine draait
+  1. **Instructies en skills**: het `AGENTS.md` van het persoonlijke brein komt **altijd volledig** als
+     extra instructie in elke chat (N3), met als enige grens dezelfde 192 KiB als voor projectinstructies
+     (`opencode-v2-instructions.ts`); wordt die overschreden, dan meldt "Mijn brein" dat en vraagt de app
+     om in te korten. Zijn skills staan in elk project in de composer. Fase 0 bepaalt hoe: de engine draait
      met een eigen `OPENCODE_CONFIG_DIR` (`managed-opencode-v2.ts`), dus `~/.config/opencode` werkt niet;
      opties zijn de globale skills- en instructiepaden van die config-map vanuit de hooks laten wijzen
      naar `~/BonzaiWork/Persoonlijk`, of de MCP-route hieronder.
@@ -222,6 +224,17 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
   project (met bronvermelding "uit het Sales-brein, `kennis/offertes.md`"). Het andere brein verandert
   nooit vanuit een andere chat; dat voorkomt verrassingen voor dat team.
 - In de chat ziet de gebruiker de stap in woorden: "Las *Offertes* in het Sales-brein".
+- **Alleen op verzoek, of na een voorstel (N2).** De AI kijkt in een ander brein als de gebruiker erom
+  vraagt. Denkt de AI dat een ander brein helpt, dan stelt hij dat in één zin voor ("Het Sales-brein heeft
+  een offerte-workflow; zal ik daar kijken?") en wacht op antwoord. `breinen_lijst` mag hij altijd
+  gebruiken, anders weet hij niet wat hij kan voorstellen. Afgedwongen, niet alleen gevraagd:
+  - `brein_zoeken` en `brein_lezen` staan in de engine-toestemmingen op **ask**, met het brein als
+    resource. Een eigen voorstel van de AI wordt zo de bekende toestemmingskaart "Mag BonzaiWork in het
+    Sales-brein kijken?" (Toestaan / Altijd in dit gesprek / Weigeren).
+  - Vroeg de gebruiker er zelf om, dan hoeft die niet nog eens te klikken: noemt het laatste bericht van
+    de gebruiker dat brein (naam of map), dan keurt de UI de kaart automatisch één keer goed.
+  - Het persoonlijke brein valt hierbuiten: dat hoort bij de gebruiker en de `persoonlijk_brein_*`-tools
+    staan op **allow**.
 
 ## 6. Wat er in een brein staat (sjabloon)
 
@@ -244,7 +257,8 @@ De vaste instructie (in het sjabloon-`AGENTS.md` van een projectbrein):
 > vast in `kennis/` (één onderwerp per bestand; werk bestaande bestanden bij in plaats van dubbel te maken).
 > Een werkwijze die vaker terugkomt, wordt een skill in `.opencode/skills/`. Persoonlijke voorkeuren van de
 > gebruiker horen in het persoonlijke brein, niet hier; vraag het bij twijfel. Andere breinen kun je
-> raadplegen maar niet wijzigen. Zet nooit wachtwoorden, sleutels of persoonsgegevens in het brein.
+> raadplegen maar niet wijzigen, en alleen als de gebruiker erom vraagt;
+> denk je dat een ander brein helpt, stel het dan in één zin voor en wacht op antwoord. Zet nooit wachtwoorden, sleutels of persoonsgegevens in het brein.
 
 Het persoonlijke brein krijgt een eigen variant ("dit is het persoonlijke brein van de gebruiker; alleen
 voor eigen voorkeuren, kennis en werkwijzen"). De `deny` op `git *` is de `PreToolUse`-kant uit §2.
@@ -324,13 +338,9 @@ zonder staat de optie zichtbaar maar vergrendeld met de reden (DESIGN.md P4).
 | B5 | Vertrouwen per gebruiker of centraal? | **Per gebruiker** |
 | B6 | Brein als project of extra map? | **Een brein is altijd een eigen project, gedeeld met teamleden.** Plus één **persoonlijk brein** per gebruiker dat in elk project meetelt. Andere al-geclonede breinen zijn in een chat te raadplegen (alleen lezen) |
 
-Nieuwe open punten:
-
-| # | Vraag | Voorstel |
-|---|---|---|
-| N1 | Persoonlijk brein verplicht als privérepo, of mag het lokaal blijven? | Lokaal mag; de app raadt een privérepo aan en toont "Niet geback-upt" zolang die er niet is |
-| N2 | Mag de AI uit eigen beweging in andere breinen kijken, of alleen als de gebruiker erom vraagt? | Alleen als de gebruiker erom vraagt of het brein noemt; `breinen_lijst` mag hij altijd gebruiken |
-| N3 | Persoonlijke instructies: altijd volledig in elke chat, of alleen op aanvraag via de MCP? | Volledig, met een maximum (zoals de 192 KiB-grens voor projectinstructies); de rest via zoeken |
+| N1 | Persoonlijk brein verplicht als privérepo? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel |
+| N2 | Mag de AI uit eigen beweging in andere breinen kijken? | **Alleen als de gebruiker erom vraagt, of na een voorstel van de AI** dat de gebruiker goedkeurt (§5.2) |
+| N3 | Persoonlijke instructies altijd volledig in elke chat? | **Ja**, tot de bestaande grens van 192 KiB |
 
 ## 10. Fasering
 
@@ -338,7 +348,8 @@ Nieuwe open punten:
 - `dugite` in `electron-builder.bonzaiwork.mjs` op macOS en Windows; grootte en signing.
 - SSH via het systeem op Windows (OpenSSH-client en ssh-agent-service) en macOS (sleutelhanger); wat
   gebeurt er bij een sleutel met wachtwoord die niet in de agent zit.
-- `DownstreamServerHost`: sessie-activiteit en een MCP-entry in de globale engine-config.
+- `DownstreamServerHost`: sessie-activiteit, een MCP-entry in de globale engine-config, en of de
+  toestemmingsregels voor de breinen-MCP (`ask`/`allow` per tool) daar ook kunnen.
 - Hoe komen persoonlijke instructies en skills in elke chat (§5.1, punt 1).
 - Laadt de v2-engine nieuwe skills na een pull vanzelf, of altijd `engine/reload`?
 - Lokale MCP's/plugins uit een niet-vertrouwd brein uitzetten zonder upstream-patch.
@@ -348,7 +359,8 @@ Nieuwe open punten:
   per beurt, push met retry, offline, alleen-lezen), registry, routes, geheimenscan.
 - Project-brein toevoegen (verbinding testen, clone, vertrouwensstap), statuspil, regel onder de chat,
   conflictkaart met "Bewaar mijn versie apart", instellingen-sectie, demo-backend.
-- Persoonlijk brein: onboardingstap, project "Mijn brein", sync, instructies/skills in elk project,
+- Persoonlijk brein: lokale map vanuit de onboarding, project "Mijn brein", optionele privérepo,
+  instructies (volledig) en skills in elk project,
   `persoonlijk_brein_*`-tools.
 - Sjabloon-`AGENTS.md` en `git *`-deny.
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
@@ -356,7 +368,8 @@ Nieuwe open punten:
   later delen werkt; een conflict verliest niets; de app leest of bewaart geen SSH-sleutels.
 
 **Fase 2: teamwerk**
-- Andere breinen raadplegen (`breinen_lijst`, `brein_zoeken`, `brein_lezen`).
+- Andere breinen raadplegen (`breinen_lijst`, `brein_zoeken`, `brein_lezen`), met de toestemmingskaart
+  bij een voorstel van de AI en automatisch goedkeuren als de gebruiker het brein zelf noemde.
 - "Laat de AI het samenvoegen", geschiedenis met chat-links, periodieke fetch, routines bij het brein,
   "Als brein synchroniseren" voor bestaande repo's, "Nieuw gedeeld brein".
 - Voorbeeldroutine: dagelijks "Wat is er nieuw in mijn breinen".
@@ -377,7 +390,8 @@ Nieuwe open punten:
   stop, vergrendelde sleutel → juiste melding.
 - **Server-e2e**: uitbreiding van `packages/bonzaiwork-litellm/e2e`: clone, registratie als workspace,
   chatbeurt met de stand-in LiteLLM die een bestand schrijft, daarna staat de commit op de bare repo; een
-  tweede workspace leest dat bestand via `brein_lezen`.
+  tweede workspace leest dat bestand via `brein_lezen`; zonder dat de prompt het brein noemt, wacht
+  `brein_lezen` op toestemming.
 - **UI**: headless (`seed.appWeb` / `pnpm world up dev-app-web`), demo-backend per brein-staat,
   screenshots voor de PR.
 - **Verpakt**: smoketest met een `file://`-repo.
