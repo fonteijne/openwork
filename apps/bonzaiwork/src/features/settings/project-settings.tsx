@@ -927,6 +927,10 @@ function PermissionsSection(props: { project: Project }) {
   const mode = useQuery({ queryKey: keys.runMode(props.project.id), queryFn: () => backend.config.runMode(props.project.id) });
   const folders = useQuery({ queryKey: keys.folders(props.project.id), queryFn: () => backend.config.folders(props.project.id) });
   const [adding, setAdding] = useState(false);
+  // The engine that cannot take a run mode (OpenCode v2) never receives this list either: the server keeps
+  // it as `permission.external_directory`, which the v2 config does not render, and v2 already lets the
+  // agent read and write outside the project folder.
+  const foldersApply = mode.data?.supported !== false;
   const setFolders = (next: string[]) =>
     attempt(async () => {
       const saved = await backend.config.setFolders(props.project.id, next);
@@ -975,13 +979,19 @@ function PermissionsSection(props: { project: Project }) {
       <Section
         title={copy.settings.folders}
         action={
-          <Button variant="quiet" size="sm" onClick={() => void addFolder()}>
-            <Plus />
-            {copy.settings.folderAdd}
-          </Button>
+          foldersApply && (
+            <Button variant="quiet" size="sm" onClick={() => void addFolder()}>
+              <Plus />
+              {copy.settings.folderAdd}
+            </Button>
+          )
         }
       >
-        {folders.data?.length ? (
+        {!foldersApply ? (
+          <div className="py-3">
+            <Locked>{copy.settings.foldersUnsupported}</Locked>
+          </div>
+        ) : folders.data?.length ? (
           folders.data.map((folder) => (
             <Row
               key={folder}
@@ -996,7 +1006,7 @@ function PermissionsSection(props: { project: Project }) {
         ) : (
           <p className="py-3 text-sm text-muted-foreground">{copy.settings.foldersEmpty}</p>
         )}
-        <p className="pt-2 text-xs text-muted-foreground">{copy.settings.foldersHint}</p>
+        {foldersApply && <p className="pt-2 text-xs text-muted-foreground">{copy.settings.foldersHint}</p>}
       </Section>
       <PromptDialog open={adding} onOpenChange={setAdding} title={copy.settings.folderAdd} label={copy.newProject.folderPathLabel} placeholder="/Users/jij/Documenten" submitLabel={copy.settings.add} onSubmit={async (path) => void (await setFolders([...(folders.data ?? []), path]))} />
     </div>

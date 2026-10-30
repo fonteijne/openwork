@@ -104,13 +104,14 @@ function demoFileContent(name: string): string {
 
 type Waiter<T> = { resolve: (value: T) => void; reject: (error: unknown) => void };
 
-export type DemoOptions = { empty: boolean; keyMode: "user" | "workspace" };
+/** `engine=v2`: the desktop app's engine, which takes no run mode or extra folders. */
+export type DemoOptions = { empty: boolean; keyMode: "user" | "workspace"; engineV2: boolean };
 
 export function readDemoOptions(search: string): DemoOptions {
   const params = new URLSearchParams(search);
   const demo = params.get("demo");
   const key = params.get("sleutel") ?? params.get("keyMode");
-  return { empty: demo === "leeg" || demo === "empty", keyMode: key === "gebruiker" || key === "user" ? "user" : "workspace" };
+  return { empty: demo === "leeg" || demo === "empty", keyMode: key === "gebruiker" || key === "user" ? "user" : "workspace", engineV2: params.get("engine") === "v2" };
 }
 
 export function createDemoBackend(options: DemoOptions): Backend & { reset(): void } {
@@ -1078,14 +1079,14 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       },
       async runMode(projectId) {
         await latency();
-        return { mode: state.runModes[projectId] ?? "default", supported: true, reason: null };
+        return { mode: state.runModes[projectId] ?? "default", supported: !options.engineV2, reason: null };
       },
       async setRunMode(projectId, mode) {
         await latency("write");
         state.runModes[projectId] = mode;
         audit(projectId, "permissions.mode", "Werkwijze van de agent gewijzigd");
         save();
-        return { mode, supported: true, reason: null };
+        return { mode, supported: !options.engineV2, reason: null };
       },
       async folders(projectId) {
         await latency();

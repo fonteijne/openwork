@@ -8,9 +8,9 @@ handmatige test; dat is in deze fase **niet** gedaan.
 
 Herhaalbaar, zodat we het bij elke engine-update opnieuw controleren:
 
-- `bun scripts/bonzaiwork/spikes/brains/engine-probe.mjs`: 31 controles op de echte engine (zelfde
+- `bun scripts/bonzaiwork/spikes/brains/engine-probe.mjs`: 41 controles op de echte engine (zelfde
   `OPENCODE_CONFIG_DIR`-opzet als `managed-opencode-v2.ts`, nep-model dat tool-calls doet). Een antwoord
-  dat verandert, geeft `UNEXPECTED` en exitcode 1. Uitkomst nu: 31 × `ok`.
+  dat verandert, geeft `UNEXPECTED` en exitcode 1. Uitkomst nu: 41 × `ok`.
 - `bash scripts/bonzaiwork/spikes/brains/ssh-matrix.sh`: git met de systeem-SSH in `BatchMode` tegen
   een tijdelijke `sshd`, alle foutgevallen uit plan §3.2.
 - `bash scripts/bonzaiwork/spikes/brains/git-safety.sh`: hooks en fsmonitor in `.git` met en zonder de
@@ -32,6 +32,7 @@ Herhaalbaar, zodat we het bij elke engine-update opnieuw controleren:
 | Hooks/fsmonitor in `.git` en de git van de sync | Met `-c core.hooksPath=<leeg> -c core.fsmonitor=false` draaien ze niet, zonder wel | Laag 4 van plan §7.4 werkt (§6.5) |
 | Nieuwe skills na een pull | Skills, commando's, `AGENTS.md` en zelfs MCP's uit `opencode.json` werken meteen, **zonder** `engine/reload` | §4.2: reload-stap vervalt; de vertrouwenscontrole moet daarom vóór het bijwerken (§6) |
 | MCP's/plugins van een niet-vertrouwd brein uitzetten | Policies halen MCP's en skills weg en blokkeren tools; **plugins niet**. Plugins draaien al bij het openen van de map | `git sparse-checkout` houdt riskante bestanden buiten de map tot de gebruiker vertrouwt (§6) |
+| Andere breinen vanuit een andere map ("Extra mappen") | Zonder regel leest **en schrijft** de AI in elke map buiten het project, zonder te vragen. "Extra mappen" komt niet bij de v2-engine. `read:`/`edit:` met een **absoluut** pad dichten een andere map, ook als de AI er relatief heen gaat, en laten de chats ín die map door; `grep` is alleen per zoekpatroon dicht te zetten | Breinmappen buiten de chat dicht via policies; de breinen-MCP is de route; "Extra mappen" vergrendeld met reden (§6.6) |
 | `git` en `.git/**` verbieden voor de AI | Globale policies `tool.use` `shell:git *` en `edit:.git/*` → deny, ook in ketens en met absolute paden; een brein kan ze niet opheffen | Laag 1 van plan §7.4 zonder patch; een brein heeft geen `opencode.json` nodig (§6.4) |
 
 PATCHES blijft gelijk in aantal bestanden: alles hieronder past in ons eigen `downstream-hooks.ts`, plus
@@ -381,6 +382,45 @@ type DownstreamServerHooks = {
 Ook getest met de uitgedunde dugite (zelfde uitkomst). Filters, `diff.external` en `include.path` uit
 `.git/config` dekt dit niet; daarvoor blijft de vergelijking met de bewaarde kopie uit plan §7.4.
 
+### 6.6 Andere breinen vanuit een andere map ("Extra mappen")
+
+Aanleiding: Projectinstellingen → Toestemmingen heeft een lijst "Extra mappen". Is dat een manier om de
+toegang tot breinen te regelen?
+
+**Wat die lijst doet.** De UI roept `PUT /workspace/:id/authorized-folders` aan; de server zet elke map als
+`permission.external_directory["<map>/*"] = "allow"` in de **globale** runtime-config (`server.ts`,
+`mergeAuthorizedFoldersIntoExternalDirectory`), dus voor alle projecten tegelijk, niet per project. De
+v2-engine krijgt die sleutel niet: `renderOpencodeV2Config` (`managed-opencode-v2.ts`) zet alleen
+`permissions` (de uitvoeringsregels van de organisatie) en `experimental.policies` in de engine-config,
+geen `permission`. Dezelfde reden waarom "Hoeveel mag de agent zelf doen?" op v2 al vergrendeld is.
+
+**Wat de engine doet** (gemeten, chat in `Losse notities/`, ander brein `Sales/` ernaast):
+
+| Wat | Uitkomst |
+|---|---|
+| `read` van `/…/Sales/AGENTS.md`, geen regels | Gelezen, **zonder toestemmingsvraag** |
+| `write` van `/…/Sales/knowledge/van-buiten.md`, geen regels | Geschreven, **zonder toestemmingsvraag**; de sync van Sales zou het daarna delen |
+| policy `read:/…/Sales/*` → deny | Blokkeert lezen, ook als de AI `../Sales/AGENTS.md` gebruikt |
+| policy `edit:/…/Sales/*` → deny | Blokkeert schrijven |
+| policy `read:../Persoonlijk/*` → deny | Werkt **niet**: buiten de map is de resource het absolute pad |
+| dezelfde absolute regels, chat ín `Sales/` | Lezen werkt gewoon: binnen de map is de resource relatief (`AGENTS.md`) |
+| `grep` met `path: /…/Sales`, met `read:`-deny | Vindt de inhoud nog |
+| policy `grep:/…/Sales*` → deny | Werkt niet; de resource van `grep` is het **zoekpatroon** (`grep:Sales` blokkeert wel) |
+
+**Gevolg.**
+
+- "Extra mappen" regelt op v2 niets, en de standaard is ruimer dan het scherm doet vermoeden: de AI komt
+  overal buiten het project bij. De UI vergrendelt de lijst daarom op v2, met die reden (P4, C5), in
+  plaats van een instelling te tonen die niets doet.
+- Toegang tot andere breinen hoort niet in die lijst. De hooks zetten voor elke geregistreerde breinmap
+  (en het persoonlijke brein en `<OPENCODE_CONFIG_DIR>`) globale policies `read:<map>/*` en
+  `edit:<map>/*` → deny, met het **absolute** pad. Een chat in dat brein zelf blijft werken; vanuit een
+  andere map loopt het alleen via de breinen-MCP, met zijn grenzen (alleen `.md`, geen `.git`, geen
+  inbox, uitgesloten mappen) en de toestemmingskaart (§4.3).
+- Net als bij §6.4 een vangrail, geen slot: `grep` met het pad van een ander brein en `shell` gaan erlangs.
+  `grep` helemaal dichtzetten (`grep:*`) kost de AI zijn zoekfunctie in het eigen project; niet doen.
+- Policies veranderen live (§6.4), dus de hooks werken ze bij als er een brein bij komt of weggaat.
+
 ## 7. Wat dit aan het plan verandert
 
 Doorgevoerd in [`project-breinen-plan.md`](./project-breinen-plan.md):
@@ -396,6 +436,8 @@ Doorgevoerd in [`project-breinen-plan.md`](./project-breinen-plan.md):
 - §5.2: `ask` per tool, per brein via de UI.
 - §7.1: sparse-checkout als mechanisme; B5 overeind.
 - §7.4: lagen 1 en 4 gemeten.
+- §5.2, §7.3, §8.2: andere breinen via de MCP, hun mappen dicht voor de gewone tools; "Extra mappen"
+  vergrendeld op v2 (§6.6).
 - §10, §11: fase 0 afgevinkt, probe bij elke engine-update.
 
 ## 8. Nog te doen op echte machines

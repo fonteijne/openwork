@@ -382,6 +382,21 @@ In een chat: "haal de offerte-workflow uit het Sales-brein". Alleen breinen die 
     de gebruiker dat brein (naam of map), dan keurt de UI de kaart automatisch één keer goed.
   - Het persoonlijke brein valt hierbuiten: dat hoort bij de gebruiker en de `persoonlijk_brein_*`-tools
     staan op **allow**, met één uitzondering: schrijven naar `AGENTS.md` en `_meta/voorkeuren.md` (§7.3).
+- **De MCP is de enige route, ook voor de gewone tools.** Zonder regel leest én schrijft de AI met `read`,
+  `write` en `edit` in elke map buiten het project, zonder te vragen (fase 0 §6.6). Dan gelden de grenzen
+  van de MCP niet, en kan een chat in project X stil iets in het Sales-brein zetten dat de sync van Sales
+  daarna deelt. Daarom zetten de hooks voor elke geregistreerde breinmap, het persoonlijke brein en
+  `<OPENCODE_CONFIG_DIR>` globale policies `read:<map>/*` en `edit:<map>/*` → deny, met het **absolute**
+  pad. Binnen de map van een chat is de resource relatief, dus de chats ín dat brein werken gewoon; vanuit
+  elke andere map blokkeert de regel, ook als de AI er relatief heen gaat (gemeten). De hooks werken de
+  lijst bij als er een brein bij komt of weggaat (policies gelden live). Vangrail, geen slot: `grep` met
+  het pad van een ander brein en `shell` gaan erlangs.
+- **Niet via "Extra mappen".** Projectinstellingen → Toestemmingen heeft een lijst "Extra mappen", maar die
+  regelt geen breintoegang: de server bewaart hem als `permission.external_directory` in de **globale**
+  config (dus voor alle projecten, niet per project), de v2-engine krijgt die sleutel niet, en het is
+  alleen "allow" voor lezen, schrijven en shell tegelijk. Op v2 is de lijst vergrendeld met de reden
+  (§8.2). Een vaste keuze per brein ("dit brein mag altijd in dit gesprek") onthoudt de UI zelf (fase 0
+  §4.3); een vaste keuze per project komt in `brains.json` en staat onder Projectinstellingen → Brein.
 
 ## 6. Wat er in een brein staat: kennis in OKF, acties in ICM
 
@@ -760,9 +775,9 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
   uitgesloten mappen (§5.1.1), en bash blijft een omweg.
 - **De globale instructies staan buiten elk project.** Omdat ze in de config-map van de engine staan en
   niet als instructie-entry (§5.1), kan een client-token ze niet via `/opencode2` overschrijven (dat kon
-  bij entries wel: de server schermt alleen zijn eigen twee sleutels af). Of de gewone bewerk-tools voor
-  die map buiten het project om toestemming vragen (`external_directory`), is niet gemeten; zo niet, dan
-  een `edit`-deny op dat pad.
+  bij entries wel: de server schermt alleen zijn eigen twee sleutels af). De gewone bewerk-tools vragen
+  voor die map **geen** toestemming (fase 0 §6.6, gemeten): de AI zou er vanuit elk project in kunnen
+  schrijven. Daarom `edit:<OPENCODE_CONFIG_DIR>/*` → deny, met het absolute pad (§5.2).
 
 ### 7.4 De AI en git
 
@@ -882,7 +897,12 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
   bronnen als links.
 - **Conflictkaart** boven de composer, in dezelfde stijl als de toestemmingskaarten (§4.5).
 - **Projectinstellingen → Brein**: link, branch, modus, synchronisatie uitzetten, vertrouwde onderdelen,
-  geschiedenis. Bij "Mijn brein" ook: map wisselen, uitgesloten mappen, privérepo koppelen.
+  geschiedenis, en welke andere breinen dit project zonder vragen mag raadplegen. Bij "Mijn brein" ook:
+  map wisselen, uitgesloten mappen, privérepo koppelen.
+- **Projectinstellingen → Toestemmingen → "Extra mappen"**: op v2 vergrendeld met de reden ("Met de
+  huidige engine kan de agent ook buiten de projectmap lezen en schrijven. Een lijst met toegestane mappen
+  werkt nog niet."), net als "Hoeveel mag de agent zelf doen?"; waar hij wel werkt, zegt de uitleg dat hij
+  voor alle projecten geldt (P4, C5; fase 0 §6.6). Breintoegang staat daar nooit.
 - **App-instellingen**: naam en e-mail voor de geschiedenis (en voor `human:<id>` bij "Klopt").
 - **Demo-backend**: een voorbeeldbrein in elke staat, zodat ontwerpreview zonder server kan.
 - **Smoketest** (`scripts/smoke-packaged.mjs`): nieuwe `data-testid`'s (`brain-url-input`, `brain-clone`,
@@ -927,6 +947,9 @@ cloudmappen, de file-watcher op macOS), staat daar in §8 en gebeurt aan het beg
 - Nieuwe skills na een pull → **vanzelf**, zonder `engine/reload`; ook MCP's, dus vertrouwen vóór bijwerken (fase 0 §6.1).
 - **Blokkerend voor B5**: niet-vertrouwde onderdelen uitzetten → **ja, zonder patch**: policies voor MCP's en
   skills, sparse-checkout voor plugins, agents en commando's met shell (fase 0 §6.3).
+- Andere breinen via de gewone tools en "Extra mappen" → zonder regel lezen en schrijven ze overal buiten
+  het project; "Extra mappen" komt niet bij v2; absolute `read:`/`edit:`-policies dichten een breinmap
+  zonder de chats erin te raken (fase 0 §6.6).
 - Uitkomst: de tabel in §3 is ingevuld; `PATCHES.md` verandert pas als de `ask`-regel gebouwd wordt.
 
 **Fase 1: MVP**
@@ -1062,6 +1085,9 @@ Stand fase 2 (bezig):
 - **Globale instructies**: offline of met een onbereikbare host schrijft de pull-route ze toch, met de
   lokale versie; een sub-taak krijgt ze ook; `persoonlijk_brein_schrijven` weigert `AGENTS.md` en
   `_meta/voorkeuren.md`.
+- **Andere breinen**: een chat in project X kan met `read`/`write`/`edit` niet in een ander geregistreerd
+  brein, het persoonlijke brein of `<OPENCODE_CONFIG_DIR>`; een chat in dat brein zelf wel; een nieuw
+  geregistreerd brein is meteen dicht, een verwijderd brein weer open.
 - **Engine** (`scripts/bonzaiwork/spikes/brains/engine-probe.mjs`): bij elke engine-update opnieuw; elk
   veranderd antwoord is een blokkade voor de update.
 - **Links en SSH**: unit-tests voor het omzetten van links; een test tegen een lokale `sshd` (in CI een

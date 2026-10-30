@@ -43,6 +43,12 @@ const scripted = {
   WRITEGITABS: () => ["write", { path: join(plain, ".git/config"), content: "" }],
   READDAGBOEK: () => ["read", { path: "Dagboek/geheim.md" }],
   GREPDAGBOEK: () => ["grep", { pattern: "GEHEIM", path: "." }],
+  // Another brain from a chat in a different folder ("Extra mappen" territory).
+  READOUT: () => ["read", { path: join(sales, "AGENTS.md") }],
+  READOUTREL: () => ["read", { path: "../Sales/AGENTS.md" }],
+  READPERSONAL: () => ["read", { path: join(personal, "AGENTS.md") }],
+  GREPOUT: () => ["grep", { pattern: "Sales", path: sales }],
+  WRITEOUT: () => ["write", { path: join(sales, "knowledge/van-buiten.md"), content: "VAN-BUITEN\n" }],
 };
 async function startModel() {
   let calls = 0;
@@ -169,6 +175,21 @@ async function turn(directory, session, text) {
   const own = requests.slice(before).filter((request) => request.tools?.length);
   return { context: JSON.stringify(own[0]?.messages ?? []), toolResult: JSON.stringify(own.at(-1)?.messages?.filter((message) => message.role === "tool").at(-1)?.content ?? null) };
 }
+// A tool call either runs, or stops at a permission request (then the chat is left waiting).
+async function attempt(directory, text) {
+  const session = await chat(directory);
+  const before = requests.length;
+  await api(directory, `/api/session/${session}/prompt`, "POST", { text, delivery: "steer" });
+  for (let tick = 0; tick < 60; tick += 1) {
+    await sleep(250);
+    const pending = (await api(directory, `/api/session/${session}/permission`))?.data ?? [];
+    if (pending.length) return { asked: pending[0], toolResult: "" };
+    const active = await api(directory, "/api/session/active");
+    if (tick > 4 && !Object.values(active?.data ?? {}).some((state) => ["running", "busy", "retry"].includes(state?.type))) break;
+  }
+  const own = requests.slice(before).filter((request) => request.tools?.length);
+  return { asked: null, toolResult: JSON.stringify(own.at(-1)?.messages?.filter((message) => message.role === "tool").at(-1)?.content ?? null) };
+}
 const events = [];
 const stopEvents = new AbortController();
 void (async () => {
@@ -243,19 +264,30 @@ check("command.shell", "!`…` in een commando-sjabloon draait shell zonder toes
 
 check("mcp.default", "MCP-tool zonder regel draait zonder te vragen", (await turn(plain, plainChat, "DO_BREIN")).toolResult.includes("MCP-ANTWOORD"));
 check("git.default", "Zonder policy mag de AI `git` draaien", !blocked((await turn(plain, plainChat, "DO_GIT")).toolResult));
+const outDefault = await attempt(plain, "DO_READOUT");
+check("outside.read-default", "Zonder regel leest de AI een bestand in een ander brein (absoluut pad) zonder te vragen", outDefault.asked === null && outDefault.toolResult.includes("PROJECT-"));
+const outWrite = await attempt(plain, "DO_WRITEOUT");
+check("outside.write-default", "… en schrijft hij er ook zonder te vragen", outWrite.asked === null && existsSync(join(sales, "knowledge/van-buiten.md")));
+await rm(join(sales, "knowledge"), { recursive: true, force: true });
 
 // Global rules, written while the engine runs (as writeConfig does).
-await writeFile(join(configDir, "opencode.json"), engineConfig({
-  permissions: [{ action: "breinen_brein_lezen", resource: "*", effect: "ask" }],
-  experimental: { policies: [
+const globalPolicies = [
     { action: "tool.use", resource: "shell:git *", effect: "deny" },
     { action: "integration.use", resource: "mcp:rogue", effect: "deny" },
     { action: "integration.use", resource: "mcp:rogue2", effect: "deny" },
     { action: "integration.use", resource: "skill:team-skill", effect: "deny" },
     { action: "tool.use", resource: "edit:.git/*", effect: "deny" },
     { action: "tool.use", resource: "read:Dagboek/*", effect: "deny" },
-  ] },
+    // A brain outside the chat's folder: absolute form for Sales, relative form for Persoonlijk.
+    { action: "tool.use", resource: `read:${sales}/*`, effect: "deny" },
+    { action: "tool.use", resource: `edit:${sales}/*`, effect: "deny" },
+    { action: "tool.use", resource: "read:../Persoonlijk/*", effect: "deny" },
+];
+const writeGlobal = (policies) => writeFile(join(configDir, "opencode.json"), engineConfig({
+  permissions: [{ action: "breinen_brein_lezen", resource: "*", effect: "ask" }],
+  experimental: { policies },
 }));
+await writeGlobal(globalPolicies);
 await sleep(3000);
 check("policy.git", "Policy tool.use `shell:git *` blokkeert `git status`", blocked((await turn(plain, plainChat, "DO_GIT")).toolResult));
 check("policy.git-chain", "… ook in een keten (`ls && git status`)", blocked((await turn(plain, plainChat, "DO_GITCHAIN")).toolResult));
@@ -265,6 +297,21 @@ check("policy.git-dir", "tool.use `edit:.git/*` blokkeert schrijven in .git (pad
 check("policy.git-dir-abs", "… ook als de AI een absoluut pad gebruikt", blocked((await turn(plain, plainChat, "DO_WRITEGITABS")).toolResult));
 check("policy.read-dir", "tool.use `read:Dagboek/*` blokkeert lezen van een uitgesloten map", blocked((await turn(plain, plainChat, "DO_READDAGBOEK")).toolResult));
 check("policy.grep-bypass", "… maar grep vindt de inhoud nog (vangrail, geen slot)", (await turn(plain, plainChat, "DO_GREPDAGBOEK")).toolResult.includes("geheim.md"));
+check("policy.outside-abs", "tool.use `read:<absolute map>/*` blokkeert lezen in een ander brein", blocked((await attempt(plain, "DO_READOUT")).toolResult));
+check("policy.outside-abs-rel", "… ook als de AI er met een relatief pad (`../Sales/…`) heen gaat", blocked((await attempt(plain, "DO_READOUTREL")).toolResult));
+const outWriteDenied = await attempt(plain, "DO_WRITEOUT");
+check("policy.outside-edit", "tool.use `edit:<absolute map>/*` blokkeert schrijven in een ander brein", blocked(outWriteDenied.toolResult) && !existsSync(join(sales, "knowledge/van-buiten.md")));
+check("policy.outside-rel", "… maar een relatieve regel (`read:../Persoonlijk/*`) werkt buiten de map niet: daar is de resource absoluut", blocked((await attempt(plain, "DO_READPERSONAL")).toolResult), false);
+check("policy.outside-grep", "… maar grep met het pad van het andere brein vindt de inhoud nog", (await attempt(plain, "DO_GREPOUT")).toolResult.includes("AGENTS.md"));
+check("policy.outside-own", "Die absolute regels laten de chats ín dat brein door (daar is het pad relatief)", (await attempt(sales, "DO_READOUT")).toolResult.includes("PROJECT-"));
+await writeGlobal([...globalPolicies, { action: "tool.use", resource: `grep:${sales}*`, effect: "deny" }]);
+await sleep(3000);
+check("policy.outside-grep-path", "tool.use `grep:<absolute map>*` dicht grep met het pad van het andere brein niet", blocked((await attempt(plain, "DO_GREPOUT")).toolResult), false);
+await writeGlobal([...globalPolicies, { action: "tool.use", resource: "grep:Sales", effect: "deny" }]);
+await sleep(3000);
+check("policy.grep-pattern", "… want de resource van grep is het zoekpatroon (`grep:Sales` blokkeert hem wel)", blocked((await attempt(plain, "DO_GREPOUT")).toolResult));
+await writeGlobal(globalPolicies);
+await sleep(3000);
 const mcpAfter = await listed(sales, "/api/mcp");
 check("policy.mcp", "integration.use `mcp:<naam>` haalt de MCP van een brein weg", !mcpAfter.includes("rogue") && !mcpAfter.includes("rogue2") && mcpAfter.includes("breinen"));
 check("policy.skill", "integration.use `skill:<id>` haalt een skill weg", !(await listed(sales, "/api/skill")).includes("team-skill"));
