@@ -367,6 +367,8 @@ export type BrainStatus = {
   lastSyncAt: number | null;
   conflictFiles: string[];
   conflictBy: string | null;
+  /** Both versions stand in the conflicting notes, for a chat to merge. */
+  merging: boolean;
   /** Dutch, from the server. */
   error: string | null;
   pendingTrust: TrustItem[];
@@ -550,6 +552,8 @@ export interface Backend {
     setMode(projectId: string, mode: BrainMode): Promise<BrainStatus>;
     history(projectId: string): Promise<BrainHistoryEntry[]>;
     keepMineApart(projectId: string): Promise<BrainStatus>;
+    /** "Laat de AI het samenvoegen": both versions go into the notes; `prompt` starts the chat that merges them. */
+    mergeWithAi(projectId: string): Promise<{ prompt: string | null; status: BrainStatus }>;
     trust(projectId: string, paths: string[]): Promise<BrainStatus>;
     repair(projectId: string): Promise<BrainStatus>;
     setExcluded(projectId: string, folders: string[]): Promise<BrainStatus>;

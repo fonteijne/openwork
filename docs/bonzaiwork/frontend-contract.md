@@ -448,6 +448,7 @@ type BrainStatus = {
   lastSyncAt: number | null;
   conflictFiles: string[];
   conflictBy: string | null;      // naam van wie de andere wijziging deed
+  merging: boolean;               // beide versies staan in de notities; een chat voegt samen
   error: string | null;           // Nederlands; Engelse git/ssh-tekst alleen in de log
   pendingTrust: { path: string; kind: "config" | "plugin" | "agent" | "command" | "script"; mcpServers: string[] }[];
   unshared: { path: string; reason: "not_markdown" | "too_large" }[];
@@ -469,7 +470,7 @@ type BrainStatus = {
 | `POST /bonzaiwork/brains/:workspaceId/pull` | client | vóór een beurt: projectbrein en persoonlijk brein bijwerken (max. ~5 s), dan de globale instructies |
 | `POST /bonzaiwork/brains/:workspaceId/sync` | client | "Wijzigingen delen" / "Opnieuw proberen" |
 | `GET /bonzaiwork/brains/:workspaceId/history` | client | `{ entries: [{ commit, author, at, title, chatId, files }] }` |
-| `POST /bonzaiwork/brains/:workspaceId/resolve` | client | `{ strategy: "keep-mine-apart" }` ("ai" volgt in fase 2) |
+| `POST /bonzaiwork/brains/:workspaceId/resolve` | client | `{ strategy: "keep-mine-apart" }`, of `{ strategy: "ai" }` → `{ files, by, prompt, status }`: de app start een chat met `prompt` |
 | `POST /bonzaiwork/brains/:workspaceId/trust` | host | `{ paths }`: onderdelen die iets kunnen uitvoeren toestaan |
 | `POST /bonzaiwork/brains/:workspaceId/repair` | host | "Herstellen" na een fout (config, remote, herschreven geschiedenis) |
 | `PUT /bonzaiwork/brains/:workspaceId/excluded` | host | `{ folders }`: uitgesloten mappen (persoonlijk brein) |

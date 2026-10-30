@@ -56,6 +56,8 @@ export type BrainStatus = {
   conflictFiles: string[];
   /** Who made the other change in a conflict. */
   conflictBy: string | null;
+  /** Both versions are in the conflict files for a chat to merge ("Laat de AI het samenvoegen"). */
+  merging: boolean;
   /** Dutch; the English git/ssh text only goes to the log. */
   error: string | null;
   /** Items waiting for the user's decision; they are not in the folder (needs_trust). */
@@ -90,10 +92,25 @@ export type BrainSyncOptions = {
 type Problem =
   | { kind: "offline"; message: string }
   | { kind: "read_only"; message: string }
-  | { kind: "conflict"; message: string; files: string[]; by: string | null }
+  | { kind: "conflict"; message: string; files: string[]; by: string | null; merging?: boolean }
   | { kind: "error"; message: string; cause: RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" };
 
 export type TurnResult = { committed: boolean; shared: boolean; blockedBy?: string };
+
+const CONFLICT_MARKER = /^(<{7}|>{7})( |$)|^={7}$/m;
+
+/** The fixed instruction for "Laat de AI het samenvoegen" (plan §4.5). */
+export function mergePrompt(files: readonly string[], by: string | null): string {
+  const other = by ?? "een collega";
+  return [
+    `In dit brein wijzigden jij en ${other} tegelijk dezelfde notities. In deze bestanden staan nu beide versies:`,
+    ...files.map((file) => `- \`${file}\``),
+    "",
+    `Jouw versie staat tussen \`<<<<<<<\` en \`=======\`, die van ${other} tussen \`=======\` en \`>>>>>>>\`.`,
+    "Voeg per bestand de twee versies samen tot één goede tekst. Verlies geen informatie: neem alles over wat in een van beide staat. Spreken ze elkaar echt tegen, zet dan beide erin met een korte opmerking.",
+    "Haal alle markeringen weg en verander verder niets. Zeg aan het eind in één zin wat je samenvoegde.",
+  ].join("\n");
+}
 
 const MAX_PUSH_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAYS = [30_000, 120_000, 300_000, 900_000];
@@ -622,6 +639,8 @@ export class BrainSync {
     return this.lock(async () => {
       if (this.record.mode === "read_only" || !await this.guard()) return { committed: false, shared: false, status: await this.statusNow() };
       const title = turn.title.replace(/\s+/g, " ").trim() || "Chat";
+      // A merge in progress is finished first, and only when no file holds two versions any more.
+      if (await this.mergeInProgress() && !await this.finishMerge(turn.chatId)) return { committed: false, shared: false, status: await this.statusNow() };
       const result = await this.commit(`${title}\n\nVia BonzaiWork\n\nBonzaiWork-Chat: ${turn.chatId}\n`, "ai", title);
       let shared = false;
       if (!result.blockedBy && this.record.mode === "auto" && this.problem?.kind !== "conflict") shared = await this.push();
@@ -632,12 +651,79 @@ export class BrainSync {
   /** "Wijzigingen delen" (manual mode), "Opnieuw proberen", and the offline retry. */
   share(): Promise<BrainStatus> {
     return this.lock(async () => {
-      if (this.record.mode === "read_only" || this.problem?.kind === "conflict" || !await this.guard()) return this.statusNow();
+      if (this.record.mode === "read_only" || !await this.guard()) return this.statusNow();
+      if (this.problem?.kind === "conflict" && !(this.problem.merging && await this.finishMerge(null))) return this.statusNow();
       if (this.problem?.kind === "read_only" || this.problem?.kind === "offline") this.problem = null;
       const own = await this.commitOwn();
       if (!own.blockedBy) await this.push();
       return this.statusNow();
     });
+  }
+
+  /**
+   * "Laat de AI het samenvoegen" (plan §4.5): merges the team's version without
+   * committing, so both versions stand in the conflicting notes (between
+   * <<<<<<< and >>>>>>>). A chat merges them; the turn's end finishes the merge.
+   * index.md and log.md are merged here, as always.
+   */
+  startAiMerge(): Promise<{ files: string[]; by: string | null; prompt: string | null; status: BrainStatus }> {
+    return this.lock(async () => {
+      if (this.problem?.kind !== "conflict") return { files: [], by: null, prompt: null, status: await this.statusNow() };
+      if (!await this.mergeInProgress()) {
+        await this.run(["merge", "--no-ff", "--no-commit", "-q", this.remoteRef()], { config: this.author() });
+        await this.mergeReserved();
+      }
+      const files = await this.conflictFiles();
+      const by = this.problem.by ?? await this.lastAuthor(files);
+      if (!files.length) {
+        await this.finishMerge(null);
+        if (this.record.mode === "auto") await this.push();
+        return { files: [], by, prompt: null, status: await this.statusNow() };
+      }
+      this.problem = { kind: "conflict", message: SYNC_MESSAGES.merging, files, by, merging: true };
+      this.log("info", "brain conflict handed to a chat", { files });
+      return { files, by, prompt: mergePrompt(files, by), status: await this.statusNow() };
+    });
+  }
+
+  private async mergeInProgress(): Promise<boolean> {
+    return (await stat(join(this.gitDir, "MERGE_HEAD")).catch(() => null)) !== null;
+  }
+
+  /** index.md follows the concepts, log.md keeps both sides (as in a rebase). */
+  private async mergeReserved(): Promise<void> {
+    const files = (await this.conflictFiles()).filter((file) => isKnowledgePath(file) && isReserved(file));
+    if (!files.length) return;
+    for (const file of files.filter((path) => path.endsWith("log.md"))) {
+      const ours = (await this.run(["show", `:2:${file}`])).stdout;
+      const theirs = (await this.run(["show", `:3:${file}`])).stdout;
+      await writeFile(join(this.record.path, file), mergeLogs(ours, theirs));
+    }
+    for (const file of files.filter((path) => path.endsWith("index.md"))) await rm(join(this.record.path, file), { force: true });
+    await this.regenerateIndexes();
+    await this.ok(["add", "--", ...files]);
+  }
+
+  /** Commits the merge once no conflicting note still holds two versions; false while one does. */
+  private async finishMerge(chatId: string | null): Promise<boolean> {
+    const files = await this.conflictFiles();
+    const left: string[] = [];
+    for (const file of files) {
+      const content = await readFile(join(this.record.path, file), "utf8").catch(() => "");
+      if (CONFLICT_MARKER.test(content)) left.push(file);
+    }
+    if (left.length) {
+      const by = this.problem?.kind === "conflict" ? this.problem.by : null;
+      this.problem = { kind: "conflict", message: SYNC_MESSAGES.mergeUnfinished(left.length), files: left, by, merging: true };
+      return false;
+    }
+    if (files.length) await this.ok(["add", "--", ...files]);
+    const trailer = chatId ? `\n\nBonzaiWork-Chat: ${chatId}` : "";
+    await this.ok(["commit", "-q", "--no-verify", "-m", `Samengevoegd met de versie van het team\n\nVia BonzaiWork${trailer}\n`], { config: this.author() });
+    await this.persist({ lastSyncedRemote: await this.revParse(this.remoteRef()) });
+    this.problem = null;
+    this.log("info", "brain merge finished", { files });
+    return true;
   }
 
   /**
@@ -647,6 +733,7 @@ export class BrainSync {
   keepMineApart(): Promise<{ branch: string | null; status: BrainStatus }> {
     return this.lock(async () => {
       if (this.problem?.kind !== "conflict") return { branch: null, status: await this.statusNow() };
+      if (await this.mergeInProgress()) await this.run(["merge", "--abort"]);
       const { name, email } = this.options.author();
       const who = (email.split("@")[0] || name).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "gebruiker";
       const stamp = new Date(this.now()).toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
@@ -846,6 +933,7 @@ export class BrainSync {
       lastSyncAt: this.record.lastSyncAt,
       conflictFiles: problem?.kind === "conflict" ? problem.files : [],
       conflictBy: problem?.kind === "conflict" ? problem.by : null,
+      merging: problem?.kind === "conflict" && problem.merging === true,
       error: problem?.message ?? null,
       pendingTrust: this.pending,
       unshared: this.unshared,
@@ -858,6 +946,10 @@ export class BrainSync {
   open(): Promise<BrainStatus> {
     return this.lock(async () => {
       await this.writeLocalExcludes();
+      if (await this.mergeInProgress()) {
+        const files = await this.conflictFiles();
+        this.problem = { kind: "conflict", message: SYNC_MESSAGES.merging, files, by: await this.lastAuthor(files), merging: true };
+      }
       if (await this.guard() && await this.hasCommit("HEAD")) {
         const ref = await this.hasCommit(this.remoteRef()) ? this.remoteRef() : "HEAD";
         await this.applyTrust(ref);

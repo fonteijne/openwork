@@ -34,6 +34,7 @@ describe("brain status", () => {
       lastSyncAt: null,
       conflictFiles: [],
       conflictBy: null,
+      merging: false,
       error: null,
       pendingTrust: [{ path: "opencode.json", kind: "config", mcpServers: ["crm"] }],
       unshared: [],

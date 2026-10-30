@@ -68,6 +68,8 @@ export type BrainsHooksOptions = {
   quietMs?: number;
   /** How long a turn waits for the update before it goes on (plan §2). */
   prepareTimeoutMs?: number;
+  /** How often quiet brains look for the team's changes, so the pill can say so (fase 2). */
+  fetchEveryMs?: number;
   /** Tests only. */
   allowFileProtocol?: boolean;
   ssh?: Partial<SshOptions>;
@@ -145,6 +147,16 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   let policySignature = "";
   let stopActivity: (() => void) | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  let fetchTimer: ReturnType<typeof setInterval> | null = null;
+  const fetchEveryMs = options.fetchEveryMs ?? 10 * 60_000;
+
+  /** Periodic fetch: only looks, never changes the folder; a brain with a running chat waits. */
+  async function fetchQuietBrains(): Promise<void> {
+    for (const [id, sync] of syncs) {
+      if (!sync.snapshot.remote || (await host?.runningSessions(id))?.length) continue;
+      await sync.fetchOnly().catch((error: unknown) => log("warn", "periodic brain fetch failed", { brain: id, error: String(error) }));
+    }
+  }
   const mcpToken = `bwb_${randomBytes(32).toString("base64url")}`;
   let personalDirty = false;
   let globalContext = "";
@@ -575,7 +587,9 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       method: "POST", path: "/bonzaiwork/brains/:workspaceId/resolve", auth: "client",
       handle: async (request, params) => {
         const body = await readBody(request);
-        if (body?.strategy !== "keep-mine-apart") return failure(400, "unsupported_strategy", "Only keep-mine-apart is available.");
+        // "ai": both versions go into the notes; the app starts a chat with `prompt` (plan §4.5).
+        if (body?.strategy === "ai") return act(params.workspaceId, (sync) => sync.startAiMerge());
+        if (body?.strategy !== "keep-mine-apart") return failure(400, "unsupported_strategy", "Use keep-mine-apart or ai.");
         return act(params.workspaceId, (sync) => sync.keepMineApart());
       },
     },
@@ -672,6 +686,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         stopActivity = next.onSessionActivity(onActivity);
         reconcileTimer = setInterval(() => { void reconcile().catch(() => undefined); }, 10_000);
         reconcileTimer.unref?.();
+        fetchTimer = setInterval(() => { void fetchQuietBrains(); }, fetchEveryMs);
+        fetchTimer.unref?.();
       } catch (error) {
         next.log("error", "Brains failed to start", { error: error instanceof Error ? error.message : String(error) });
       } finally {
@@ -682,6 +698,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     stop() {
       stopActivity?.();
       if (reconcileTimer) clearInterval(reconcileTimer);
+      if (fetchTimer) clearInterval(fetchTimer);
       for (const timer of quietTimers.values()) clearTimeout(timer);
       for (const sync of syncs.values()) sync.dispose();
     },

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { BrainCloneError } from "../src/sync.ts";
+import { BrainCloneError, BrainSync } from "../src/sync.ts";
 import { createWorld, fail, failing, type World } from "./world.ts";
 
 let world: World;
@@ -80,6 +80,66 @@ describe("conflict", () => {
     expect((await world.git.ok(["show", `${apart.branch}:knowledge/korting.md`], { cwd: world.bare }))).toBe("Korting: 20%\n");
     expect(await readFile(join(b.path, "knowledge/korting.md"), "utf8")).toBe("Korting: 15%\n");
     expect(apart.status.state).toBe("synced");
+  });
+});
+
+describe("Laat de AI het samenvoegen", () => {
+  const conflicted = async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/korting.md": "# Korting\n\nStandaard: 10%\n", "knowledge/log.md": "# Log\n" });
+    const a = await world.user("Anna");
+    const b = await world.user("Bram");
+    await a.write("knowledge/korting.md", "# Korting\n\nStandaard: 15%\n");
+    await a.write("knowledge/a.md", "Van Anna\n");
+    await a.sync.finishTurn({ title: "A", chatId: "ses_a" });
+    await b.write("knowledge/korting.md", "# Korting\n\nStandaard: 10%, vaste klanten 20%\n");
+    expect((await b.sync.finishTurn({ title: "B", chatId: "ses_b" })).status.state).toBe("conflict");
+    return b;
+  };
+
+  test("beide versies in de notitie, een chat voegt samen, de beurt deelt het", async () => {
+    const b = await conflicted();
+    const merge = await b.sync.startAiMerge();
+    expect(merge.files).toEqual(["knowledge/korting.md"]);
+    expect(merge.status.merging).toBe(true);
+    expect(merge.prompt).toContain("`knowledge/korting.md`");
+    expect(merge.prompt).toContain("Anna");
+    const both = await readFile(join(b.path, "knowledge/korting.md"), "utf8");
+    expect(both).toContain("<<<<<<<");
+    expect(both).toContain("15%");
+    expect(both).toContain("vaste klanten 20%");
+    // Anna's other note came along with the merge.
+    expect(await readFile(join(b.path, "knowledge/a.md"), "utf8")).toBe("Van Anna\n");
+
+    // The chat's turn ends with two versions still there: nothing is shared.
+    const early = await b.sync.finishTurn({ title: "Samenvoegen", chatId: "ses_m" });
+    expect(early.shared).toBe(false);
+    expect(early.status.error).toContain("nog twee versies");
+
+    // The chat merged them.
+    await b.write("knowledge/korting.md", "# Korting\n\nStandaard: 15%, vaste klanten 20%\n");
+    const done = await b.sync.finishTurn({ title: "Samenvoegen", chatId: "ses_m" });
+    expect(done.shared).toBe(true);
+    expect(done.status.state).toBe("synced");
+    expect(await onServer(world, "knowledge/korting.md")).toBe("# Korting\n\nStandaard: 15%, vaste klanten 20%\n");
+    expect(await onServer(world, "knowledge/a.md")).toBe("Van Anna\n");
+    const subjects = (await world.git.ok(["log", "-3", "--format=%s|%(trailers:key=BonzaiWork-Chat,valueonly)", "main"], { cwd: world.bare })).trim();
+    expect(subjects).toContain("Samengevoegd met de versie van het team|ses_m");
+  });
+
+  test("na een herstart staat de samenvoeging er nog; apart bewaren kan ook dan", async () => {
+    const b = await conflicted();
+    await b.sync.startAiMerge();
+    const again = new BrainSync({ git: world.git, record: b.sync.snapshot, author: () => ({ name: "Bram", email: "bram@example.invalid" }), save: async () => {} });
+    const opened = await again.open();
+    expect(opened.state).toBe("conflict");
+    expect(opened.merging).toBe(true);
+    expect((await again.prepareTurn()).state).toBe("conflict");
+    const apart = await again.keepMineApart();
+    expect(apart.branch).not.toBeNull();
+    expect(apart.status.state).toBe("synced");
+    expect(await readFile(join(b.path, "knowledge/korting.md"), "utf8")).toBe("# Korting\n\nStandaard: 15%\n");
+    again.dispose();
   });
 });
 

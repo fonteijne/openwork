@@ -45,6 +45,7 @@ export function readBrainStatus(value: unknown): BrainStatus | null {
     lastSyncAt: num(value, "lastSyncAt") ?? null,
     conflictFiles: strings(field(value, "conflictFiles")),
     conflictBy: str(value, "conflictBy") ?? null,
+    merging: field(value, "merging") === true,
     error: str(value, "error") ?? null,
     pendingTrust: list(value, "pendingTrust").flatMap((item): TrustItem[] => {
       const path = str(item, "path");
@@ -174,6 +175,10 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     share: async (projectId) => requireStatus(await req(`${brain(projectId)}/sync`, { method: "POST", timeoutMs: 120_000 })),
     setMode: async (projectId, mode) => requireStatus(await req(brain(projectId), { method: "PUT", body: { mode }, ...host })),
     history: async (projectId) => readHistory(await req(`${brain(projectId)}/history`)),
+    async mergeWithAi(projectId) {
+      const payload = await req(`${brain(projectId)}/resolve`, { method: "POST", body: { strategy: "ai" }, timeoutMs: 120_000 });
+      return { prompt: str(payload, "prompt") ?? null, status: requireStatus(payload) };
+    },
     keepMineApart: async (projectId) => requireStatus(await req(`${brain(projectId)}/resolve`, { method: "POST", body: { strategy: "keep-mine-apart" }, timeoutMs: 120_000 })),
     trust: async (projectId, paths) => requireStatus(await req(`${brain(projectId)}/trust`, { method: "POST", body: { paths }, ...host })),
     repair: async (projectId) => requireStatus(await req(`${brain(projectId)}/repair`, { method: "POST", ...host })),

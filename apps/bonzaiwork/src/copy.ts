@@ -571,6 +571,10 @@ export const copy = {
     conflictTitle: (who: string | null) => (who ? `Jij en ${who} wijzigden hetzelfde` : "Jij en een ander wijzigden hetzelfde"),
     conflictBody: "Er is niets verloren. Bijwerken wacht tot je kiest; chatten kan gewoon.",
     keepMineApart: "Bewaar mijn versie apart",
+    mergeWithAi: "Laat de AI het samenvoegen",
+    mergeAgain: "Opnieuw met de AI",
+    mergeChatTitle: "Versies samenvoegen",
+    mergingTitle: "Beide versies staan in de notities",
     keptApart: "Je versie staat apart; de map volgt weer het team",
     // Trust card (§7.1).
     trustTitle: "Dit brein brengt onderdelen mee die iets kunnen uitvoeren",
@@ -630,6 +634,7 @@ export const copy = {
     privateRepoLink: "Koppelen",
     privateRepoCloud: "Deze map synchroniseert al via een clouddienst",
     restoreNote: "Zet deze notitie terug",
+    openChat: "Open de chat",
     revertTurn: "Draai deze beurt terug",
     restored: "Teruggezet",
     notABrain: "Dit project is geen gedeeld brein.",

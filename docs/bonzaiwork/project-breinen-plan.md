@@ -987,6 +987,16 @@ Stand fase 2 (bezig):
   in het al gepatchte `managed-opencode-v2.ts`). De UI toont "Mag BonzaiWork in het brein Sales kijken?",
   keurt automatisch één keer goed als de gebruiker het brein zelf noemde of het eerder in dit gesprek
   toestond, en stuurt nooit "altijd" naar de engine. e2e: vraag en daarna lezen met bron, tegen de echte engine.
+- **"Laat de AI het samenvoegen"** gebouwd: de sync voegt de versie van het team samen zonder commit
+  (`git merge --no-commit`), zodat beide versies tussen markeringen in de notities staan; `index.md` en
+  `log.md` regelt hij zelf. De app start een chat "Versies samenvoegen" met een vaste opdracht. Na die
+  beurt rondt de sync de samenvoeging af, maar alleen als geen notitie nog markeringen heeft; anders
+  blijft de kaart staan ("Opnieuw met de AI"). Overleeft een herstart (`MERGE_HEAD`); "Bewaar mijn versie
+  apart" kan ook dan.
+- **Periodiek kijken**: elke 10 minuten haalt de server voor rustige breinen op wat het team deelde
+  (alleen `fetch`); de pil toont dan "2 nieuwe wijzigingen van het team". De map verandert pas vóór de
+  volgende beurt.
+- Geschiedenis: "Open de chat" bij je eigen beurten.
 
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een

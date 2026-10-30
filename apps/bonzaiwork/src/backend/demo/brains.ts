@@ -51,7 +51,7 @@ const SWITCHES: Record<string, Partial<BrainStatus>> = {
 function base(now: number, path: string, kind: BrainStatus["kind"], remote: string | null): BrainStatus & { path: string } {
   return {
     path, kind, state: remote ? "synced" : "local_only", mode: "auto", remote, branch: "main", ahead: 0, behind: 0,
-    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, error: null, pendingTrust: [], unshared: [], warnings: [], excluded: [],
+    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, pendingTrust: [], unshared: [], warnings: [], excluded: [],
   };
 }
 
@@ -112,7 +112,7 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
   const settled = (projectId: string): Partial<BrainStatus> => {
     const current = brain(projectId);
     const state: BrainState = current.remote ? "synced" : "local_only";
-    return { state, ahead: 0, behind: 0, error: null, conflictFiles: [], conflictBy: null, lastSyncAt: Date.now() };
+    return { state, ahead: 0, behind: 0, error: null, conflictFiles: [], conflictBy: null, merging: false, lastSyncAt: Date.now() };
   };
 
   return {
@@ -193,6 +193,18 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
     },
     setMode: async (projectId, mode) => { await later(); return set(projectId, { mode, state: mode === "read_only" ? "read_only" : brain(projectId).remote ? "synced" : "local_only" }); },
     history: async (projectId) => { await later(150); return structuredClone(state.history[projectId] ?? []); },
+    async mergeWithAi(projectId) {
+      await later(600);
+      const current = brain(projectId);
+      const files = current.conflictFiles;
+      const by = current.conflictBy ?? "een collega";
+      // The demo has no engine to merge with: the chat runs, and the brain counts as merged.
+      const status = set(projectId, settled(projectId));
+      return {
+        prompt: `In dit brein wijzigden jij en ${by} tegelijk dezelfde notities. In deze bestanden staan nu beide versies:\n${files.map((file) => `- \`${file}\``).join("\n")}\n\nVoeg per bestand de twee versies samen tot één goede tekst. Verlies geen informatie.`,
+        status,
+      };
+    },
     async keepMineApart(projectId) {
       await later(900);
       return set(projectId, settled(projectId));

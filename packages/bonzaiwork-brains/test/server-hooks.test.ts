@@ -139,3 +139,28 @@ test("bijwerken wacht niet op een andere lopende chat, en een onbekend project i
   expect((await call("/bonzaiwork/brains/other/status")).status).toBe(404);
   expect((await call("/bonzaiwork/brains/check-remote", { method: "POST", body: { url: "https://gitlab.com/x" } })).body.code).toBe("link_invalid");
 });
+
+test("rustige breinen kijken af en toe naar het team; een lopende chat wacht", async () => {
+  world = await createWorld();
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, fetchEveryMs: 60, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+  const host = fakeHost();
+  await hooks.start(host);
+  const folder = join(world.root, "Sales");
+  const cloned = await call("/bonzaiwork/brains/clone", { method: "POST", body: { url: world.url, folderPath: folder } });
+  const jobId = String(cloned.body.jobId);
+  await until(async () => (await call(`/bonzaiwork/brains/jobs/${jobId}`)).body.state === "done", "clone");
+  host.workspaceList = [{ id: "ws", path: folder }];
+  await call("/bonzaiwork/brains/ws", { method: "PUT", body: { jobId } });
+
+  host.running = ["ses_busy"];
+  await world.seed({ "knowledge/nieuw.md": "nieuw\n" });
+  await Bun.sleep(250);
+  expect((await call("/bonzaiwork/brains/ws/status")).body).toMatchObject({ behind: 0 });
+  host.running = [];
+  await until(async () => (await call("/bonzaiwork/brains/ws/status")).body.behind === 1, "periodic fetch");
+  // Only looked: the folder changes before the next turn, not now.
+  expect(existsSync(join(folder, "knowledge/nieuw.md"))).toBe(false);
+
+  expect((await call("/bonzaiwork/brains/ws/resolve", { method: "POST", body: { strategy: "ai" } })).body).toMatchObject({ prompt: null, files: [] });
+  expect((await call("/bonzaiwork/brains/ws/resolve", { method: "POST", body: { strategy: "other" } })).status).toBe(400);
+});

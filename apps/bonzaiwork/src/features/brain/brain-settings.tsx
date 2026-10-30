@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Ellipsis } from "lucide-react";
+import { Ellipsis, MessageSquare } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { useBrain, useBrainHistory, useStatus } from "~/backend/queries";
+import { useBrain, useBrainAuthor, useBrainHistory, useStatus } from "~/backend/queries";
 import type { BrainMode, Project } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/field";
@@ -12,6 +12,7 @@ import { ConfirmDialog } from "~/components/ui/overlay";
 import { Select } from "~/components/ui/select";
 import { copy } from "~/copy";
 import { formatDateTime, relativeTime } from "~/lib/format";
+import { navigate } from "~/lib/router";
 import { fileName } from "~/lib/tools";
 
 import { useBrainAction } from "./actions";
@@ -21,7 +22,10 @@ const MODES: BrainMode[] = ["auto", "manual", "read_only"];
 
 function History(props: { projectId: string }) {
   const history = useBrainHistory(props.projectId);
+  const author = useBrainAuthor();
   const { busy, run, brains } = useBrainAction(props.projectId);
+  // A chat only exists on the laptop of whoever had it: link one's own turns only.
+  const me = author.data?.author?.name ?? author.data?.suggested?.name ?? null;
   if (history.isLoading) return <Skeleton className="my-3 h-24 w-full" />;
   const entries = history.data ?? [];
   if (!entries.length) return <p className="py-3 text-sm text-muted-foreground">{copy.brain.historyEmpty}</p>;
@@ -34,6 +38,11 @@ function History(props: { projectId: string }) {
           hint={`${entry.author}, ${relativeTime(entry.at)}${entry.files.length ? `: ${entry.files.slice(0, 3).map(fileName).join(", ")}` : ""}`}
           action={
             <Menu align="end" trigger={<Button variant="quiet" size="icon-sm" aria-label={copy.brain.history} disabled={busy !== null}><Ellipsis /></Button>}>
+              {entry.chatId && entry.author === me ? (
+                <MenuItem icon={<MessageSquare />} onClick={() => navigate({ name: "project", projectId: props.projectId, chatId: entry.chatId })}>
+                  {copy.brain.openChat}
+                </MenuItem>
+              ) : null}
               {entry.files.filter((file) => file.endsWith(".md")).slice(0, 8).map((file) => (
                 <MenuItem key={file} onClick={() => void run("restore", () => brains.restore(props.projectId, entry.commit, file), copy.brain.restored)}>
                   {copy.brain.restoreNote}: {fileName(file)}

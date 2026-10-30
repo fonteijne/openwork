@@ -3,14 +3,17 @@ import { useState, type ReactNode } from "react";
 import { GitMerge, ShieldQuestion, UserRoundPen } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, useBrain, useProposals } from "~/backend/queries";
+import { keys, startModel, useBrain, useProject, useProposals, useStatus } from "~/backend/queries";
 import type { PreferenceProposal, TrustItem } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/field";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
+import { navigate } from "~/lib/router";
 import { fileName } from "~/lib/tools";
+
+import { useRuntime } from "../project/runtime";
 
 import { useBrainAction } from "./actions";
 
@@ -30,18 +33,42 @@ function Card(props: { icon: ReactNode; title: string; body: ReactNode; actions:
   );
 }
 
-/** Plan §4.5: nothing is lost; the user's version can go to a branch of its own. */
+/**
+ * "Laat de AI het samenvoegen" (plan §4.5): both versions go into the notes and
+ * a new chat merges them with a fixed instruction; that turn's end shares it.
+ */
+function useMergeWithAi(projectId: string) {
+  const backend = useBackend();
+  const runtime = useRuntime();
+  const status = useStatus();
+  const { project } = useProject(projectId);
+  const { run } = useBrainAction(projectId);
+  return () => run("merge", async () => {
+    const { prompt } = await backend.brains.mergeWithAi(projectId);
+    const model = startModel(status.data, project);
+    if (!prompt || !model) return;
+    const chat = await backend.chats.create(projectId, { model });
+    runtime.upsertChat({ ...chat, title: copy.brain.mergeChatTitle, untitled: false });
+    runtime.addLocalMessage(chat.id, prompt, []);
+    navigate({ name: "project", projectId, chatId: chat.id });
+    await backend.chats.send(projectId, chat.id, { text: prompt, model, agent: null, attachments: [], command: null, skills: [] });
+  });
+}
+
+/** Plan §4.5: nothing is lost; the AI merges, or the user's version goes to a branch of its own. */
 export function ConflictCard(props: { projectId: string }) {
   const brain = useBrain(props.projectId);
   const { busy, run, brains } = useBrainAction(props.projectId);
+  const merge = useMergeWithAi(props.projectId);
   if (brain?.status.state !== "conflict") return null;
+  const merging = brain.status.merging;
   const files = brain.status.conflictFiles.map((file) => fileName(file));
   return (
     <Card
       testId="brain-conflict"
-      label={copy.brain.conflictTitle(brain.status.conflictBy)}
+      label={merging ? copy.brain.mergingTitle : copy.brain.conflictTitle(brain.status.conflictBy)}
       icon={<GitMerge />}
-      title={copy.brain.conflictTitle(brain.status.conflictBy)}
+      title={merging ? copy.brain.mergingTitle : copy.brain.conflictTitle(brain.status.conflictBy)}
       body={
         <>
           {files.length ? (
@@ -54,13 +81,18 @@ export function ConflictCard(props: { projectId: string }) {
               ))}
             </span>
           ) : null}
-          {copy.brain.conflictBody}
+          {merging ? brain.status.error : copy.brain.conflictBody}
         </>
       }
       actions={
-        <Button variant="primary" disabled={busy !== null} onClick={() => void run("apart", () => brains.keepMineApart(props.projectId), copy.brain.keptApart)}>
-          {copy.brain.keepMineApart}
-        </Button>
+        <>
+          <Button variant="primary" disabled={busy !== null} onClick={() => void merge()}>
+            {merging ? copy.brain.mergeAgain : copy.brain.mergeWithAi}
+          </Button>
+          <Button variant="secondary" disabled={busy !== null} onClick={() => void run("apart", () => brains.keepMineApart(props.projectId), copy.brain.keptApart)}>
+            {copy.brain.keepMineApart}
+          </Button>
+        </>
       }
     />
   );
