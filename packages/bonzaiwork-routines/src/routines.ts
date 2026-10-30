@@ -53,6 +53,8 @@ export type RoutinesHost = {
   workspaces(): Array<{ id: string; path: string }>;
   engineRequest(workspaceId: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   onSessionActivity(listener: (activity: Activity) => void): () => void;
+  /** Chats running in a workspace now, or null when the engine cannot say. */
+  runningSessions?(workspaceId: string): Promise<string[] | null>;
   log(level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>): void;
 };
 
@@ -112,6 +114,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
   let permissionTimer: ReturnType<typeof setInterval> | null = null;
   let stopActivity: (() => void) | null = null;
   const live = new Map<string, { run: RoutineRun; routine: Routine }>();
+  let ticking = false;
   let saving: Promise<void> = Promise.resolve();
 
   async function load(): Promise<void> {
@@ -226,20 +229,42 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
     return run;
   }
 
+  /** A run whose end event was missed (engine restart) is closed, so it never counts as running for good. */
+  async function pruneLive(): Promise<void> {
+    for (const [sessionId, entry] of live) {
+      if (!host?.runningSessions || (entry.run.startedAt ?? 0) > now() - 60_000) continue;
+      const running = await host.runningSessions(entry.routine.workspaceId).catch(() => null);
+      if (!running || running.includes(sessionId)) continue;
+      live.delete(sessionId);
+      entry.run.status = "failed";
+      entry.run.finishedAt = now();
+      entry.run.error = "Het einde van deze run kwam niet binnen; open de chat om te zien hoe ver hij kwam.";
+    }
+  }
+
   /** The clock: due routines run; one that fell while the app was closed is recorded as missed. */
   async function tick(): Promise<void> {
-    const at = now();
-    for (const routine of routines) {
-      if (routine.state !== "active" || routine.nextRunAt === null || routine.nextRunAt > at) continue;
-      const due = routine.nextRunAt;
-      if (at - due > MISSED_AFTER_MS) {
-        addRun({ id: `run_${randomBytes(6).toString("hex")}`, routineId: routine.id, trigger: "scheduled", status: "skipped", skippedReason: "app_closed", chatId: null, scheduledAt: due, startedAt: null, finishedAt: null, error: null });
-      } else {
-        await start(routine, "scheduled", due);
+    // One tick at a time, and the next time is set before a run starts: a slow engine never makes
+    // the next tick start the same routine again (review #5).
+    if (ticking) return;
+    ticking = true;
+    try {
+      await pruneLive();
+      const at = now();
+      for (const routine of routines) {
+        if (routine.state !== "active" || routine.nextRunAt === null || routine.nextRunAt > at) continue;
+        const due = routine.nextRunAt;
+        schedule(routine, Math.max(at, due));
+        if (at - due > MISSED_AFTER_MS) {
+          addRun({ id: `run_${randomBytes(6).toString("hex")}`, routineId: routine.id, trigger: "scheduled", status: "skipped", skippedReason: "app_closed", chatId: null, scheduledAt: due, startedAt: null, finishedAt: null, error: null });
+        } else {
+          void start(routine, "scheduled", due);
+        }
       }
-      schedule(routine, Math.max(at, due));
+      await save();
+    } finally {
+      ticking = false;
     }
-    await save();
   }
 
   function onActivity(activity: Activity): void {
@@ -277,6 +302,13 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
 
   const find = (id: string) => routines.find((routine) => routine.id === id) ?? null;
 
+  // Changing routines needs the host token (the desktop app), never a viewer token, and nothing
+  // changes on a read-only device (review #5). The preview only computes.
+  const writable = (route: Route): Route => (route.method === "GET" || route.path.endsWith("/preview") ? route : {
+    ...route,
+    handle: (request, params) => (host?.readOnly ? Promise.resolve(failure(403, "read_only", "This device is read-only.")) : route.handle(request, params)),
+  });
+
   const routes: Route[] = [
     {
       method: "GET", path: "/bonzaiwork/routines", auth: "client",
@@ -286,7 +318,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
       },
     },
     {
-      method: "POST", path: "/bonzaiwork/routines", auth: "client",
+      method: "POST", path: "/bonzaiwork/routines", auth: "host-token",
       handle: async (request) => {
         if (host?.readOnly) return failure(403, "read_only", "This device is read-only.");
         const parsed = input((await readBody(request)) ?? {}, null);
@@ -306,7 +338,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
       },
     },
     {
-      method: "PATCH", path: "/bonzaiwork/routines/:routineId", auth: "client",
+      method: "PATCH", path: "/bonzaiwork/routines/:routineId", auth: "host-token",
       handle: async (request, params) => {
         const routine = find(params.routineId ?? "");
         if (!routine) return failure(404, "routine_not_found", "Routine not found.");
@@ -319,7 +351,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
       },
     },
     {
-      method: "DELETE", path: "/bonzaiwork/routines/:routineId", auth: "client",
+      method: "DELETE", path: "/bonzaiwork/routines/:routineId", auth: "host-token",
       handle: async (_request, params) => {
         routines = routines.filter((routine) => routine.id !== params.routineId);
         runs = runs.filter((run) => run.routineId !== params.routineId);
@@ -328,7 +360,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
       },
     },
     {
-      method: "POST", path: "/bonzaiwork/routines/:routineId/run", auth: "client",
+      method: "POST", path: "/bonzaiwork/routines/:routineId/run", auth: "host-token",
       handle: async (_request, params) => {
         const routine = find(params.routineId ?? "");
         if (!routine) return failure(404, "routine_not_found", "Routine not found.");
@@ -342,7 +374,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
   ];
 
   return {
-    routes,
+    routes: routes.map(writable),
     /** Tests: one turn of the clock and of the question check. */
     tick,
     answerBrainQuestions,

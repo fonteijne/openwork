@@ -94,17 +94,21 @@ test("clone, registreren, een beurt en delen na de stille periode", async () => 
   // UserPromptSubmit, then a turn with a sub-task, then quiet.
   const pulled = await call("/bonzaiwork/brains/ws_sales/pull", { method: "POST", body: { sessionId: "ses_1" } });
   expect(pulled.body.waited).toBe("updated");
+  // The engine's own list follows the turn: idle pruning must not drop a chat that still runs.
+  host.running = ["ses_1", "ses_child"];
   host.emit({ workspaceId: "ws_sales", sessionId: "ses_1", state: "running" });
   host.emit({ workspaceId: "ws_sales", sessionId: "ses_child", state: "running" });
   await mkdir(join(folder, "knowledge"), { recursive: true });
   await writeFile(join(folder, "knowledge/offerte.md"), "Offerte\n");
+  host.running = ["ses_child"];
   host.emit({ workspaceId: "ws_sales", sessionId: "ses_1", state: "idle", outcome: "succeeded" });
   await Bun.sleep(150);
   expect((await world.git.run(["show", "main:knowledge/offerte.md"], { cwd: world.bare })).exitCode).not.toBe(0);
+  host.running = [];
   host.emit({ workspaceId: "ws_sales", sessionId: "ses_child", state: "idle", outcome: "succeeded" });
   await until(async () => (await world.git.run(["show", "main:knowledge/offerte.md"], { cwd: world.bare })).exitCode === 0, "shared");
   const head = await world.git.ok(["log", "-1", "--format=%an|%s|%(trailers:key=BonzaiWork-Chat,valueonly)", "main"], { cwd: world.bare });
-  expect(head.trim()).toBe("Anna|Offerte maken|ses_child");
+  expect(head.trim()).toBe("Anna|Offerte maken|ses_1");
 
   const history = await call("/bonzaiwork/brains/ws_sales/history");
   const entries = history.body.entries;

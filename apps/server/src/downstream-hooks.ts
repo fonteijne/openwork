@@ -268,7 +268,8 @@ function createSessionActivityFeed(
             const decoder = new TextDecoder();
             let buffer = "";
             for await (const chunk of response.body) {
-              buffer += decoder.decode(chunk, { stream: true });
+              // SSE allows CRLF line ends; the whole buffer, so a pair split over two chunks joins too.
+              buffer = (buffer + decoder.decode(chunk, { stream: true })).replace(/\r\n/g, "\n");
               for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
                 const data = buffer.slice(0, end).split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5)).join("\n");
                 buffer = buffer.slice(end + 2);

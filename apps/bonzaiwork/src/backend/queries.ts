@@ -25,6 +25,8 @@ export const keys = {
   entries: (projectId: string) => ["composer", projectId, "entries"] as const,
   brains: ["brains"] as const,
   brainHistory: (projectId: string) => ["brains", projectId, "history"] as const,
+  // Under "brains": every brain action refreshes it (adopt, publish).
+  brainCandidate: (projectId: string) => ["brains", projectId, "candidate"] as const,
   concept: (projectId: string, path: string) => ["brains", projectId, "concept", path] as const,
   proposals: ["brain-proposals"] as const,
   brainAuthor: ["brain-author"] as const,

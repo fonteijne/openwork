@@ -38,17 +38,17 @@ function Card(props: { icon: ReactNode; title: string; body: ReactNode; actions:
 function useMergeWithAi(projectId: string) {
   const backend = useBackend();
   const startChat = useStartChat(projectId);
-  const { run } = useBrainAction(projectId);
-  return () => run("merge", async () => {
+  return async () => {
     const { prompt } = await backend.brains.mergeWithAi(projectId);
     if (prompt) await startChat({ title: copy.brain.mergeChatTitle, prompt });
-  });
+  };
 }
 
 /** Plan §4.5: nothing is lost; the AI merges, or the user's version goes to a branch of its own. */
 export function ConflictCard(props: { projectId: string }) {
   const brain = useBrain(props.projectId);
   const { busy, run, brains } = useBrainAction(props.projectId);
+  // One busy flag for both buttons (review): the merge runs through the card's own action.
   const merge = useMergeWithAi(props.projectId);
   if (brain?.status.state !== "conflict") return null;
   const merging = brain.status.merging;
@@ -76,7 +76,7 @@ export function ConflictCard(props: { projectId: string }) {
       }
       actions={
         <>
-          <Button variant="primary" disabled={busy !== null} onClick={() => void merge()}>
+          <Button variant="primary" disabled={busy !== null} onClick={() => void run("merge", merge)}>
             {merging ? copy.brain.mergeAgain : copy.brain.mergeWithAi}
           </Button>
           <Button variant="secondary" disabled={busy !== null} onClick={() => void run("apart", () => brains.keepMineApart(props.projectId), copy.brain.keptApart)}>

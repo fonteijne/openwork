@@ -29,7 +29,7 @@ type Request = (path: string, options?: RequestOptions) => Promise<unknown>;
 
 const STATES: readonly BrainState[] = ["synced", "syncing", "behind", "ahead", "offline", "conflict", "read_only", "local_only", "needs_trust", "error"];
 const MODES: readonly BrainMode[] = ["auto", "manual", "read_only", "proposal"];
-const TRUST_KINDS: readonly TrustItem["kind"][] = ["config", "plugin", "agent", "command", "script"];
+const TRUST_KINDS: readonly TrustItem["kind"][] = ["config", "plugin", "agent", "command", "script", "link"];
 const PROBLEMS: readonly RemoteProblem[] = ["host_unknown", "host_changed", "no_access", "key_locked", "not_found", "read_only", "rejected", "unreachable", "offline", "ssh_missing", "unknown"];
 const TIERS: readonly ConceptView["tier"][] = ["unverified", "machine", "human", "human_before_change"];
 const STATUSES: readonly ConceptView["status"][] = ["draft", "stable", "deprecated"];
@@ -194,9 +194,10 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
       if (!jobId) throw new BackendError("invalid_response", "De server startte het ophalen niet.");
       return { jobId, folderPath };
     },
-    async job(jobId) {
+    async job(jobId, signal) {
       // The clone runs on the server; poll briefly so the dialog can keep its place (P11).
       for (;;) {
+        signal?.throwIfAborted();
         const payload = await req(`/bonzaiwork/brains/jobs/${enc(jobId)}`, host);
         const state = str(payload, "state");
         if (state === "done" || state === "failed") {
@@ -210,10 +211,10 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     reads: async (projectId) => strings(field(await req(`${brain(projectId)}/reads`), "brains")),
     setReads: async (projectId, brains) => strings(field(await req(`${brain(projectId)}/reads`, { method: "PUT", body: { brains }, ...host }), "brains")),
     workflows: async (projectId) => readWorkflows(await req(`${brain(projectId)}/workflows`)),
-    startStage: async (projectId, workflow, stage) => readChatStart(await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/start`, { method: "POST", body: {} })),
-    checkStage: async (projectId, workflow, stage, verdict, reason) => void (await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/check`, { method: "POST", body: { verdict, ...(reason ? { reason } : {}) } })),
-    modelCheck: async (projectId, workflow, stage) => readChatStart(await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/check`, { method: "POST", body: { model: true } })),
-    newRun: async (projectId, workflow, subject) => void (await req(`${brain(projectId)}/workflows/${enc(workflow)}/runs`, { method: "POST", body: { subject } })),
+    startStage: async (projectId, workflow, stage) => readChatStart(await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/start`, { method: "POST", body: {}, ...host })),
+    checkStage: async (projectId, workflow, stage, verdict, reason) => void (await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/check`, { method: "POST", body: { verdict, ...(reason ? { reason } : {}) }, ...host })),
+    modelCheck: async (projectId, workflow, stage) => readChatStart(await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/check`, { method: "POST", body: { model: true }, ...host })),
+    newRun: async (projectId, workflow, subject) => void (await req(`${brain(projectId)}/workflows/${enc(workflow)}/runs`, { method: "POST", body: { subject }, ...host })),
     async candidate(projectId): Promise<BrainCandidate> {
       const repository = field(await req(`${brain(projectId)}/candidate`, host), "repository");
       return { repository: rec(repository) ? { remote: str(repository, "remote") ?? null, branch: str(repository, "branch") ?? null, ssh: field(repository, "ssh") === true } : null };
@@ -221,22 +222,25 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     adopt: async (projectId) => requireStatus(await req(`${brain(projectId)}/adopt`, { method: "POST", body: {}, ...host, timeoutMs: 120_000 })),
     publish: async (projectId, url, name) => requireStatus(await req(`${brain(projectId)}/publish`, { method: "POST", body: { url, name }, ...host, timeoutMs: 120_000 })),
     setUp: async (projectId, input) => requireStatus(await req(`${brain(projectId)}/setup`, { method: "POST", body: input, ...host, timeoutMs: 120_000 })),
-    prepare: async (projectId, chatId) => void (await req(`${brain(projectId)}/pull`, { method: "POST", body: { sessionId: chatId }, timeoutMs: 15_000 })),
-    share: async (projectId) => requireStatus(await req(`${brain(projectId)}/sync`, { method: "POST", timeoutMs: 120_000 })),
+    async prepare(projectId, chatId) {
+      const waited = str(await req(`${brain(projectId)}/pull`, { method: "POST", body: { sessionId: chatId }, timeoutMs: 15_000, ...host }), "waited");
+      return waited === "fetched" || waited === "timeout" ? waited : "updated";
+    },
+    share: async (projectId) => requireStatus(await req(`${brain(projectId)}/sync`, { method: "POST", timeoutMs: 120_000, ...host })),
     setMode: async (projectId, mode) => requireStatus(await req(brain(projectId), { method: "PUT", body: { mode }, ...host })),
     history: async (projectId) => readHistory(await req(`${brain(projectId)}/history`)),
     async mergeWithAi(projectId) {
-      const payload = await req(`${brain(projectId)}/resolve`, { method: "POST", body: { strategy: "ai" }, timeoutMs: 120_000 });
+      const payload = await req(`${brain(projectId)}/resolve`, { method: "POST", body: { strategy: "ai" }, timeoutMs: 120_000, ...host });
       return { prompt: str(payload, "prompt") ?? null, status: requireStatus(payload) };
     },
-    keepMineApart: async (projectId) => requireStatus(await req(`${brain(projectId)}/resolve`, { method: "POST", body: { strategy: "keep-mine-apart" }, timeoutMs: 120_000 })),
+    keepMineApart: async (projectId) => requireStatus(await req(`${brain(projectId)}/resolve`, { method: "POST", body: { strategy: "keep-mine-apart" }, timeoutMs: 120_000, ...host })),
     trust: async (projectId, paths) => requireStatus(await req(`${brain(projectId)}/trust`, { method: "POST", body: { paths }, ...host })),
     repair: async (projectId) => requireStatus(await req(`${brain(projectId)}/repair`, { method: "POST", ...host })),
     setExcluded: async (projectId, folders) => requireStatus(await req(`${brain(projectId)}/excluded`, { method: "PUT", body: { folders }, ...host })),
     attachRemote: async (projectId, url) => requireStatus(await req(`${brain(projectId)}/remote`, { method: "POST", body: { url }, ...host, timeoutMs: 120_000 })),
-    restore: async (projectId, commit, path) => requireStatus(await req(`${brain(projectId)}/restore`, { method: "POST", body: path ? { commit, path } : { commit } })),
+    restore: async (projectId, commit, path) => requireStatus(await req(`${brain(projectId)}/restore`, { method: "POST", body: path ? { commit, path } : { commit }, ...host })),
     concept: async (projectId, path) => readConcept(field(await req(`${brain(projectId)}/concept?path=${enc(path)}`), "concept")),
-    verify: async (projectId, path) => readConcept(field(await req(`${brain(projectId)}/verify`, { method: "POST", body: { path } }), "concept")),
+    verify: async (projectId, path) => readConcept(field(await req(`${brain(projectId)}/verify`, { method: "POST", body: { path }, ...host }), "concept")),
     async author() {
       const payload = await req("/bonzaiwork/brains/settings");
       const read = (key: string) => {
@@ -249,6 +253,6 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     },
     setAuthor: async (author) => void (await req("/bonzaiwork/brains/settings", { method: "PUT", body: author, ...host })),
     proposals: async () => readProposals(await req("/bonzaiwork/brains/proposals")),
-    decide: async (proposalId, decision, text) => void (await req(`/bonzaiwork/brains/proposals/${enc(proposalId)}`, { method: "POST", body: { decision, ...(text ? { text } : {}) } })),
+    decide: async (proposalId, decision, text) => void (await req(`/bonzaiwork/brains/proposals/${enc(proposalId)}`, { method: "POST", body: { decision, ...(text ? { text } : {}) }, ...host })),
   };
 }

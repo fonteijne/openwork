@@ -4,7 +4,7 @@
  * fase 0 §6.2–§6.3). The engine loads these the moment they are on disk, so
  * they are excluded with sparse-checkout before any checkout or update.
  */
-export type TrustKind = "config" | "plugin" | "agent" | "command" | "script";
+export type TrustKind = "config" | "plugin" | "agent" | "command" | "script" | "link";
 
 export type TrustItem = {
   path: string;
@@ -17,13 +17,23 @@ export type TrustItem = {
 
 const CONFIG_FILES = new Set(["opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"]);
 
+/** Case does not matter: on macOS and Windows `.OpenCode/Plugins/x.js` is the same file. */
 export function riskKind(path: string): TrustKind | null {
-  if (CONFIG_FILES.has(path)) return "config";
-  if (/^\.opencode\/plugins?\//.test(path)) return "plugin";
-  if (/^\.opencode\/agents?\//.test(path)) return "agent";
-  if (/^\.opencode\/commands?\/.+\.md$/.test(path)) return "command";
-  if (/^_tools\//.test(path)) return "script";
+  const lower = path.toLowerCase();
+  if (CONFIG_FILES.has(lower)) return "config";
+  if (/^\.opencode\/plugins?\//.test(lower)) return "plugin";
+  if (/^\.opencode\/agents?\//.test(lower)) return "agent";
+  if (/^\.opencode\/commands?\/.+\.md$/.test(lower)) return "command";
+  if (/^_tools\//.test(lower)) return "script";
   return null;
+}
+
+/**
+ * A name that sparse-checkout cannot exclude for certain (a newline, or white space at the end of a
+ * part, which git trims from patterns): such a brain is not checked out at all.
+ */
+export function unsafePath(path: string): boolean {
+  return /[\r\n]/.test(path) || path.split("/").some((part) => /[ \t]$/.test(part));
 }
 
 /** A command template runs shell without asking when it contains !`…` (fase 0 §6.2). */
@@ -52,13 +62,15 @@ export function mcpServerNames(content: string): string[] {
   return Object.keys(servers).filter((name) => name !== "timeout" && name !== "servers").sort();
 }
 
-export type TreeEntry = { path: string; blob: string };
+/** `mode` 120000 is a symlink: one could point `.opencode` at a folder of plugins (review #5). */
+export type TreeEntry = { path: string; blob: string; mode?: string };
 
 /** The items in a tree that need the user's decision; commands only when they run shell. */
 export async function findTrustItems(entries: readonly TreeEntry[], read: (blob: string) => Promise<string>): Promise<TrustItem[]> {
   const items: TrustItem[] = [];
   for (const entry of entries) {
-    const kind = riskKind(entry.path);
+    // Every symlink waits for the user, wherever it is: the paths above only see what the link is called.
+    const kind = entry.mode === "120000" ? "link" : riskKind(entry.path);
     if (!kind) continue;
     if (kind === "command" && !commandRunsShell(await read(entry.blob))) continue;
     const mcpServers = kind === "config" ? mcpServerNames(await read(entry.blob)) : undefined;
@@ -94,6 +106,7 @@ export const LOCAL_EXCLUDES = [
   ".DS_Store",
   "Thumbs.db",
   "/workflows/**/output/",
+  "/_bewaard/",
   "/workflows/**/check.md",
   "/workflows/*/_runs/",
   "/.opencode/plugin/",

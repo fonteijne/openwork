@@ -31,8 +31,13 @@ describe("reading another brain", () => {
       ]),
     ];
     expect(brainOfRequest(request, messages)).toBe("Sales");
-    expect(userNamedBrain("Sales", messages)).toBe(false);
-    expect(userNamedBrain("Sales", [message("user", [{ type: "text", id: "t", text: "Kijk in het sales-brein" }])])).toBe(true);
+    expect(userNamedBrain(["Sales"], messages)).toBe(false);
+    const said = (text: string) => [message("user", [{ type: "text", id: "t", text }])];
+    expect(userNamedBrain(["Sales"], said("Kijk in het sales-brein"))).toBe(true);
+    expect(userNamedBrain(["Offertes 2026", "sales"], said("Wat staat er in Offertes 2026?"))).toBe(true);
+    // Whole words, at least three letters (review #5): "HR" is never found in "schrijf".
+    expect(userNamedBrain(["HR"], said("schrijf een mail"))).toBe(false);
+    expect(userNamedBrain(["Sales"], said("wholesalesprijzen"))).toBe(false);
   });
 
   it("says in words what was read, and where", () => {

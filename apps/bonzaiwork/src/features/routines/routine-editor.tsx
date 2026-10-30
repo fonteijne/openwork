@@ -88,7 +88,7 @@ export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value
             onClick={() => setKind(kind)}
             className={cn(
               "h-8 rounded-full px-3 text-sm text-muted-foreground transition-colors duration-100 hover:text-foreground pointer-coarse:h-10",
-              value.kind === kind && "bg-background font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+              value.kind === kind && "bg-background font-medium text-foreground shadow-card",
             )}
           >
             {copy.routines.kinds[kind]}

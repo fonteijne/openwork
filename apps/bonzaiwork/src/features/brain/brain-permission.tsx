@@ -7,7 +7,7 @@ import { Button } from "~/components/ui/button";
 import { copy } from "~/copy";
 import { readLocalJson, writeLocalJson } from "~/lib/storage";
 
-import { brainIdByName } from "./brain-picker";
+import { brainIdByName, brainName } from "./brain-picker";
 
 const KEY = "bonzaiwork.brainReads";
 
@@ -31,13 +31,21 @@ export function brainOfRequest(request: PermissionRequest, messages: readonly Me
   return null;
 }
 
-/** The user asked for it themselves: the last thing they wrote names the brain (N2). */
-export function userNamedBrain(brain: string, messages: readonly Message[]): boolean {
+/**
+ * The user asked for it themselves: the last thing they wrote names the brain (N2), as a whole word
+ * and by one of its real names (project or folder), never by what the model called it: "HR" must
+ * not match "schrijf" (review #5).
+ */
+export function userNamedBrain(names: readonly string[], messages: readonly Message[]): boolean {
   const last = [...messages].reverse().find((message) => message.role === "user");
   if (!last) return false;
-  const text = last.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(" ").toLowerCase();
-  const name = brain.toLowerCase().replace(/[-_ ]?brein$/, "").trim();
-  return name.length > 1 && text.includes(name);
+  const text = last.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(" ");
+  return names.some((raw) => {
+    const name = raw.trim().replace(/[-_ ]?brein$/i, "").trim();
+    if (name.length < 3) return false;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}($|[^\\p{L}\\p{N}])`, "iu").test(text);
+  });
 }
 
 function allowedInChat(chatId: string): string[] {
@@ -71,14 +79,17 @@ export function BrainPermissionCard(props: { projectId: string; request: Permiss
   const projects = useProjects();
   const [busy, setBusy] = useState(false);
   const brain = brainOfRequest(props.request, props.messages);
-  const automatic = brain !== null && (userNamedBrain(brain, props.messages) || allowedInChat(props.request.chatId).includes(brain.toLowerCase()));
+  const brainId = brain ? brainIdByName(brain, brains.data ?? [], projects.data) : null;
+  const known = (brains.data ?? []).find((entry) => entry.projectId === brainId) ?? null;
+  const names = known ? [brainName(known, projects.data), known.path.split(/[\\/]/).filter(Boolean).at(-1) ?? ""] : [];
+  const automatic = brainId !== null && (userNamedBrain(names, props.messages) || allowedInChat(props.request.chatId).includes(brainId));
   const answered = useRef(false);
 
   const reply = async (value: PermissionReply, always = false) => {
     if (busy || answered.current) return;
     answered.current = true;
     setBusy(true);
-    if (always && brain) allowInChat(props.request.chatId, brain);
+    if (always && brainId) allowInChat(props.request.chatId, brainId);
     try {
       await props.onReply(value);
     } finally {
@@ -92,7 +103,6 @@ export function BrainPermissionCard(props: { projectId: string; request: Permiss
 
   if (automatic) return null;
   // A brain this project may always consult: the server allows it (Projectinstellingen → Brein).
-  const brainId = brain ? brainIdByName(brain, brains.data ?? [], projects.data) : null;
   if (brainId && reads.data?.includes(brainId)) return null;
   const name = brain ?? copy.brain.otherBrain;
   return (

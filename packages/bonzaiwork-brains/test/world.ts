@@ -19,7 +19,7 @@ export type World = {
   seed(files: Record<string, string>, message?: string): Promise<void>;
   /** Raw git in a scratch clone (for force-pushes and other things BonzaiWork never does). */
   raw(args: readonly string[], cwd?: string): Promise<GitResult>;
-  user(name: string, options?: { mode?: BrainMode; git?: Git; retryDelaysMs?: number[]; sizeLimitBytes?: number; proposals?: ProposalService }): Promise<User>;
+  user(name: string, options?: { mode?: BrainMode; git?: Git; retryDelaysMs?: number[]; sizeLimitBytes?: number; proposals?: ProposalService; busy?: () => Promise<boolean> }): Promise<User>;
   dispose(): Promise<void>;
 };
 
@@ -72,6 +72,7 @@ export async function createWorld(options: { empty?: boolean } = {}): Promise<Wo
         retryDelaysMs: userOptions.retryDelaysMs ?? [60_000],
         ...(userOptions.sizeLimitBytes ? { sizeLimitBytes: userOptions.sizeLimitBytes } : {}),
         ...(userOptions.proposals ? { proposals: userOptions.proposals } : {}),
+        ...(userOptions.busy ? { busy: userOptions.busy } : {}),
       });
       await sync.open();
       return {

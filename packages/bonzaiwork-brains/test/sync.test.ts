@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { BrainCloneError, BrainSync } from "../src/sync.ts";
@@ -83,6 +83,50 @@ describe("conflict", () => {
   });
 });
 
+describe("niet vastgelegde wijzigingen bij bijwerken (review #5)", () => {
+  test("alleen lezen: een lokale wijziging blijft staan en de status zegt waarom er niet bijgewerkt is", async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/a.md": "a\n" });
+    const reader = await world.user("Lezer", { mode: "read_only" });
+    await reader.write("knowledge/a.md", "mijn aantekening\n");
+    await world.seed({ "knowledge/a.md": "a van het team\n" });
+    const status = await reader.sync.prepareTurn();
+    expect(status.state).toBe("error");
+    expect(status.error).toContain("knowledge/a.md");
+    expect(await readFile(join(reader.path, "knowledge/a.md"), "utf8")).toBe("mijn aantekening\n");
+    expect((await world.git.ok(["status", "--porcelain"], { cwd: reader.path })).trim()).toBe("M knowledge/a.md");
+    // Put back: the next update goes through.
+    await reader.write("knowledge/a.md", "a\n");
+    expect((await reader.sync.prepareTurn()).state).toBe("read_only");
+    expect(await readFile(join(reader.path, "knowledge/a.md"), "utf8")).toBe("a van het team\n");
+  });
+});
+
+describe("Bewaar mijn versie apart verliest niets (review #5)", () => {
+  test("wat na het conflict getypt is gaat mee; wat niet vast te leggen is, staat in _bewaard/", async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/korting.md": "10%\n", "groot.bin": "klein\n" });
+    const a = await world.user("Anna");
+    const b = await world.user("Bram", { sizeLimitBytes: 64 });
+    await a.write("knowledge/korting.md", "15%\n");
+    await a.sync.finishTurn({ title: "A", chatId: "a" });
+    await b.write("knowledge/korting.md", "20%\n");
+    expect((await b.sync.finishTurn({ title: "B", chatId: "b" })).status.state).toBe("conflict");
+    // After the conflict, Bram keeps working in Obsidian, and a tracked file grows too large to record.
+    await b.write("knowledge/nieuw.md", "Na het conflict\n");
+    await b.write("groot.bin", "x".repeat(200));
+    const apart = await b.sync.keepMineApart();
+    expect(apart.branch).not.toBeNull();
+    const branch = apart.branch ?? "";
+    expect(await world.git.ok(["show", `${branch}:knowledge/nieuw.md`], { cwd: world.bare })).toBe("Na het conflict\n");
+    expect(await world.git.ok(["show", `${branch}:knowledge/korting.md`], { cwd: world.bare })).toBe("20%\n");
+    const kept = apart.status.warnings.find((warning) => warning.includes("_bewaard/")) ?? "";
+    const folder = /(_bewaard\/[^/ ]+)\//.exec(kept)?.[1] ?? "";
+    expect(await readFile(join(b.path, folder, "groot.bin"), "utf8")).toBe("x".repeat(200));
+    expect(await readFile(join(b.path, "groot.bin"), "utf8")).toBe("klein\n");
+  });
+});
+
 describe("Laat de AI het samenvoegen", () => {
   const conflicted = async () => {
     world = await createWorld();
@@ -116,6 +160,11 @@ describe("Laat de AI het samenvoegen", () => {
     expect(early.shared).toBe(false);
     expect(early.status.error).toContain("nog twee versies");
 
+    // A secret in the merged note blocks the merge commit too (review #5).
+    await b.write("knowledge/korting.md", "# Korting\n\nStandaard: 15%\nghp_abcdefghijklmnopqrstuvwxyz0123456789AB\n");
+    const leaked = await b.sync.finishTurn({ title: "Samenvoegen", chatId: "ses_m" });
+    expect(leaked.shared).toBe(false);
+    expect(leaked.status.error).toContain("wachtwoord of sleutel");
     // The chat merged them.
     await b.write("knowledge/korting.md", "# Korting\n\nStandaard: 15%, vaste klanten 20%\n");
     const done = await b.sync.finishTurn({ title: "Samenvoegen", chatId: "ses_m" });
@@ -160,6 +209,36 @@ describe("offline en zonder schrijfrechten", () => {
     expect((await a.sync.status()).state).toBe("synced");
     expect(await onServer(world, "knowledge/trein.md")).toBe("Geschreven in de trein.\n");
     a.sync.dispose();
+  });
+
+  test("handmatig deelt ook na offline niet vanzelf; een retry wacht op een stille map (review #5)", async () => {
+    world = await createWorld();
+    let offline = true;
+    const git = failing(world.git, (args) => offline && (args.includes("push") || args.includes("fetch"))
+      ? fail("ssh: Could not resolve hostname gitlab.com: Name or service not known\nfatal: Could not read from remote repository.") : null);
+    const manual = await world.user("Mia", { git, mode: "manual", retryDelaysMs: [30] });
+    await manual.write("knowledge/m.md", "nog niet delen\n");
+    await manual.sync.finishTurn({ title: "M", chatId: "m" });
+    expect((await manual.sync.prepareTurn()).state).toBe("offline");
+    offline = false;
+    for (let attempt = 0; attempt < 40 && (await manual.sync.status()).state === "offline"; attempt += 1) await Bun.sleep(25);
+    await Bun.sleep(100);
+    expect((await manual.sync.status()).state).toBe("ahead");
+    expect(await onServer(world, "knowledge/m.md")).toBe("");
+    manual.sync.dispose();
+
+    offline = true;
+    let busy = true;
+    const auto = await world.user("Anna", { git, retryDelaysMs: [30], busy: async () => busy });
+    await auto.write("knowledge/a.md", "a\n");
+    expect((await auto.sync.finishTurn({ title: "A", chatId: "a" })).status.state).toBe("offline");
+    offline = false;
+    await Bun.sleep(200);
+    expect(await onServer(world, "knowledge/a.md")).toBe("");
+    busy = false;
+    for (let attempt = 0; attempt < 80 && (await auto.sync.status()).state !== "synced"; attempt += 1) await Bun.sleep(25);
+    expect(await onServer(world, "knowledge/a.md")).toBe("a\n");
+    auto.sync.dispose();
   });
 
   test("een beschermde branch geeft 'alleen lezen', de commit blijft", async () => {
@@ -226,6 +305,27 @@ describe("wat er meegaat", () => {
 });
 
 describe("vertrouwen (plan §7.1)", () => {
+  test("een symlink wacht altijd op akkoord; hoofdletters omzeilen niets; rare namen stoppen het bijwerken (review #5)", async () => {
+    world = await createWorld();
+    await world.seed({ "plug/plugins/evil.js": "export default {}\n", ".OpenCode/Plugins/p.js": "x\n", "OpenCode.json": "{}\n" });
+    const scratch = join(world.root, "scratch");
+    await symlink("plug", join(scratch, ".opencode"));
+    await world.raw(["add", "-A"]);
+    await world.raw(["commit", "-q", "-m", "link"]);
+    await world.raw(["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    const a = await world.user("Anna");
+    const status = await a.sync.status();
+    expect(status.pendingTrust.map((item) => `${item.kind}:${item.path}`).sort()).toEqual(["config:OpenCode.json", "link:.opencode", "plugin:.OpenCode/Plugins/p.js"]);
+    expect(await lstat(join(a.path, ".opencode")).catch(() => null)).toBeNull();
+
+    // A name that ends in a space cannot be excluded for certain: nothing is updated.
+    await world.seed({ "knowledge/raar.md ": "x\n" });
+    const after = await a.sync.prepareTurn();
+    expect(after.state).toBe("error");
+    expect(after.error).toContain("bestandsnaam");
+    expect(existsSync(join(a.path, "knowledge/raar.md "))).toBe(false);
+  });
+
   test("riskante onderdelen staan pas in de map na akkoord, en opnieuw na een wijziging", async () => {
     world = await createWorld();
     await world.seed({

@@ -228,6 +228,18 @@ describe("het persoonlijke brein in de server", () => {
     hooks = linkHooks;
     await linkHooks.start(host);
     const linkRoute = linkHooks.routes.find((candidate) => candidate.method === "POST" && candidate.path === "/bonzaiwork/brains/:workspaceId/remote");
+    // A team brain pasted by mistake (its own history) is refused: no private notes go there (review #5).
+    const team = join(state, "team.git");
+    const teamWork = join(state, "team-work");
+    await git.ok(["init", "-q", "--bare", "-b", "main", team], { cwd: state });
+    await git.ok(["init", "-q", "-b", "main", teamWork], { cwd: state });
+    await writeFile(join(teamWork, "AGENTS.md"), "# Team\n");
+    await git.ok(["add", "-A"], { cwd: teamWork });
+    await git.ok(["-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "team"], { cwd: teamWork });
+    await git.ok(["push", "-q", `file://${team}`, "HEAD:refs/heads/main"], { cwd: teamWork, config: { "protocol.file.allow": "always" } });
+    const refused = await linkRoute?.handle(new Request("http://x", { method: "POST", body: JSON.stringify({ url: `file://${team}` }) }), { workspaceId: "ws_mijn" });
+    expect(refused?.status).toBe(409);
+    expect(await refused?.json()).toMatchObject({ code: "unrelated_history" });
     const linked = await linkRoute?.handle(new Request("http://x", { method: "POST", body: JSON.stringify({ url: `file://${bare}` }) }), { workspaceId: "ws_mijn" });
     expect(await linked?.json()).toMatchObject({ state: "synced", remote: `file://${bare}` });
     const fileGit = await createGit({ stateDirectory: join(state, "check2"), allowFileProtocol: true });

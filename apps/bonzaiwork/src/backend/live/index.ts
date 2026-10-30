@@ -831,24 +831,24 @@ export async function createLiveBackend(): Promise<Backend> {
       list: (projectId) => routinesList(projectId),
       async create(input) {
         if (!routinesOnServer) throw unsupported("Routines");
-        const routine = readRoutine(await req("/bonzaiwork/routines", { method: "POST", body: { workspaceId: input.projectId, name: input.name, prompt: input.prompt, model: input.model, schedule: input.schedule, brains: input.brains } }));
+        const routine = readRoutine(await req("/bonzaiwork/routines", { method: "POST", body: { workspaceId: input.projectId, name: input.name, prompt: input.prompt, model: input.model, schedule: input.schedule, brains: input.brains }, ...host }));
         if (!routine) throw new BackendError("invalid_response", "De routine is opgeslagen, maar niet teruggekomen. Ververs de lijst.");
         return routine;
       },
       async update(routineId, patch) {
         if (!routinesOnServer) throw unsupported("Routines");
         const { projectId, ...rest } = patch;
-        const routine = readRoutine(await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "PATCH", body: { ...rest, ...(projectId ? { workspaceId: projectId } : {}) } }));
+        const routine = readRoutine(await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "PATCH", body: { ...rest, ...(projectId ? { workspaceId: projectId } : {}) }, ...host }));
         if (!routine) throw new BackendError("invalid_response", "De routine is opgeslagen, maar niet teruggekomen. Ververs de lijst.");
         return routine;
       },
       async remove(routineId) {
         if (!routinesOnServer) throw unsupported("Routines");
-        await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "DELETE" });
+        await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "DELETE", ...host });
       },
       async run(routineId) {
         if (!routinesOnServer) throw unsupported("Routines");
-        const run = readRun(data(await req(`/bonzaiwork/routines/${enc(routineId)}/run`, { method: "POST" })));
+        const run = readRun(data(await req(`/bonzaiwork/routines/${enc(routineId)}/run`, { method: "POST", ...host })));
         if (!run) throw new BackendError("invalid_response", "De routine is gestart.");
         return run;
       },

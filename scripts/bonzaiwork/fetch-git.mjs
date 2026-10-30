@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,7 +62,9 @@ async function download(url, file) {
   console.log(`[fetch-git] ${url}`);
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok || !response.body) throw new Error(`download failed: HTTP ${response.status}`);
-  await writeFile(file, Buffer.from(await response.arrayBuffer()));
+  // Via a temporary name: a broken-off download never looks like a cached tarball.
+  await writeFile(`${file}.partial`, Buffer.from(await response.arrayBuffer()));
+  await rename(`${file}.partial`, file);
 }
 
 async function prune(root, { windows, keepHttps }) {
@@ -102,9 +104,17 @@ async function main() {
   const cache = join(repoRoot, "apps/bonzaiwork/resources/.cache");
   await mkdir(cache, { recursive: true });
 
-  const tarball = option("--tarball") ? resolve(option("--tarball")) : join(cache, build.name);
+  const given = option("--tarball");
+  const tarball = given ? resolve(given) : join(cache, build.name);
   if (!existsSync(tarball)) await download(`${RELEASE}/${build.name}`, tarball);
-  const actual = await sha256(tarball);
+  let actual = await sha256(tarball);
+  if (actual !== build.sha256 && !given) {
+    // A damaged cache (an older broken download) is fetched once more, never used.
+    console.log(`[fetch-git] cached ${build.name} does not match its checksum; downloading it again`);
+    await rm(tarball, { force: true });
+    await download(`${RELEASE}/${build.name}`, tarball);
+    actual = await sha256(tarball);
+  }
   if (actual !== build.sha256) {
     throw new Error(`checksum mismatch for ${build.name}: expected ${build.sha256}, got ${actual}`);
   }

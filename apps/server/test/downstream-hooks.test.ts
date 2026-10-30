@@ -163,9 +163,12 @@ test("host: session activity, running sessions, MCP entries and the global conte
     assert.ok(sseClient);
     sseClient.write(`data: ${JSON.stringify({ type: "session.execution.started", data: { sessionID: "ses_a" } })}\n\n`);
     sseClient.write(`data: ${JSON.stringify({ type: "session.text.delta", data: { sessionID: "ses_a" } })}\n\n`);
-    sseClient.write(`data: ${JSON.stringify({ type: "session.execution.succeeded", data: { sessionID: "ses_a" } })}\n\n`);
-    for (let attempt = 0; attempt < 50 && events.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.deepEqual(events, ["ws_1:ses_a:running:", "ws_1:ses_a:idle:succeeded"]);
+    // CRLF line ends, the pair split over two writes.
+    sseClient.write(`data: ${JSON.stringify({ type: "session.execution.succeeded", data: { sessionID: "ses_a" } })}\r\n\r`);
+    sseClient.write(`\n`);
+    sseClient.write(`data: ${JSON.stringify({ type: "session.execution.started", data: { sessionID: "ses_b" } })}\r\n\r\n`);
+    for (let attempt = 0; attempt < 50 && events.length < 3; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(events, ["ws_1:ses_a:running:", "ws_1:ses_a:idle:succeeded", "ws_1:ses_b:running:"]);
     stop();
 
     assert.deepEqual(await host.runningSessions("ws_1"), ["ses_a"]);

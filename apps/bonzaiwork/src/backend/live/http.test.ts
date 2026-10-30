@@ -37,6 +37,13 @@ describe("server errors", () => {
     expect(error.message).toBe("De lokale server weigerde dit verzoek (fout 409).");
   });
 
+  it("says brain codes in Dutch, and uses a sentence written for the user when the route sends one", async () => {
+    serverReplies(409, { code: "already_brain", message: "This project is a brain already." });
+    expect((await failure("/bonzaiwork/brains/w/adopt")).message).toBe("Dit project is al een brein.");
+    serverReplies(409, { code: "not_found", message: "Dit brein bestaat niet (meer) op deze plek.", userMessage: "Dit brein bestaat niet (meer) op deze plek." });
+    expect((await failure("/bonzaiwork/brains/w/remote")).message).toBe("Dit brein bestaat niet (meer) op deze plek.");
+  });
+
   it("waits while the engine is still starting, then answers", async () => {
     let calls = 0;
     vi.stubGlobal("fetch", vi.fn(async () => {

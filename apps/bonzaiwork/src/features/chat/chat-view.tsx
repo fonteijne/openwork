@@ -303,7 +303,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
                 <span className="bw-shimmer">{copy.chat.thinking}</span>
               </div>
             ) : null}
-            {!running && items.length ? <BrainTurnLine projectId={project.id} /> : null}
+            {!running && items.length ? <BrainTurnLine projectId={project.id} chatId={props.chatId} /> : null}
             {revertAt >= 0 ? (
               <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
                 <RotateCcw className="size-4 shrink-0" />

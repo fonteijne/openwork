@@ -46,6 +46,10 @@ export const SYNC_MESSAGES = {
   merging: "Beide versies staan in de notities; een chat voegt ze samen. Daarna deelt BonzaiWork weer.",
   mergeUnfinished: (count: number) => `In ${count === 1 ? "één notitie staan" : `${count} notities staan`} nog twee versies. Laat de AI het opnieuw doen, of voeg ze zelf samen.`,
   revertConflict: "Deze beurt is niet zomaar terug te draaien: er is daarna nog aan dezelfde notities gewerkt. Zet de notities een voor een terug.",
+  unrelatedRemote: "Deze repository is niet leeg en hoort niet bij dit brein. Kies een lege, private repository.",
+  localChanges: (files: readonly string[]) => `Bijwerken wacht: ${files.slice(0, 3).join(", ")}${files.length > 3 ? ` en ${files.length - 3} meer` : ""} ${files.length === 1 ? "is" : "zijn"} hier gewijzigd en kan niet vastgelegd worden (alleen lezen, of groter dan 10 MB). Zet de wijziging terug of bewaar het bestand elders.`,
+  keptCopies: (folder: string) => `Wat niet gedeeld kon worden, staat bewaard in ${folder}/ (alleen op deze laptop).`,
+  unsafeName: (path: string) => `Dit brein bevat een bestandsnaam die BonzaiWork niet veilig kan verwerken${path ? ` (${JSON.stringify(path)})` : ""}: met een regeleinde of een spatie aan het eind. Vraag de beheerder hem te hernoemen; tot dan wordt niets bijgewerkt.`,
   invalidKnowledge: (files: readonly string[]) => `Niet gedeeld: ${files.join(", ")} ${files.length === 1 ? "mist" : "missen"} de kop met het type (OKF). Laat de AI het herstellen of vul het type in.`,
   brokenWorkflow: (problems: ReadonlyArray<{ path: string; problem: string }>) => `Niet gedeeld: in de werkwijze ${problems.map((item) => `${item.path} (${item.problem})`).join("; ")}. Laat de AI het herstellen of pas het aan.`,
 } as const;

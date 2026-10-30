@@ -357,7 +357,7 @@ export type BrainProposal = { branch: string; url: string | null; manual: boolea
 export type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "needs_trust" | "error";
 
 /** Something a shared brain brings that can run code; it stays out of the folder until trusted (§7.1). */
-export type TrustItem = { path: string; kind: "config" | "plugin" | "agent" | "command" | "script"; mcpServers: string[] };
+export type TrustItem = { path: string; kind: "config" | "plugin" | "agent" | "command" | "script" | "link"; mcpServers: string[] };
 
 export type BrainStatus = {
   kind: BrainKind;
@@ -575,7 +575,8 @@ export interface Backend {
     trustHost(url: string, fingerprints: string[]): Promise<void>;
     /** Clones into `folderPath`, or into a new folder named after the project in the default folder. */
     clone(url: string, target: { folderPath: string | null; name: string }): Promise<{ jobId: string; folderPath: string }>;
-    job(jobId: string): Promise<CloneJob>;
+    /** Waits for the clone; `signal` stops the waiting (the dialog was closed), not the clone. */
+    job(jobId: string, signal?: AbortSignal): Promise<CloneJob>;
     /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
     register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
     unregister(projectId: string): Promise<void>;
@@ -597,7 +598,8 @@ export interface Backend {
     /** Puts the brain template in an empty shared brain and shares it (plan §6.1). */
     setUp(projectId: string, input: { name: string; description: string }): Promise<BrainStatus>;
     /** Before a turn: updates the project brain and the personal brain (at most ~5 s). */
-    prepare(projectId: string, chatId: string): Promise<void>;
+    /** "updated", or "fetched" (another chat runs), or "timeout" (it goes on in the background). */
+    prepare(projectId: string, chatId: string): Promise<"updated" | "fetched" | "timeout">;
     share(projectId: string): Promise<BrainStatus>;
     setMode(projectId: string, mode: BrainMode): Promise<BrainStatus>;
     history(projectId: string): Promise<BrainHistoryEntry[]>;

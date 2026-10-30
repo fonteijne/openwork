@@ -35,14 +35,15 @@ function link(user: string, host: string, port: number | null, path: string): Re
   return { sshUrl, host: lowerHost, port: port === 22 ? null : port, user, path, name: path.split("/").at(-1) ?? path };
 }
 
-const HOST = /^[A-Za-z0-9.-]+$/;
+/** No leading `-`: a host or user ssh would read as an option (git refuses too; defence in depth). */
+const HOST = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
 
 export function parseRemote(input: string): RemoteParse {
   const value = input.trim();
   if (!value) return { ok: false, reason: "empty" };
 
   // scp-like: git@gitlab.com:team/brein.git
-  const scp = /^([A-Za-z0-9._-]+)@([A-Za-z0-9.-]+):(?!\/\/)(.+)$/.exec(value);
+  const scp = /^([A-Za-z0-9_][A-Za-z0-9._-]*)@([A-Za-z0-9.-]+):(?!\/\/)(.+)$/.exec(value);
   if (scp) {
     const [, user, host, rawPath] = scp;
     const path = cleanPath(rawPath);
@@ -57,7 +58,10 @@ export function parseRemote(input: string): RemoteParse {
   }
   if (url.password) return { ok: false, reason: "credentials" };
   if (!HOST.test(url.hostname)) return { ok: false, reason: "invalid" };
-  const path = cleanPath(decodeURIComponent(url.pathname));
+  let decoded: string;
+  try { decoded = decodeURIComponent(url.pathname); } catch { return { ok: false, reason: "invalid" }; }
+  const path = cleanPath(decoded);
+  if (url.username.startsWith("-")) return { ok: false, reason: "invalid" };
   if (!path) return { ok: false, reason: "invalid" };
 
   if (url.protocol === "ssh:" || url.protocol === "git+ssh:") {

@@ -183,7 +183,7 @@ async function main() {
     const session = record(await (await fetch(`${engine}/api/session`, { method: "POST", headers: owner, body: JSON.stringify({ model: { providerID: "litellm", id: "e2e-model" }, title: "Offerte vastleggen", location: { directory: brain } }) })).json());
     const sessionId = text(session.id) || text(record(session.data).id);
     const turn = async (prompt: string) => {
-      const pulled = await api(`/bonzaiwork/brains/${workspaceId}/pull`, { method: "POST", body: { sessionId } });
+      const pulled = await api(`/bonzaiwork/brains/${workspaceId}/pull`, { method: "POST", headers: host, body: { sessionId } });
       await fetch(`${engine}/api/session/${sessionId}/prompt`, { method: "POST", headers: owner, body: JSON.stringify({ text: prompt, delivery: "steer" }) });
       await waitFor("turn", async () => {
         const response = await fetch(`${engine}/api/session/active?location%5Bdirectory%5D=${encodeURIComponent(brain)}`, { headers: owner });
@@ -193,6 +193,8 @@ async function main() {
       return pulled;
     };
 
+    const viaClient = await api(`/bonzaiwork/brains/${workspaceId}/sync`, { method: "POST", headers: owner, body: {} });
+    check("changing a brain needs the host token, not a client token", viaClient.status === 401 || viaClient.status === 403, String(viaClient.status));
     const pulled = await turn("SCHRIJF het offerteproces op");
     check("pull before the turn", text(pulled.body.waited) === "updated", JSON.stringify(pulled.body));
     const shared = await waitFor("commit on the server", async () => {
@@ -278,9 +280,9 @@ async function main() {
     // 7. A routine reads the brains it names without a click; another routine waits (plan §5.2).
     const readsBefore = toolResults.filter((result) => result.includes("Uit het brein Sales")).length;
     const schedule = { kind: "daily", timezone: "UTC", hour: 3, minute: 0 };
-    const allowed = await api("/bonzaiwork/routines", { method: "POST", headers: owner, body: { workspaceId: personalId, name: "Nieuws uit Sales", prompt: "ANDERBREIN wat is er nieuw", model: "e2e-model", schedule, brains: [workspaceId] } });
+    const allowed = await api("/bonzaiwork/routines", { method: "POST", headers: host, body: { workspaceId: personalId, name: "Nieuws uit Sales", prompt: "ANDERBREIN wat is er nieuw", model: "e2e-model", schedule, brains: [workspaceId] } });
     check("routine with a brain saved", allowed.status === 201, JSON.stringify(allowed.body).slice(0, 200));
-    const started = await api(`/bonzaiwork/routines/${text(allowed.body.id)}/run`, { method: "POST", headers: owner, body: {} });
+    const started = await api(`/bonzaiwork/routines/${text(allowed.body.id)}/run`, { method: "POST", headers: host, body: {} });
     const routineChat = text(record(started.body.data).chatId);
     check("routine run started a chat", Boolean(routineChat), JSON.stringify(started.body).slice(0, 200));
     const readByRoutine = await waitFor("routine read the brain", async () => (toolResults.filter((result) => result.includes("Uit het brein Sales")).length > readsBefore ? true : null), 30_000).catch(() => null);
@@ -292,8 +294,8 @@ async function main() {
     }, 30_000).catch(() => null);
     check("the run is recorded as succeeded", finished === "succeeded", String(finished));
 
-    const other = await api("/bonzaiwork/routines", { method: "POST", headers: owner, body: { workspaceId: personalId, name: "Zonder breinen", prompt: "ANDERBREIN nog eens", model: "e2e-model", schedule } });
-    const otherRun = await api(`/bonzaiwork/routines/${text(other.body.id)}/run`, { method: "POST", headers: owner, body: {} });
+    const other = await api("/bonzaiwork/routines", { method: "POST", headers: host, body: { workspaceId: personalId, name: "Zonder breinen", prompt: "ANDERBREIN nog eens", model: "e2e-model", schedule } });
+    const otherRun = await api(`/bonzaiwork/routines/${text(other.body.id)}/run`, { method: "POST", headers: host, body: {} });
     const otherChat = text(record(otherRun.body.data).chatId);
     const personalEngine = `${base}/workspace/${personalId}/opencode2`;
     const waiting = await waitFor("question stays open", async () => {

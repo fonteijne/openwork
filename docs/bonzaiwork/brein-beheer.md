@@ -131,10 +131,15 @@ geschiedenis). Wat de AI schreef, heeft de chattitel als bericht, "Via BonzaiWor
 Twee collega's die tegelijk hetzelfde bestand aanpassen, krijgen een conflict. Er gaat niets verloren:
 
 - `knowledge/index.md` en `knowledge/log.md` geven nooit een conflict; BonzaiWork voegt die zelf samen.
-- Voor andere bestanden ziet de collega een kaart "Jij en … wijzigden hetzelfde" met **"Bewaar mijn
-  versie apart"**. Zijn versie gaat naar de branch `bonzaiwork/<naam>/<datum>`; de map volgt weer het team.
+- Voor andere bestanden ziet de collega een kaart "Jij en … wijzigden hetzelfde" met twee keuzes:
+  - **"Laat de AI het samenvoegen"**: beide versies komen in het bestand en een nieuwe chat voegt ze samen
+    zonder informatie te verliezen. Na die beurt deelt BonzaiWork het resultaat, op naam van de collega.
+    Staat er na het samenvoegen iets in dat op een geheim lijkt, dan wordt het niet gedeeld.
+  - **"Bewaar mijn versie apart"**: zijn versie gaat naar de branch `bonzaiwork/<naam>/<datum>`; de map
+    volgt weer het team. Wat nog niet vastgelegd was, staat daarna ook als kopie in de map `_bewaard/<datum>/`
+    van die collega (die map wordt nooit gedeeld).
 - Als beheerder zie je die branches op GitHub of GitLab. Voeg ze samen of verwijder ze als ze verwerkt
-  zijn. "Laat de AI het samenvoegen" komt in fase 2.
+  zijn.
 
 ## 6. Onderdelen die iets kunnen uitvoeren
 
@@ -158,6 +163,8 @@ shell-opdrachten hebben geen toestemming nodig.
 | Dit brein bestaat niet (meer) op deze plek | Verkeerde link, of de repo is verplaatst | De nieuwe link geven; opnieuw ophalen |
 | De server van dit brein meldt zich anders dan eerst | De host-sleutel is veranderd | Nagaan of dat klopt (§2); bij twijfel niet doorgaan |
 | Alleen lezen | Leesrechten, of de branch staat directe push niet toe | §2 en §3 |
+| Dit brein bevat een bestandsnaam die BonzaiWork niet veilig kan verwerken | Een naam met een regeleinde of een spatie aan het eind | Het bestand in de repo hernoemen; daarna werkt bijwerken weer |
+| Deze repository is niet leeg en hoort niet bij dit brein | Een privérepo met andere geschiedenis gekoppeld aan "Mijn brein" | Een lege, private repo kiezen |
 | Geen verbinding | Offline of server onbereikbaar | Niets; BonzaiWork deelt zodra het weer kan |
 
 BonzaiWork levert zijn eigen git mee (git 2.56, zonder HTTPS-ondersteuning); collega's hoeven git niet te

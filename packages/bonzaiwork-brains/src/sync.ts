@@ -9,7 +9,7 @@ import { remoteProblemMessage, SYNC_MESSAGES } from "./messages.ts";
 import type { ProposalService } from "./proposals.ts";
 import { scanForSecrets } from "./secrets.ts";
 import { classifyGitError, type RemoteProblem } from "./ssh.ts";
-import { findTrustItems, personalExcludes, sparsePatterns, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
+import { findTrustItems, personalExcludes, sparsePatterns, unsafePath, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
 
 /**
  * One brain's synchronisation (plan §2, §4): fetch and update before a turn,
@@ -95,15 +95,20 @@ export type BrainSyncOptions = {
   producer?: string;
   /** Makes merge or pull requests in mode "proposal" (plan §4.4). */
   proposals?: ProposalService;
+  /** True while a chat may write in this folder: background work waits (plan §4.2). */
+  busy?: () => Promise<boolean>;
 };
 
 type Problem =
   | { kind: "offline"; message: string }
   | { kind: "read_only"; message: string }
   | { kind: "conflict"; message: string; files: string[]; by: string | null; merging?: boolean }
-  | { kind: "error"; message: string; cause: RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" };
+  | { kind: "error"; message: string; cause: RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" | "local" };
 
 export type TurnResult = { committed: boolean; shared: boolean; blockedBy?: string };
+
+/** Local copies of work a reset would otherwise overwrite (keepMineApart); excluded from sharing. */
+export const KEPT_FOLDER = "_bewaard";
 
 const CONFLICT_MARKER = /^(<{7}|>{7})( |$)|^={7}$/m;
 
@@ -257,8 +262,8 @@ export class BrainSync {
   private async treeEntries(ref: string): Promise<TreeEntry[]> {
     const listing = await this.ok(["ls-tree", "-r", "-z", "--full-tree", ref]);
     return splitNul(listing).flatMap((line) => {
-      const match = /^\d+ blob ([0-9a-f]+)\t(.+)$/s.exec(line);
-      return match ? [{ blob: match[1], path: match[2] }] : [];
+      const match = /^(\d+) blob ([0-9a-f]+)\t(.+)$/s.exec(line);
+      return match ? [{ mode: match[1], blob: match[2], path: match[3] }] : [];
     });
   }
 
@@ -267,22 +272,31 @@ export class BrainSync {
    * lands, so the engine never sees it (fase 0 §6.1). Called before each
    * checkout, fast-forward and rebase.
    */
-  private async applyTrust(ref: string): Promise<void> {
-    // A personal brain is the user's own folder: nothing in it is someone else's code.
-    if (this.record.kind === "personal") {
+  private async applyTrust(ref: string): Promise<boolean> {
+    // A personal brain is the user's own folder: nothing in it is someone else's code, until it has
+    // a remote: then what comes from there is checked like any shared brain (review #5).
+    if (this.record.kind === "personal" && !this.record.remote) {
       this.pending = [];
-      return;
+      return true;
     }
     const refs = [ref, ...(await this.hasCommit("HEAD") ? ["HEAD"] : [])];
     const items = new Map<string, TrustItem>();
     for (const source of refs) {
-      const found = await findTrustItems(await this.treeEntries(source), (blob) => this.ok(["cat-file", "-p", blob]));
+      const entries = await this.treeEntries(source);
+      const unsafe = entries.find((entry) => unsafePath(entry.path));
+      if (unsafe) {
+        this.problem = { kind: "error", cause: "content", message: SYNC_MESSAGES.unsafeName(unsafe.path) };
+        this.log("warn", "brain has a file name sparse-checkout cannot exclude", { ref: source });
+        return false;
+      }
+      const found = await findTrustItems(entries, (blob) => this.ok(["cat-file", "-p", blob]));
       for (const item of found) if (!items.has(item.path) || source === ref) items.set(item.path, item);
     }
     this.pending = untrusted([...items.values()], this.record.trusted);
     const patterns = sparsePatterns(this.pending);
     await this.ok(["sparse-checkout", "set", "--no-cone", "--stdin"], { input: `${patterns.join("\n")}\n` });
     await this.rememberConfig();
+    return true;
   }
 
   private async writeLocalExcludes(): Promise<void> {
@@ -295,10 +309,11 @@ export class BrainSync {
   /** Excluded folders of a personal brain; their files leave the history from now on, not the folder. */
   setExcluded(folders: readonly string[]): Promise<BrainStatus> {
     return this.lock(async () => {
-      const excluded = [...new Set(folders.map((folder) => folder.replace(/^\/+|\/+$/g, "")).filter((folder) => folder && !folder.includes("..")))].sort();
+      // Plain folder names only: no glob, no `:` magic, no `..` (review #5); and git reads them literally.
+      const excluded = [...new Set(folders.map((folder) => folder.trim().replace(/^\/+|\/+$/g, "")).filter((folder) => folder && !folder.split("/").includes("..") && !/[*?[\]:\\]/.test(folder) && !unsafePath(folder)))].sort();
       await this.persist({ excluded });
       await this.writeLocalExcludes();
-      for (const folder of excluded) await this.run(["rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", folder]);
+      for (const folder of excluded) await this.run(["--literal-pathspecs", "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", folder]);
       if (await this.hasCommit("HEAD") && (await this.run(["diff", "--cached", "--quiet"])).exitCode === 1) {
         await this.ok(["commit", "-q", "--no-verify", "-m", "Mappen uitgesloten\n\nVia BonzaiWork"], { config: this.author() });
       }
@@ -380,6 +395,16 @@ export class BrainSync {
     return this.commit("Eigen wijzigingen\n\nVia BonzaiWork\n", "own", "eigen wijziging");
   }
 
+  /** `path`, or `path` with -2, -3 … before the extension when it exists already. */
+  private async freeName(path: string): Promise<string> {
+    const dot = path.toLowerCase().endsWith(".md") ? path.length - 3 : path.length;
+    for (let index = 1; index < 100; index += 1) {
+      const candidate = index === 1 ? path : `${path.slice(0, dot)}-${index}${path.slice(dot)}`;
+      if (!await stat(join(this.record.path, candidate)).catch(() => null)) return candidate;
+    }
+    return `${path.slice(0, dot)}-${Date.now()}${path.slice(dot)}`;
+  }
+
   private async isFile(path: string): Promise<boolean> {
     return (await stat(join(this.record.path, path)).catch(() => null))?.isFile() ?? false;
   }
@@ -420,8 +445,18 @@ export class BrainSync {
       const at = new Date(this.now()).toISOString().replace(/\.\d{3}Z$/, "Z");
       const plan = await planKnowledge({ root: this.record.path, staged: changed, by, at, note, existed: (path) => this.inHead(path) });
       for (const path of plan.restore) {
+        // The edit is kept as a new source next to it, never thrown away (review #5).
+        const edited = await readFile(join(this.record.path, path)).catch(() => null);
+        const copy = edited ? await this.freeName(path.replace(/(\.md)?$/i, `-bewerkt-${new Date(this.now()).toISOString().slice(0, 10)}$1`)) : null;
         await this.run(["restore", "--source=HEAD", "--staged", "--worktree", "--", path]);
-        this.warnings.push(`${path} is een bron en blijft zoals hij was; zet een nieuwe versie als nieuw bestand in references/.`);
+        if (edited && copy) {
+          await writeFile(join(this.record.path, copy), edited);
+          await this.ok(["add", "--", copy]);
+          changed.push({ path: copy, status: "A" });
+        }
+        this.warnings.push(copy
+          ? `${path} is een bron en blijft zoals hij was; je bewerking staat als ${copy}.`
+          : `${path} is een bron en blijft zoals hij was; zet een nieuwe versie als nieuw bestand in references/.`);
       }
       if (plan.invalid.length) {
         const files = plan.invalid.map((item) => item.path);
@@ -482,16 +517,23 @@ export class BrainSync {
       this.log("warn", "brain remote history was rewritten", { last, remote });
       return;
     }
-    await this.applyTrust(this.remoteRef());
+    if (!await this.applyTrust(this.remoteRef())) return;
+    if (this.problem?.kind === "error" && this.problem.cause === "local") this.problem = null;
     const head = await this.revParse("HEAD");
+    // Changes that were not recorded (alleen-lezen, or too large): never stashed and popped, which
+    // can leave a half-merged folder that says "bijgewerkt" (review #5).
+    const unrecorded = head ? splitNul(await this.ok(["diff", "--name-only", "-z", "HEAD"])) : [];
     if (head && await this.isAncestor(remote, head)) {
       await this.persist({ lastSyncedRemote: remote });
       return;
     }
     if (!head || await this.isAncestor(head, remote)) {
-      const merged = await this.run(["merge", "--ff-only", "--autostash", "-q", this.remoteRef()]);
+      const merged = await this.run(["merge", "--ff-only", "-q", this.remoteRef()]);
       if (merged.exitCode !== 0) {
-        this.problem = { kind: "conflict", message: SYNC_MESSAGES.conflict, files: await this.conflictFiles(), by: await this.lastAuthor() };
+        // Git refuses to overwrite a changed file and names it; nothing in the folder changed.
+        const named = merged.stderr.split("\n").filter((line) => /^\t/.test(line)).map((line) => line.trim());
+        this.problem = { kind: "error", cause: "local", message: SYNC_MESSAGES.localChanges(named.length ? named : unrecorded) };
+        this.log("info", "brain update waits for local changes", { files: named });
         return;
       }
       await this.persist({ lastSyncedRemote: remote });
@@ -508,6 +550,10 @@ export class BrainSync {
         this.log("info", "brain proposal was merged", {});
         return;
       }
+    }
+    if (unrecorded.length) {
+      this.problem = { kind: "error", cause: "local", message: SYNC_MESSAGES.localChanges(unrecorded) };
+      return;
     }
     const rebased = await this.run(["rebase", "-q", this.remoteRef()], { config: this.author() });
     if (rebased.exitCode !== 0 && !await this.resolveContentConflicts()) {
@@ -584,9 +630,27 @@ export class BrainSync {
     this.retryIndex += 1;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      void this.share().catch(() => undefined);
+      void this.retry();
     }, delay);
     this.retryTimer.unref?.();
+  }
+
+  /**
+   * Back online: auto and proposal share what waited; manual only looks (it shares on the button,
+   * review #5). Never while a chat writes in the folder; a failure tries again later, not never.
+   */
+  private async retry(): Promise<void> {
+    try {
+      if (await this.options.busy?.()) {
+        this.scheduleRetry();
+        return;
+      }
+      if (this.sharesByItself) await this.share();
+      else await this.fetchOnly();
+    } catch (error) {
+      this.log("warn", "brain retry failed", { error: error instanceof Error ? error.message : String(error) });
+      this.scheduleRetry();
+    }
   }
 
   private clearRetry(): void {
@@ -731,7 +795,16 @@ export class BrainSync {
     return this.lock(async () => {
       if (this.problem?.kind !== "conflict") return { files: [], by: null, prompt: null, status: await this.statusNow() };
       if (!await this.mergeInProgress()) {
-        await this.run(["merge", "--no-ff", "--no-commit", "-q", this.remoteRef()], { config: this.author() });
+        // What the user typed since the conflict is recorded first: git will not merge over it (review #5).
+        const conflict = this.problem;
+        const own = await this.commitOwn();
+        if (own.blockedBy) return { files: [], by: null, prompt: null, status: await this.statusNow() };
+        this.problem = conflict;
+        const merged = await this.run(["merge", "--no-ff", "--no-commit", "-q", this.remoteRef()], { config: this.author() });
+        if (merged.exitCode !== 0 && !await this.mergeInProgress()) {
+          this.problem = { kind: "error", cause: "local", message: SYNC_MESSAGES.localChanges(splitNul(await this.ok(["diff", "--name-only", "-z", "HEAD"]))) };
+          return { files: [], by: null, prompt: null, status: await this.statusNow() };
+        }
         await this.mergeReserved();
       }
       const files = await this.conflictFiles();
@@ -769,13 +842,21 @@ export class BrainSync {
   private async finishMerge(chatId: string | null): Promise<boolean> {
     const files = await this.conflictFiles();
     const left: string[] = [];
+    const merged: Array<{ path: string; content: string | null }> = [];
     for (const file of files) {
       const content = await readFile(join(this.record.path, file), "utf8").catch(() => "");
       if (CONFLICT_MARKER.test(content)) left.push(file);
+      merged.push({ path: file, content: content.length <= SECRET_SCAN_LIMIT ? content : null });
     }
+    const by = this.problem?.kind === "conflict" ? this.problem.by : null;
     if (left.length) {
-      const by = this.problem?.kind === "conflict" ? this.problem.by : null;
       this.problem = { kind: "conflict", message: SYNC_MESSAGES.mergeUnfinished(left.length), files: left, by, merging: true };
+      return false;
+    }
+    // The chat rewrote these notes: the same secrets check as every other commit (plan §7.2).
+    const [hit] = scanForSecrets(merged);
+    if (hit) {
+      this.problem = { kind: "conflict", message: SYNC_MESSAGES.secret(hit.path), files: [hit.path], by, merging: true };
       return false;
     }
     if (files.length) await this.ok(["add", "--", ...files]);
@@ -799,17 +880,48 @@ export class BrainSync {
       const who = (email.split("@")[0] || name).toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "gebruiker";
       const stamp = new Date(this.now()).toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
       const branch = `bonzaiwork/${who}/${stamp}`;
+      // What the user typed since the conflict goes along (review #5): nothing is lost.
+      const conflict = this.problem;
+      const own = await this.commitOwn();
+      if (own.blockedBy) return { branch: null, status: await this.statusNow() };
+      this.problem = conflict;
       const pushed = await this.run(["push", "--quiet", "origin", `HEAD:refs/heads/${branch}`], { timeoutMs: 60_000 });
       if (pushed.exitCode !== 0) {
         this.log("warn", "could not keep the local version apart", { stderr: pushed.stderr.trim().slice(-300) });
         return { branch: null, status: await this.statusNow() };
       }
-      await this.applyTrust(this.remoteRef());
+      if (!await this.applyTrust(this.remoteRef())) return { branch: null, status: await this.statusNow() };
+      // A reset never goes over work that could not be recorded: a copy goes to _bewaard/ first.
+      const kept = await this.keepCopies(stamp);
       await this.ok(["reset", "-q", "--hard", this.remoteRef()]);
       await this.persist({ lastSyncedRemote: await this.revParse(this.remoteRef()) });
       this.problem = null;
+      if (kept) this.warnings = [...this.warnings, SYNC_MESSAGES.keptCopies(kept)];
       return { branch, status: await this.statusNow() };
     });
+  }
+
+  /**
+   * Before a reset to the team's version: changed tracked files that were not recorded (too large),
+   * and untracked files the team's version would overwrite, are copied to `_bewaard/<stamp>/`
+   * (never shared). Returns that folder, or null when nothing needed keeping.
+   */
+  private async keepCopies(stamp: string): Promise<string | null> {
+    const changed = splitNul(await this.ok(["diff", "--name-only", "-z", "HEAD"]));
+    const untracked = splitNul(await this.ok(["ls-files", "-z", "--others", "--exclude-standard"]));
+    const incoming = new Set((await this.treeEntries(this.remoteRef())).map((entry) => entry.path));
+    const paths = [...new Set([...changed, ...untracked.filter((path) => incoming.has(path))])];
+    const folder = `${KEPT_FOLDER}/${stamp}`;
+    let copied = 0;
+    for (const path of paths) {
+      const content = await readFile(join(this.record.path, path)).catch(() => null);
+      if (content === null) continue;
+      await mkdir(dirname(join(this.record.path, folder, path)), { recursive: true });
+      await writeFile(join(this.record.path, folder, path), content);
+      copied += 1;
+    }
+    if (copied) this.log("info", "kept copies before a reset", { count: copied });
+    return copied ? folder : null;
   }
 
   /** "Herstellen": puts back the remote, branch and config BonzaiWork expects. */
@@ -918,7 +1030,24 @@ export class BrainSync {
   attachRemote(remote: string): Promise<BrainStatus> {
     return this.lock(async () => {
       if (this.record.remote || !await this.guard()) return this.statusNow();
+      // Only an empty repository, or one with this brain's own history (review #5): a mistyped link
+      // to a team brain must never receive private notes, nor bring its plugins into the vault.
+      const listed = await this.run(["ls-remote", "--heads", remote], { timeoutMs: 60_000 });
+      if (listed.exitCode !== 0 || listed.timedOut) {
+        const problem = classifyGitError(listed.stderr, listed.timedOut);
+        throw new BrainCloneError(problem, remoteProblemMessage(problem, this.options.platform));
+      }
+      const empty = !listed.stdout.trim();
+      if (!empty) {
+        const fetched = await this.run(["fetch", "--quiet", "--no-tags", remote, `+refs/heads/${this.record.branch}:refs/bonzaiwork/attach`], { timeoutMs: 60_000 });
+        const related = fetched.exitCode === 0 && await this.hasCommit("HEAD")
+          && (await this.run(["merge-base", "HEAD", "refs/bonzaiwork/attach"])).exitCode === 0;
+        await this.run(["update-ref", "-d", "refs/bonzaiwork/attach"]);
+        if (!related) throw new BrainCloneError("unrelated_history", SYNC_MESSAGES.unrelatedRemote);
+      }
       await this.commitOwn();
+      // What is in the vault now is the user's own; what the remote brings is checked (applyTrust).
+      await this.trustWhatIsThere();
       await this.ok(["remote", "add", "origin", remote]);
       await this.persist({ remote, lastSyncedRemote: null });
       await this.rememberConfig();
@@ -1125,6 +1254,9 @@ export class BrainSync {
   static async clone(input: Omit<BrainSyncOptions, "record"> & {
     id: string; kind: BrainKind; mode: BrainMode; remote: string; path: string; timeoutMs?: number;
   }): Promise<BrainSync> {
+    // A file in the way is never removed by a failed clone (review #5).
+    const info = await stat(input.path).catch(() => null);
+    if (info && !info.isDirectory()) throw new BrainCloneError("not_empty", "Op deze plek staat al een bestand. Kies een andere map.");
     const existing = await readdir(input.path).catch(() => null);
     if (existing && existing.length) throw new BrainCloneError("not_empty", "Deze map bestaat al en is niet leeg. Kies een andere map.");
     const created = existing === null;
@@ -1148,7 +1280,7 @@ export class BrainSync {
       await sync.writeLocalExcludes();
       const remoteRef = `refs/remotes/origin/${branch}`;
       if ((await input.git.run(["rev-parse", "--verify", "-q", remoteRef], base)).exitCode === 0) {
-        await sync.applyTrust(remoteRef);
+        if (!await sync.applyTrust(remoteRef)) throw new BrainCloneError("unsafe_name", (await sync.status()).error ?? SYNC_MESSAGES.unsafeName(""));
         await input.git.ok(["checkout", "-q", "--no-track", "-B", branch, remoteRef], base);
         await sync.persist({ lastSyncedRemote: (await input.git.ok(["rev-parse", remoteRef], base)).trim(), lastSyncAt: input.now?.() ?? Date.now() });
       } else {
@@ -1160,6 +1292,7 @@ export class BrainSync {
       return sync;
     } catch (error) {
       await cleanUp(input.path, created);
+      if (error instanceof BrainCloneError) throw error;
       if (error instanceof GitError) input.log?.("error", "brain clone setup failed", { stderr: error.result.stderr.trim().slice(-500) });
       throw new BrainCloneError("unknown", remoteProblemMessage("unknown", input.platform));
     }
@@ -1167,7 +1300,7 @@ export class BrainSync {
 }
 
 export class BrainCloneError extends Error {
-  constructor(readonly problem: RemoteProblem | "not_empty" | "no_repository" | "not_ssh" | "remote_not_empty" | "already_repository", message: string) {
+  constructor(readonly problem: RemoteProblem | "not_empty" | "no_repository" | "not_ssh" | "remote_not_empty" | "already_repository" | "unsafe_name" | "unrelated_history", message: string) {
     super(message);
     this.name = "BrainCloneError";
   }

@@ -106,3 +106,24 @@ test("een routine laat de vragen voor zijn eigen breinen beantwoorden, alleen vo
   await hooks.answerBrainQuestions();
   expect(asked.length).toBe(1);
 });
+
+test("een trage engine laat een routine niet dubbel vuren (review #5)", async () => {
+  const state = await mkdtemp(join(tmpdir(), "routines-"));
+  cleanup.push(state);
+  let clock = Date.UTC(2026, 9, 30, 7, 59);
+  hooks = createRoutinesHooks({ stateDirectory: state, now: () => clock, tickMs: 3_600_000 });
+  const host = fakeHost();
+  let sessions = 0;
+  const slow: RoutinesHost = { ...host, engineRequest: async (workspaceId, method, path, body) => {
+    if (method === "POST" && path === "/api/session") { sessions += 1; await new Promise(() => {}); }
+    return host.engineRequest(workspaceId, method, path, body);
+  } };
+  await hooks.start(slow);
+  await call("/bonzaiwork/routines", { method: "POST", body: { workspaceId: "ws_mijn", name: "Traag", prompt: "x", schedule: { kind: "daily", timezone: "UTC", hour: 8, minute: 0 } } });
+  clock = Date.UTC(2026, 9, 30, 8, 0, 10);
+  await hooks.tick();
+  clock = Date.UTC(2026, 9, 30, 8, 0, 40);
+  await hooks.tick();
+  await hooks.tick();
+  expect(sessions).toBe(1);
+});

@@ -42,3 +42,12 @@ describe("links omzetten (plan §3.2)", () => {
     expect(plain.ok && knownHostsName(plain.link)).toBe("gitlab.com");
   });
 });
+
+describe("vreemde links (review #5)", () => {
+  test("een kapotte %-code of een host die met - begint is geen link", () => {
+    expect(parseRemote("https://gitlab.com/team/%zz").ok).toBe(false);
+    expect(parseRemote("git@-oProxyCommand=x:team/brein.git").ok).toBe(false);
+    expect(parseRemote("-oProxyCommand=x@gitlab.com:team/brein.git").ok).toBe(false);
+    expect(parseRemote("ssh://-x@gitlab.com/team/brein.git").ok).toBe(false);
+  });
+});

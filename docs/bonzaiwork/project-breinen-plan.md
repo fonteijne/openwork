@@ -218,7 +218,9 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
   - **"Laat de AI het samenvoegen"** (fase 2): start een chat met een vaste opdracht (beide versies,
     "voeg samen, verlies geen informatie"); na die beurt rondt de sync de rebase af.
   - **"Bewaar mijn versie apart"** (fase 1): push naar `bonzaiwork/<gebruiker>/<datum>` en zet de map
-    terug op de gedeelde versie.
+    terug op de gedeelde versie. Eerst wordt vastgelegd wat nog open stond; wat dan nog niet vast te
+    leggen was (een geblokkeerd bestand, een niet-Markdown-bestand), gaat als kopie naar
+    `_bewaard/<datum>/`, dat nooit gedeeld wordt (review #5).
 - Tot het conflict is opgelost, pauzeert het bijwerken van dit brein; chatten blijft kunnen.
 - De bestanden die iedereen raakt, geven nooit een conflict voor de gebruiker: een `index.md` maakt de
   sync opnieuw, `log.md` voegt hij per datum samen (§6.5).
@@ -825,6 +827,8 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
 
 ### 8.1 API (wordt contract §7.5)
 
+Het contract ([§7.4](./frontend-contract.md)) is leidend; elke route die iets verandert vraagt het host-token (review #5).
+
 | Route | Auth | Doel |
 |---|---|---|
 | `POST /bonzaiwork/brains/check-remote` | host | `{ url }` → SSH-vorm, bereikbaar?, toegang?, onbekende host-vingerafdruk |
@@ -835,15 +839,15 @@ Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een 
 | `DELETE /bonzaiwork/brains/:workspaceId` | host | synchronisatie uitzetten (map blijft) |
 | `GET /bonzaiwork/brains` | client | alle breinen met status (voor de lijst en `breinen_lijst`) |
 | `GET /bonzaiwork/brains/:workspaceId/status` | client | `BrainStatus` |
-| `POST /bonzaiwork/brains/:workspaceId/pull` | client | projectbrein en persoonlijk brein bijwerken (max. ~5 s), daarna de globale instructies bijwerken, ook als bijwerken mislukte (§5.1) |
-| `POST /bonzaiwork/brains/:workspaceId/sync` | client | vastleggen + versturen |
+| `POST /bonzaiwork/brains/:workspaceId/pull` | host | projectbrein en persoonlijk brein bijwerken (max. ~5 s), daarna de globale instructies bijwerken, ook als bijwerken mislukte (§5.1) |
+| `POST /bonzaiwork/brains/:workspaceId/sync` | host | vastleggen + versturen |
 | `GET /bonzaiwork/brains/:workspaceId/history` | client | laatste commits: wie, wat, wanneer, welke chat |
-| `POST /bonzaiwork/brains/:workspaceId/resolve` | client | `{ strategy: "ai" \| "keep-mine-apart" }` |
+| `POST /bonzaiwork/brains/:workspaceId/resolve` | host | `{ strategy: "ai" \| "keep-mine-apart" }` |
 | `* /bonzaiwork/brains/mcp` | lokaal token | de breinen-MCP (§5.2), alleen voor de engine |
 | `GET /bonzaiwork/brains/:workspaceId/workflows` | client | werkwijzen (ook die van het persoonlijke brein) met hun stappen en de status van de lopende run |
-| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/runs` | client | nieuwe run: vorige naar `_runs/`, chatgroep aanmaken |
-| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start` | client | invoer controleren, stap als nieuwe chat starten; `409` met de ontbrekende invoer |
-| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check` | client | `{ verdict: "pass" \| "fail", reason? }` van een persoon, of de modelcontrole laten draaien |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/runs` | host | nieuwe run: vorige naar `_runs/`, chatgroep aanmaken |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start` | host | invoer controleren, stap als nieuwe chat starten; `409` met de ontbrekende invoer |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check` | host | `{ verdict: "pass" \| "fail", reason? }` van een persoon, of de modelcontrole laten draaien |
 
 ```ts
 type BrainKind = "project" | "personal";
@@ -907,6 +911,11 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 - **Demo-backend**: een voorbeeldbrein in elke staat, zodat ontwerpreview zonder server kan.
 - **Smoketest** (`scripts/smoke-packaged.mjs`): nieuwe `data-testid`'s (`brain-url-input`, `brain-clone`,
   `brain-status`) en een clone van een lokale bare repo via `file://`.
+
+Nog niet gebouwd (stand 30-10): "Werkwijze starten" in de composer (werkwijzen staan op de projectpagina,
+niet als stappenbalk in de sidecar), runs als chatgroep, het aantal concepten in de regel onder de beurt
+(hij zegt alleen "Gedeeld met het brein", en alleen als die chat zelf gedeeld werd), en een OKF-bundel
+importeren.
 
 ## 9. Beslissingen
 

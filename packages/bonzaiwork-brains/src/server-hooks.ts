@@ -189,8 +189,9 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     const current = host;
     const run = (async () => {
       for (const workspace of current.workspaces()) {
+        // null: a workspace that is not local (or an engine that cannot say): nothing to wait for there.
         const running = await current.runningSessions(workspace.id);
-        if (running === null || running.some((id) => id !== except)) return;
+        if (running?.some((id) => id !== except)) return;
       }
       const wanted = JSON.stringify(closedFolders());
       await current.reloadEngineFolders?.();
@@ -255,7 +256,13 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   function syncFor(record: BrainRecord): BrainSync {
     if (!git) throw new Error("brains not started");
-    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService });
+    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService, busy: async () => chatsWriteIn(record) });
+  }
+
+  /** A chat runs that may write in this brain: its own project, or for the personal brain any project. */
+  function chatsWriteIn(record: Pick<BrainRecord, "id" | "kind">): boolean {
+    if (record.kind === "personal") return [...running.values()].some((set) => set.size > 0);
+    return (running.get(record.id)?.size ?? 0) > 0;
   }
 
   const personal = (): BrainSync | undefined => [...syncs.values()].find((sync) => sync.snapshot.kind === "personal");
@@ -386,7 +393,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         : `${current.trimEnd()}\n\n## Geleerd\n\n${line}\n`;
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, next);
-      await own.share();
+      // A running chat may be writing in the vault: then the quiet moment after it records this too.
+      if (!chatsWriteIn(own.snapshot)) await own.share();
       await refreshGlobalContext();
     }
     return json({ ok: true, proposals });
@@ -426,10 +434,11 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   // --- the Stop hook (plan §3.3) ---------------------------------------------
 
-  async function chatTitle(sessionId: string): Promise<string> {
+  /** The chat the user sees: a sub-task's turn is recorded under its parent, so the app finds it. */
+  async function rootChat(sessionId: string): Promise<{ id: string; title: string }> {
     const info = await host?.sessionInfo(sessionId);
-    if (info?.parentId) return chatTitle(info.parentId);
-    return info?.title ?? "Chat";
+    if (info?.parentId) return rootChat(info.parentId);
+    return { id: sessionId, title: info?.title ?? "Chat" };
   }
 
   function onActivity(activity: SessionActivity): void {
@@ -445,13 +454,26 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     }
     set.delete(activity.sessionId);
     lastChat.set(activity.workspaceId, activity.sessionId);
-    if (set.size > 0) return;
+    if (set.size === 0) {
+      quietSoon(activity.workspaceId);
+      return;
+    }
+    // An idle event can be missed (the engine restarted, the feed reconnects without replay): ask
+    // the engine which chats really run, so a project never stays "running" for good (review #5).
+    void host?.runningSessions(activity.workspaceId).then((live) => {
+      if (!live) return;
+      for (const id of [...set]) if (!live.includes(id)) set.delete(id);
+      if (set.size === 0 && !quietTimers.has(activity.workspaceId)) quietSoon(activity.workspaceId);
+    }).catch(() => undefined);
+  }
+
+  function quietSoon(workspaceId: string): void {
     const quiet = setTimeout(() => {
-      quietTimers.delete(activity.workspaceId);
-      void finish(activity.workspaceId);
+      quietTimers.delete(workspaceId);
+      void finish(workspaceId);
     }, quietMs);
     quiet.unref?.();
-    quietTimers.set(activity.workspaceId, quiet);
+    quietTimers.set(workspaceId, quiet);
   }
 
   async function finish(workspaceId: string): Promise<void> {
@@ -461,14 +483,14 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     // The engine may know of a run the event stream missed.
     const busy = await host?.runningSessions(workspaceId);
     if (busy && busy.length > 0) return;
-    const title = await chatTitle(chatId);
+    const { id: chat, title } = await rootChat(chatId);
     try {
-      if (sync) await sync.finishTurn({ title, chatId });
+      if (sync) await sync.finishTurn({ title, chatId: chat });
       // What a chat elsewhere wrote in the personal brain is recorded under that chat too.
       const own = personal();
       if (own && own !== sync && personalDirty) {
         personalDirty = false;
-        await own.finishTurn({ title, chatId });
+        await own.finishTurn({ title, chatId: chat });
       }
       if (sync?.snapshot.kind === "personal") personalDirty = false;
       await refreshPolicies();
@@ -580,7 +602,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       await registry.upsert(created.snapshot);
       created.dispose();
       sync = await activate(created.snapshot, workspace.path);
-      await sync.share();
+      if (!chatsWriteIn(sync.snapshot)) await sync.share();
       await refreshGlobalContext();
     } else if (!sync) {
       return failure(400, "invalid_body", "Send the jobId of a clone, or kind personal.");
@@ -589,7 +611,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     }
     const status = trusted.length ? await sync.trust(trusted) : await sync.status();
     await refreshPolicies();
-    if (kind === "personal") await refreshGlobalContext();
+    if ((sync?.snapshot.kind ?? kind) === "personal") await refreshGlobalContext();
     return json({ workspaceId, status });
   }
 
@@ -625,7 +647,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         made = await BrainSync.publish({ ...options, remote: local ?? (parsed.ok ? parsed.link.sshUrl : "") });
       }
     } catch (error) {
-      if (error instanceof BrainCloneError) return failure(409, error.problem, error.message);
+      if (error instanceof BrainCloneError) return failure(409, error.problem, error.message, { userMessage: error.message });
       throw error;
     }
     await registry.upsert(made.snapshot);
@@ -654,7 +676,10 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     }
     if (action === "start") {
       const started = await startStage(root, name, stage);
-      if (!started.ok) return json({ code: started.reason, message: started.reason === "missing_input" ? `Deze invoer ontbreekt of is leeg: ${started.missing.join(", ")}` : "Deze stap kan nog niet starten.", missing: started.missing }, 409);
+      if (!started.ok) {
+        const userMessage = started.reason === "missing_input" ? `Deze invoer ontbreekt of is leeg: ${started.missing.join(", ")}` : "Deze stap kan nog niet starten.";
+        return json({ code: started.reason, message: userMessage, userMessage, missing: started.missing }, 409);
+      }
       return json(started);
     }
     if (body.model === true) {
@@ -689,6 +714,15 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
           .catch((error: unknown) => log("warn", "brain read question not answered", { error: String(error) }));
       }
     }
+  }
+
+  /**
+   * Everything that changes a folder, the history or a chat needs the host token (the desktop
+   * app), never a viewer token, and nothing changes on a read-only device (review #5).
+   */
+  function writable(route: BrainsRoute): BrainsRoute["handle"] {
+    if (route.method === "GET") return route.handle;
+    return (request, params) => (host?.readOnly ? Promise.resolve(failure(403, "read_only", "This device is read-only.")) : route.handle(request, params));
   }
 
   async function unregister(workspaceId: string): Promise<Response> {
@@ -758,7 +792,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   const routes: BrainsRoute[] = ([
     { method: "GET", path: "/bonzaiwork/brains/proposals", auth: "client", handle: async () => json({ proposals }) },
     {
-      method: "POST", path: "/bonzaiwork/brains/proposals/:proposalId", auth: "client",
+      method: "POST", path: "/bonzaiwork/brains/proposals/:proposalId", auth: "host-token",
       handle: async (request, params) => {
         const body = (await readBody(request)) ?? {};
         const decision = body.decision === "accept" ? "accept" : body.decision === "reject" ? "reject" : null;
@@ -782,11 +816,11 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     { method: "PUT", path: "/bonzaiwork/brains/:workspaceId", auth: "host-token", handle: (request, params) => register(request, params.workspaceId) },
     { method: "DELETE", path: "/bonzaiwork/brains/:workspaceId", auth: "host-token", handle: (_request, params) => unregister(params.workspaceId) },
     { method: "GET", path: "/bonzaiwork/brains/:workspaceId/status", auth: "client", handle: (_request, params) => act(params.workspaceId, (sync) => sync.status()) },
-    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/pull", auth: "client", handle: (request, params) => pull(request, params.workspaceId) },
-    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/sync", auth: "client", handle: (_request, params) => act(params.workspaceId, (sync) => sync.share()) },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/pull", auth: "host-token", handle: (request, params) => pull(request, params.workspaceId) },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/sync", auth: "host-token", handle: (_request, params) => act(params.workspaceId, (sync) => sync.share()) },
     { method: "GET", path: "/bonzaiwork/brains/:workspaceId/history", auth: "client", handle: (_request, params) => act(params.workspaceId, async (sync) => ({ entries: await sync.history() })) },
     {
-      method: "POST", path: "/bonzaiwork/brains/:workspaceId/resolve", auth: "client",
+      method: "POST", path: "/bonzaiwork/brains/:workspaceId/resolve", auth: "host-token",
       handle: async (request, params) => {
         const body = await readBody(request);
         // "ai": both versions go into the notes; the app starts a chat with `prompt` (plan §4.5).
@@ -822,11 +856,16 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         const parsed = parseRemote(text(body, "url") ?? "");
         const local = allowFileProtocol && text(body, "url")?.startsWith("file://") ? text(body, "url") : null;
         if (!local && !parsed.ok) return failure(400, "link_invalid", "This is not a repository link.");
-        return act(params.workspaceId, (brain) => brain.attachRemote(local ?? (parsed.ok ? parsed.link.sshUrl : "")));
+        try {
+          return await act(params.workspaceId, (brain) => brain.attachRemote(local ?? (parsed.ok ? parsed.link.sshUrl : "")));
+        } catch (error) {
+          if (error instanceof BrainCloneError) return failure(409, error.problem, error.message, { userMessage: error.message });
+          throw error;
+        }
       },
     },
     {
-      method: "POST", path: "/bonzaiwork/brains/:workspaceId/restore", auth: "client",
+      method: "POST", path: "/bonzaiwork/brains/:workspaceId/restore", auth: "host-token",
       handle: async (request, params) => {
         const body = (await readBody(request)) ?? {};
         const commit = text(body, "commit") ?? "";
@@ -842,9 +881,9 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       method: "GET", path: "/bonzaiwork/brains/:workspaceId/workflows", auth: "client",
       handle: (request, params) => workflows(request, params, "list"),
     },
-    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/runs", auth: "client", handle: (request, params) => workflows(request, params, "run") },
-    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start", auth: "client", handle: (request, params) => workflows(request, params, "start") },
-    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check", auth: "client", handle: (request, params) => workflows(request, params, "check") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/runs", auth: "host-token", handle: (request, params) => workflows(request, params, "run") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start", auth: "host-token", handle: (request, params) => workflows(request, params, "start") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check", auth: "host-token", handle: (request, params) => workflows(request, params, "check") },
     {
       method: "GET", path: "/bonzaiwork/brains/:workspaceId/reads", auth: "client",
       handle: (request, params) => reads(request, params.workspaceId),
@@ -871,13 +910,13 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       },
     },
     {
-      method: "POST", path: "/bonzaiwork/brains/:workspaceId/verify", auth: "client",
+      method: "POST", path: "/bonzaiwork/brains/:workspaceId/verify", auth: "host-token",
       handle: async (request, params) => {
         const body = (await readBody(request)) ?? {};
         return act(params.workspaceId, (sync) => sync.verify(text(body, "path") ?? ""));
       },
     },
-  ] satisfies BrainsRoute[]).map((route) => ({ ...route, handle: whenStarted(route.handle) }));
+  ] satisfies BrainsRoute[]).map((route) => ({ ...route, handle: whenStarted(writable(route)) }));
   // The MCP routes first: `/bonzaiwork/brains/mcp` must never match `/bonzaiwork/brains/:workspaceId`.
   routes.unshift(...mcpRoutes.map((route) => ({ ...route, handle: whenStarted(route.handle) })));
 

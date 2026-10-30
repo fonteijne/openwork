@@ -91,7 +91,7 @@ function SourcePicker(props: { value: Source; onChange: (value: Source) => void 
           onClick={() => props.onChange(source)}
           className={cn(
             "h-8 rounded-full px-3 text-sm text-muted-foreground transition-colors duration-100 hover:text-foreground pointer-coarse:h-10",
-            props.value === source && "bg-background font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+            props.value === source && "bg-background font-medium text-foreground shadow-card",
           )}
         >
           {source === "new" ? copy.brain.sourceNew : copy.brain.sourceBrain}
@@ -120,10 +120,16 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
   const [source, setSource] = useState<Source>("new");
   const [check, setCheck] = useState<RemoteCheck | null>(null);
   const [error, setError] = useState<{ field: "name" | "key" | "form"; message: string } | null>(null);
+  // Closing the dialog stops a running fetch from registering or opening a project afterwards.
+  const pending = useRef<AbortController | null>(null);
   const workspaceKeys = status.data?.keyMode === "workspace";
 
   useEffect(() => {
-    if (!props.open) return;
+    if (!props.open) {
+      pending.current?.abort();
+      pending.current = null;
+      return;
+    }
     setName("");
     setDescription("");
     setColor(PROJECT_COLORS[Math.floor(Math.random() * 6)] ?? "jade");
@@ -164,13 +170,16 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
     }
     setBusy(true);
     setError(null);
+    const controller = new AbortController();
+    pending.current = controller;
     try {
       // A shared brain is cloned first; the project opens on the cloned folder (plan §4.1).
       let folderPath = folder?.trim() || null;
       let jobId: string | null = null;
       if (fromBrain && check?.ok) {
         const started = await backend.brains.clone(check.sshUrl, { folderPath, name: trimmed });
-        const job = await backend.brains.job(started.jobId);
+        const job = await backend.brains.job(started.jobId, controller.signal);
+        if (controller.signal.aborted) return;
         if (job.state !== "done") {
           setError({ field: "form", message: job.error ?? copy.errors.generic });
           return;
@@ -203,6 +212,7 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
         }
       }
       await Promise.all([client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.status })]);
+      if (controller.signal.aborted) return;
       props.onOpenChange(false);
       if (keyFailure) {
         toast(keyFailure, { tone: "error" });
@@ -212,8 +222,9 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
         navigate({ name: "project", projectId: project.id, chatId: null });
       }
     } catch (failure) {
-      setError({ field: "form", message: errorText(failure) });
+      if (!controller.signal.aborted) setError({ field: "form", message: errorText(failure) });
     } finally {
+      if (pending.current === controller) pending.current = null;
       setBusy(false);
     }
   };

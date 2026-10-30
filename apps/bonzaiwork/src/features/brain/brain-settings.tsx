@@ -204,7 +204,7 @@ function Care(props: { projectId: string; readOnly: boolean }) {
  */
 function BecomeBrain(props: { project: Project; readOnly: boolean }) {
   const backend = useBackend();
-  const candidate = useQuery({ queryKey: ["brain-candidate", props.project.id], queryFn: () => backend.brains.candidate(props.project.id) });
+  const candidate = useQuery({ queryKey: keys.brainCandidate(props.project.id), queryFn: () => backend.brains.candidate(props.project.id) });
   const { busy, run, brains } = useBrainAction(props.project.id);
   const [check, setCheck] = useState<RemoteCheck | null>(null);
   if (candidate.isLoading) return <Skeleton className="my-3 h-12 w-full" />;
