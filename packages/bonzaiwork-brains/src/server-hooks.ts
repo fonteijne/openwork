@@ -98,6 +98,18 @@ const BODY_LIMIT = 64 * 1024;
 const MODES: readonly BrainMode[] = ["auto", "manual", "read_only", "proposal"];
 const KINDS: readonly BrainKind[] = ["project", "personal"];
 
+/**
+ * One folder, however it is written. On Windows the app may build `C:\\Users\\x\\BonzaiWork/Sales`
+ * while the server keeps backslashes, and case does not matter there (docs/bonzaiwork/windows.md).
+ */
+export function samePath(a: string, b: string, platform: NodeJS.Platform): boolean {
+  const normal = (path: string) => {
+    const trimmed = path.replace(/[\\/]+$/, "");
+    return platform === "win32" ? trimmed.replace(/\//g, "\\").toLowerCase() : trimmed;
+  };
+  return normal(a) === normal(b);
+}
+
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
 }
@@ -521,7 +533,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     if (jobId) {
       const job = jobs.get(jobId);
       if (!job || job.state !== "done" || !job.sync) return failure(409, "clone_not_ready", "The brain is not cloned yet.");
-      if (job.path !== workspace.path) return failure(409, "folder_mismatch", "The workspace is not the cloned folder.");
+      if (!samePath(job.path, workspace.path, platform)) return failure(409, "folder_mismatch", "The workspace is not the cloned folder.");
       sync?.dispose();
       job.sync.dispose();
       if (kind === "personal" && personal()) return failure(409, "personal_exists", "There is a personal brain already.");

@@ -453,7 +453,8 @@ Niet te doen in een Linux-container; hoort bij de start van fase 1, met een buil
 - [ ] Brein in iCloud Drive met "Optimaliseer opslag": slaat zoeken bestanden die alleen online staan over,
       en blijven `AGENTS.md` en `knowledge/index.md` lokaal (plan §5.1.1)?
 
-**Windows 11 (x64)**
+**Windows 11 (x64)**: alles voor Windows, ook wat na fase 0 is gebouwd, staat nu in
+[`windows.md`](./windows.md); die lijst is leidend.
 
 - [ ] Worden de `.exe`'s en `.dll`'s van git getekend? `signExts` is nu `[".dll", ".node"]`; waarschijnlijk
       `.exe` erbij of de binaries van Git for Windows zoals geleverd laten (die zijn al getekend, controleren).

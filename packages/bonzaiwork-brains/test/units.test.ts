@@ -79,3 +79,14 @@ describe("git geïsoleerd (fase 0 §1.3)", () => {
     expect(windows.env.GIT_EXEC_PATH).toContain("ucrt64");
   });
 });
+
+describe("paden op Windows (docs/bonzaiwork/windows.md)", () => {
+  test("dezelfde map, ook met gemengde slashes en een andere hoofdletter", async () => {
+    const { samePath } = await import("../src/server-hooks.ts");
+    expect(samePath("C:\\Users\\Anna\\BonzaiWork/Sales", "c:\\users\\anna\\BonzaiWork\\Sales\\", "win32")).toBe(true);
+    expect(samePath("C:\\Users\\Anna\\BonzaiWork\\Sales", "C:\\Users\\Anna\\BonzaiWork\\Sales 2", "win32")).toBe(false);
+    // Elsewhere case counts and a backslash is part of a name.
+    expect(samePath("/Users/anna/Sales", "/users/anna/Sales", "darwin")).toBe(false);
+    expect(samePath("/home/anna/Sales/", "/home/anna/Sales", "linux")).toBe(true);
+  });
+});

@@ -21,3 +21,8 @@ Project-breinen: git-repo's die BonzaiWork vóór een beurt bijwerkt en erna dee
 
 Tests (`bun test`, en `pnpm e2e` tegen de echte server en engine) draaien echte git tegen een bare repo als server, met twee gebruikers. De SSH-tests
 tegen een echte `sshd` worden overgeslagen als `sshd` hier niet kan starten.
+
+## Windows
+
+Niets hiervan is op Windows getest. Wat daar anders loopt, de handmatige test en de regels voor code met
+een `win32`-tak of paden staan in [`docs/bonzaiwork/windows.md`](../../docs/bonzaiwork/windows.md).

@@ -1058,6 +1058,9 @@ Stand fase 2 (bezig):
   projecten gebruiken dezelfde code (`answers.ts`). e2e: na het aanvinken leest een chat zonder klik.
 - `brains.json` kende de modus "via voorstel" niet: zo'n brein viel bij een herstart weg. Hersteld, met
   het open voorstel.
+- **Windows** is nergens getest: wat er anders loopt, de handmatige test en de regels voor verdere
+  ontwikkeling staan in [`windows.md`](./windows.md). Al opgelost: na een clone vergelijkt de server de map
+  hoofdletterongevoelig en met beide slashes (`samePath`).
 - **Nog open in fase 2**: een OKF-bundel importeren, runs als chatgroep, werkwijzen in de composer en een
   werkwijze als routine.
 - Beslist (30-10): GitHub-voorstellen via de `gh` van de gebruiker op de laptop (BonzaiWork bewaart geen
