@@ -1,6 +1,6 @@
 # Implementatieplan: voorkeursmodellen in projectinstellingen
 
-Issue: [fonteijne/openwork#7](https://github.com/fonteijne/openwork/issues/7) · Stand: plan, nog niet gebouwd.
+Issue: [fonteijne/openwork#7](https://github.com/fonteijne/openwork/issues/7) · Stand: plan, nog niet gebouwd. Open vragen beantwoord op 2026-10-30.
 
 ## Doel
 
@@ -10,7 +10,15 @@ Susan (niet-technisch) wil niet nadenken over welke modellen aanstaan. Daarom:
 2. **Knop "Alleen voorkeursmodellen"** vinkt precies de door ons gekozen modellen aan.
 3. **Nieuwe projecten starten met alleen de voorkeursmodellen.** De rest zet ze aan in de projectinstellingen.
 
-Voorkeursmodellen volgens het issue: GPT-6 Luna, GLM 5, GLM 4.7 Flash, Qwen 3.8 27B, Gemini 3.8 Flash.
+De voorkeursmodellen zijn deze vijf LiteLLM-model-id's (V1, V2). Er zijn er niet meer:
+
+| Model | LiteLLM-id |
+|---|---|
+| GPT-6 Luna | `gpt-6-luna` |
+| GLM 5 | `glm-5` |
+| GLM 4.7 Flash | `glm-4.7-flash` |
+| Qwen 3.8 27B | `qwen3.8-27b` |
+| Gemini 3.8 Flash | `gemini-3.8-flash` |
 
 ## Hoe het nu werkt
 
@@ -28,19 +36,19 @@ Voorkeursmodellen volgens het issue: GPT-6 Luna, GLM 5, GLM 4.7 Flash, Qwen 3.8 
 | # | Beslissing | Waarom |
 |---|---|---|
 | B1 | De voorkeurslijst bestaat uit **LiteLLM-model-id's**, niet uit weergavenamen. | Namen verschillen per LiteLLM-config. Alleen id's matchen betrouwbaar. |
-| B2 | De lijst staat als standaard in `@bonzaiwork/policy` (`PREFERRED_MODEL_IDS`). Een build kan hem overschrijven met `BONZAIWORK_PREFERRED_MODELS` (komma-gescheiden), zoals `BONZAIWORK_DEFAULT_MODEL`. | Dit volgt O3 (instellingen worden in de build ingebakken). Er komt geen nieuwe UI voor beheer. |
+| B2 | De lijst staat als standaard in `@bonzaiwork/policy` (`PREFERRED_MODEL_IDS`). Een build kan hem overschrijven met `BONZAIWORK_PREFERRED_MODELS` (komma-gescheiden), zoals `BONZAIWORK_DEFAULT_MODEL`. | Dit volgt O3 (instellingen worden in de build ingebakken). Er komt geen nieuwe UI voor beheer. De LiteLLM-config ligt buiten onze invloed, dus een vlag in LiteLLM valt af (V3). |
 | B3 | De server geeft de lijst door in `GET /bonzaiwork/status` als `preferredModels: string[]`, ongefilterd en in de ingestelde volgorde. | De UI leest één bron. Het filteren tegen de key gebeurt bij het lezen, net als bij `allowedModels`. |
 | B4 | `allowedModels: []` wordt een geldige toestand: "nog niets gekozen". `null` blijft "alle modellen van de key". | Nodig voor de flow "alles uitvinken, dan zelf aanvinken". |
 | B5 | Een project zonder bruikbaar model is **geblokkeerd, geen fout** (DESIGN C5/P4). Composer en routine-editor tonen dan "Geen modellen gekozen" met de actie "Modellen kiezen" naar de projectinstellingen. | Een lege lijst mag nooit tot een stille fout bij het versturen leiden. |
 | B6 | Nieuwe projecten krijgen `allowedModels = preferredModels` (de ingestelde id's). Is de lijst leeg, dan blijft het `null`. | Dit werkt ook als de key pas later gekoppeld wordt: het filteren gebeurt bij het lezen. |
-| B7 | Bestaande projecten blijven zoals ze zijn: geen migratie. | Stilletjes modellen weghalen die iemand gebruikt, breekt lopende chats en routines. |
+| B7 | Bestaande projecten blijven zoals ze zijn: geen migratie (V4). Ze houden "Alle modellen van de key" (`null`). De gebruiker zet zelf de schakelaar uit en kiest "Alleen voorkeursmodellen". | Stilletjes modellen weghalen die iemand gebruikt, breekt lopende chats en routines. |
 
 ## Stappen
 
 ### 1. Policy: voorkeurslijst (`packages/bonzaiwork-policy`)
 
 - `src/index.ts`
-  - `export const PREFERRED_MODEL_IDS: readonly string[] = [...]` met de vijf id's (zie open vraag V1).
+  - `export const PREFERRED_MODEL_IDS: readonly string[] = ["gpt-6-luna", "glm-5", "glm-4.7-flash", "qwen3.8-27b", "gemini-3.8-flash"]`.
   - `BonzaiworkSettings` krijgt `preferredModels: string[]`.
   - `readSettings`: `BONZAIWORK_PREFERRED_MODELS` splitsen op `,`, trimmen, lege waarden en dubbele id's weghalen, de volgorde houden. Niet gezet → `PREFERRED_MODEL_IDS`. Een lege string (`""`) betekent bewust geen voorkeur → `[]`.
   - Helper `pickPreferredModels(models, preferred)`: de doorsnede, in de volgorde van `preferred`. Puur en getest.
@@ -74,7 +82,7 @@ Voorkeursmodellen volgens het issue: GPT-6 Luna, GLM 5, GLM 4.7 Flash, Qwen 3.8 
   - `projects.create`: `allowedModels` meesturen in de eerste `meta.patch`.
 - `live/meta.ts`: `readMeta` neemt `[]` al over (`Array.isArray`). Een test in `live/meta.test.ts` legt vast dat `[]` niet terugvalt naar `null`.
 - `demo/seed.ts` + `demo/index.ts`
-  - `DEMO_MODELS` uitbreiden met de vijf voorkeursmodellen. De bestaande modellen blijven en dienen als "overige".
+  - `DEMO_MODELS` uitbreiden met de vijf voorkeursmodellen (echte id's uit de tabel bovenaan, met de weergavenamen erbij). De bestaande modellen blijven en dienen als "overige".
   - Demo-state krijgt `preferredModels`.
   - `projects.create` neemt `input.allowedModels` over. De audit-regel noemt de modelkeuze.
   - Demo-schakelaar `?voorkeur=geen` simuleert een key zonder voorkeursmodellen, voor de geblokkeerde staat.
@@ -115,19 +123,24 @@ Volg DESIGN S2 (compacte rijen), P3 (meer tonen pas als de schakelaar uit staat)
   4. Key zonder voorkeursmodellen (`?voorkeur=geen`) → knop uitgeschakeld met tooltip.
   5. Composer met de geblokkeerde staat "Geen modellen gekozen".
   6. Nieuw project → instellingen tonen alleen de voorkeursmodellen aangevinkt.
-- Een live check tegen een echte LiteLLM (macOS) met de echte id's, zodra V1 is beantwoord. Lokale tests bewijzen niet dat de id's kloppen.
+- Een live check tegen een echte LiteLLM (macOS): biedt `GET /v1/models` de vijf id's precies zo? Lokale tests bewijzen niet dat de id's kloppen.
 
 ### 9. PR
 
 - Eén PR met stappen 1 t/m 7. Geen feature flag: het gaat om een kleine UI-aanpassing en een standaardwaarde (AGENTS.md: "never flag additive UI, polish").
 - In de PR-tekst: de DESIGN-regels S2, P3, P4, P5, C1, C2, C5 en C6, plus de screenshots uit stap 8.
 
-## Open vragen
+## Beantwoorde vragen
+
+| # | Vraag | Antwoord |
+|---|---|---|
+| V1 | Wat zijn de exacte LiteLLM-model-id's? | `gpt-6-luna`, `glm-5`, `glm-4.7-flash`, `qwen3.8-27b`, `gemini-3.8-flash` (tabel bovenaan). |
+| V2 | Ontbreekt er een model (de nummering in het issue sloeg 2 over)? | Nee, deze vijf zijn alle voorkeursmodellen. |
+| V3 | Moet de lijst zonder nieuwe build te wijzigen zijn, bijvoorbeeld via LiteLLM's `model_info`? | Nee. De lijst zit in de build (B2). De LiteLLM-config ligt buiten onze invloed. |
+| V4 | Moeten bestaande projecten naar de voorkeursmodellen? | Nee, geen migratie (B7). Ze houden "Alle modellen" en de gebruiker kiest zelf. |
+
+## Nog open
 
 | # | Vraag | Gevolg |
 |---|---|---|
-| V1 | Wat zijn de **exacte LiteLLM-model-id's** van de vijf modellen (bijv. `gpt-6-luna` of `openai/gpt-6-luna`)? | Nodig voor `PREFERRED_MODEL_IDS`. Tot dan staan er placeholder-id's en test de demo met eigen id's. |
-| V2 | De nummering in het issue slaat 2 over (1, 3, 4, 5, 6). **Ontbreekt er een model?** | De lijst zou dan zes modellen hebben. |
-| V3 | Moet de lijst **zonder nieuwe build** te wijzigen zijn? Bijvoorbeeld via een tag in LiteLLM's `model_info` (`bonzaiwork_preferred: true`) die de server via `/model/info` leest. | Bij ja vervangt dit B2. De server leest dan de vlag in plaats van de env. Meer werk, maar beheer blijft in LiteLLM. |
-| V4 | Moeten **bestaande projecten** ook naar de voorkeursmodellen (eenmalige migratie, of een melding "Overstappen op voorkeursmodellen")? | Dit plan doet niets met bestaande projecten (B7). |
 | V5 | Is een derde knop **"Alles aanvinken"** nodig? Dat is een vaste lijst van de huidige modellen. De schakelaar aan betekent ook toekomstige modellen. | Niet gevraagd in het issue, daarom weggelaten (P3). |
