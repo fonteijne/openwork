@@ -40,6 +40,7 @@ describe("brain status", () => {
       unshared: [],
       warnings: [],
       excluded: ["Dagboek"],
+      proposal: null,
     });
   });
 

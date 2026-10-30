@@ -1042,9 +1042,18 @@ Stand fase 2 (bezig):
 - **Nog open in fase 2**: de dagelijkse routine "Wat is er nieuw in mijn breinen" (een routine draait
   zonder iemand die de toestemmingskaart voor een ander brein beantwoordt; zie de beslissing hieronder),
   een OKF-bundel importeren, runs als chatgroep, werkwijzen in de composer en een werkwijze als routine.
-- **Te beslissen vóór fase 3** ("via voorstel"): GitLab kan een merge request maken bij een gewone push
-  over SSH (`git push -o merge_request.create`); GitHub kan dat niet zonder token of `gh`, wat B2 ("geen
-  tokens") raakt. En of routines zonder klik in andere breinen mogen lezen.
+- Beslist (30-10): GitHub-voorstellen via de `gh` van de gebruiker op de laptop (BonzaiWork bewaart geen
+  token, B2 blijft staan); routines mogen zonder klik lezen in de breinen die bij de routine zijn
+  aangevinkt.
+
+Stand fase 3 (bezig):
+- **Via voorstel** gebouwd (`proposals.ts`, modus `proposal`): na elke beurt gaan de commits die nog niet
+  op de gedeelde branch staan naar `bonzaiwork/<gebruiker>/<datum>` (geforceerd; de branch is van de
+  gebruiker en wordt bij elk bijwerken opnieuw op de gedeelde branch gezet). De eerste push maakt het
+  voorstel: GitLab via push options in dezelfde SSH-push, GitHub met `gh pr create` van de gebruiker
+  (gevonden in PATH, Homebrew-plekken of `BONZAIWORK_GH`). Zonder `gh` of zonder push options: een link
+  "Voorstel maken". Samengevoegd (ook squash, ook met ander werk erbij; `git merge-tree`) → de map volgt
+  de gedeelde branch weer. "Alleen lezen" na een geweigerde push biedt "Als voorstel delen".
 
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een

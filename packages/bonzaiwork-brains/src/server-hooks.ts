@@ -11,6 +11,7 @@ import { applyTemplate } from "./template.ts";
 import { listWorkflows, modelCheckPrompt, newRun, recordCheck, startStage } from "./workflows.ts";
 import { remoteProblemMessage } from "./messages.ts";
 import { BrainRegistry } from "./registry.ts";
+import { createProposalService, type ProposalService } from "./proposals.ts";
 import { parseRemote } from "./remote.ts";
 import { checkConnection, ensureKnownHosts, scanHostKeys, sshCommand, trustHostKeys, type SshOptions } from "./ssh.ts";
 import { BrainCloneError, BrainSync, type Author, type BrainKind, type BrainMode, type BrainRecord, type BrainStatus } from "./sync.ts";
@@ -69,6 +70,7 @@ export type BrainsHooksOptions = {
   quietMs?: number;
   /** How long a turn waits for the update before it goes on (plan §2). */
   prepareTimeoutMs?: number;
+  proposals?: ProposalService;
   /** How often quiet brains look for the team's changes, so the pill can say so (fase 2). */
   fetchEveryMs?: number;
   /** Tests only. */
@@ -84,7 +86,7 @@ export const BASE_ENGINE_POLICIES: readonly EnginePolicy[] = [
 ];
 
 const BODY_LIMIT = 64 * 1024;
-const MODES: readonly BrainMode[] = ["auto", "manual", "read_only"];
+const MODES: readonly BrainMode[] = ["auto", "manual", "read_only", "proposal"];
 const KINDS: readonly BrainKind[] = ["project", "personal"];
 
 function json(value: unknown, status = 200): Response {
@@ -150,6 +152,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let fetchTimer: ReturnType<typeof setInterval> | null = null;
   const fetchEveryMs = options.fetchEveryMs ?? 10 * 60_000;
+  // "Via voorstel": GitLab through push options, GitHub through the user's own gh (plan §4.4).
+  const proposalService = options.proposals ?? createProposalService({ environment, platform });
 
   /** Periodic fetch: only looks, never changes the folder; a brain with a running chat waits. */
   async function fetchQuietBrains(): Promise<void> {
@@ -177,7 +181,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   function syncFor(record: BrainRecord): BrainSync {
     if (!git) throw new Error("brains not started");
-    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform });
+    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService });
   }
 
   const personal = (): BrainSync | undefined => [...syncs.values()].find((sync) => sync.snapshot.kind === "personal");

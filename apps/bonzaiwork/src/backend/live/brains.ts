@@ -28,7 +28,7 @@ import { bool, field, list, num, rec, str, strings } from "./read";
 type Request = (path: string, options?: RequestOptions) => Promise<unknown>;
 
 const STATES: readonly BrainState[] = ["synced", "syncing", "behind", "ahead", "offline", "conflict", "read_only", "local_only", "needs_trust", "error"];
-const MODES: readonly BrainMode[] = ["auto", "manual", "read_only"];
+const MODES: readonly BrainMode[] = ["auto", "manual", "read_only", "proposal"];
 const TRUST_KINDS: readonly TrustItem["kind"][] = ["config", "plugin", "agent", "command", "script"];
 const PROBLEMS: readonly RemoteProblem[] = ["host_unknown", "host_changed", "no_access", "key_locked", "not_found", "read_only", "rejected", "unreachable", "offline", "ssh_missing", "unknown"];
 const TIERS: readonly ConceptView["tier"][] = ["unverified", "machine", "human", "human_before_change"];
@@ -63,6 +63,11 @@ export function readBrainStatus(value: unknown): BrainStatus | null {
     }),
     warnings: strings(field(value, "warnings")),
     excluded: strings(field(value, "excluded")),
+    proposal: (() => {
+      const proposal = field(value, "proposal");
+      const branch = str(proposal, "branch");
+      return branch ? { branch, url: str(proposal, "url") ?? null, manual: field(proposal, "manual") === true } : null;
+    })(),
   };
 }
 

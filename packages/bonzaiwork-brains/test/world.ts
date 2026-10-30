@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { createGit, type Git, type GitResult } from "../src/git.ts";
+import type { ProposalService } from "../src/proposals.ts";
 import { BrainSync, type BrainMode, type BrainRecord } from "../src/sync.ts";
 
 /**
@@ -18,7 +19,7 @@ export type World = {
   seed(files: Record<string, string>, message?: string): Promise<void>;
   /** Raw git in a scratch clone (for force-pushes and other things BonzaiWork never does). */
   raw(args: readonly string[], cwd?: string): Promise<GitResult>;
-  user(name: string, options?: { mode?: BrainMode; git?: Git; retryDelaysMs?: number[]; sizeLimitBytes?: number }): Promise<User>;
+  user(name: string, options?: { mode?: BrainMode; git?: Git; retryDelaysMs?: number[]; sizeLimitBytes?: number; proposals?: ProposalService }): Promise<User>;
   dispose(): Promise<void>;
 };
 
@@ -70,6 +71,7 @@ export async function createWorld(options: { empty?: boolean } = {}): Promise<Wo
         save: async (record) => { saved.push(record); },
         retryDelaysMs: userOptions.retryDelaysMs ?? [60_000],
         ...(userOptions.sizeLimitBytes ? { sizeLimitBytes: userOptions.sizeLimitBytes } : {}),
+        ...(userOptions.proposals ? { proposals: userOptions.proposals } : {}),
       });
       await sync.open();
       return {

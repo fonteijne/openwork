@@ -440,7 +440,7 @@ type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "confl
 type BrainStatus = {
   kind: BrainKind;
   state: BrainState;              // local_only: persoonlijk brein zonder eigen repo
-  mode: "auto" | "manual" | "read_only";
+  mode: "auto" | "manual" | "read_only" | "proposal";
   remote: string | null;          // SSH-vorm, bijv. git@gitlab.com:team/brein.git
   branch: string;
   ahead: number;
@@ -454,6 +454,7 @@ type BrainStatus = {
   unshared: { path: string; reason: "not_markdown" | "too_large" }[];
   warnings: string[];             // OKF/ICM-structuur (Nederlands)
   excluded: string[];             // persoonlijk brein: mappen die de AI niet opent
+  proposal: { branch: string; url: string | null; manual: boolean } | null; // "via voorstel"
 };
 ```
 

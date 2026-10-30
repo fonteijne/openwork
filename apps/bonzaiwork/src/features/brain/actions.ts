@@ -39,5 +39,5 @@ export function useBrainAction(projectId: string) {
 
 /** The status in the pill's words (brains plan §8.2). */
 export function attention(status: BrainStatus): boolean {
-  return status.state === "conflict" || status.state === "error" || status.state === "needs_trust";
+  return status.state === "conflict" || status.state === "error" || status.state === "needs_trust" || status.proposal?.manual === true;
 }

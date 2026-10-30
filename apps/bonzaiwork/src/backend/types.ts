@@ -349,7 +349,9 @@ export type RoutinePatch = Partial<RoutineInput> & { state?: Exclude<RoutineStat
 // ---------------------------------------------------------------------------
 
 export type BrainKind = "project" | "personal";
-export type BrainMode = "auto" | "manual" | "read_only";
+export type BrainMode = "auto" | "manual" | "read_only" | "proposal";
+/** "Via voorstel": the open merge or pull request; `manual` when the user still has to open it from `url`. */
+export type BrainProposal = { branch: string; url: string | null; manual: boolean };
 export type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "needs_trust" | "error";
 
 /** Something a shared brain brings that can run code; it stays out of the folder until trusted (§7.1). */
@@ -375,6 +377,7 @@ export type BrainStatus = {
   unshared: { path: string; reason: "not_markdown" | "too_large" }[];
   warnings: string[];
   excluded: string[];
+  proposal: BrainProposal | null;
 };
 
 export type Brain = { projectId: string; path: string; status: BrainStatus };

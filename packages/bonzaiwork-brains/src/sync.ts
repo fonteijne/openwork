@@ -6,6 +6,7 @@ import { checkContract, contentWarnings, isStageContract } from "./icm.ts";
 import { describeConcept, isConceptPath, isKnowledgePath, isReserved, KNOWLEDGE, mergeLogs, planKnowledge, renderIndexes, withVerified, type ConceptView, type StagedChange } from "./okf.ts";
 import { applyTemplate } from "./template.ts";
 import { remoteProblemMessage, SYNC_MESSAGES } from "./messages.ts";
+import type { ProposalService } from "./proposals.ts";
 import { scanForSecrets } from "./secrets.ts";
 import { classifyGitError, type RemoteProblem } from "./ssh.ts";
 import { findTrustItems, personalExcludes, sparsePatterns, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
@@ -16,7 +17,8 @@ import { findTrustItems, personalExcludes, sparsePatterns, untrusted, withLocalE
  * operation waits for the previous one. The AI never runs git; this does.
  */
 export type BrainKind = "project" | "personal";
-export type BrainMode = "auto" | "manual" | "read_only";
+export type BrainMode = "auto" | "manual" | "read_only" | "proposal";
+export type Proposal = { branch: string; url: string | null; manual: boolean };
 export type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "needs_trust" | "error";
 
 /** What BonzaiWork keeps per brain (userData/bonzaiwork/brains.json, never in the repo). */
@@ -36,6 +38,8 @@ export type BrainRecord = {
   /** origin/<branch> at the last successful sync: must stay an ancestor of HEAD (plan §7.4, laag 2). */
   lastSyncedRemote: string | null;
   lastSyncAt: number | null;
+  /** "Via voorstel": the open proposal for the commits not on the shared branch yet. */
+  proposal?: Proposal | null;
   /** The .git/config BonzaiWork expects (plan §7.4, laag 4). */
   gitConfig: string | null;
   /** Personal brain: folders the AI never reads or changes (plan §5.1.1). */
@@ -68,6 +72,8 @@ export type BrainStatus = {
   warnings: string[];
   /** Personal brain: folders the AI does not open. */
   excluded: string[];
+  /** "Via voorstel": the open merge or pull request; `manual` when the user opens it from the link. */
+  proposal: Proposal | null;
 };
 
 export type Author = { name: string; email: string };
@@ -87,6 +93,8 @@ export type BrainSyncOptions = {
   platform?: NodeJS.Platform;
   /** `generated.by` for the AI's changes: `bonzaiwork/<version>` (plan §6.2). */
   producer?: string;
+  /** Makes merge or pull requests in mode "proposal" (plan §4.4). */
+  proposals?: ProposalService;
 };
 
 type Problem =
@@ -489,6 +497,18 @@ export class BrainSync {
       await this.persist({ lastSyncedRemote: remote });
       return;
     }
+    // A proposal that was merged (also squashed, or with others' work on top): the shared branch
+    // already holds everything here, so the folder simply follows it again.
+    if (this.record.proposal && head) {
+      const merged = await this.run(["merge-tree", "--write-tree", this.remoteRef(), "HEAD"]);
+      const sharedTree = (await this.run(["rev-parse", `${this.remoteRef()}^{tree}`])).stdout.trim();
+      if (merged.exitCode === 0 && merged.stdout.split("\n")[0]?.trim() === sharedTree) {
+        await this.ok(["reset", "-q", "--keep", this.remoteRef()]);
+        await this.persist({ lastSyncedRemote: remote, proposal: null });
+        this.log("info", "brain proposal was merged", {});
+        return;
+      }
+    }
     const rebased = await this.run(["rebase", "-q", this.remoteRef()], { config: this.author() });
     if (rebased.exitCode !== 0 && !await this.resolveContentConflicts()) {
       const files = await this.conflictFiles();
@@ -575,7 +595,48 @@ export class BrainSync {
     this.retryIndex = 0;
   }
 
+  /** Auto and proposal share after every turn; manual waits for the button. */
+  private get sharesByItself(): boolean {
+    return this.record.mode === "auto" || this.record.mode === "proposal";
+  }
+
+  /**
+   * "Via voorstel" (plan §4.4): the commits not on the shared branch go to
+   * `bonzaiwork/<gebruiker>/<datum>` (forced: it is ours, and is rebased on
+   * every update); the first push opens the merge or pull request.
+   */
+  private async pushProposal(): Promise<boolean> {
+    const remote = this.record.remote;
+    const head = await this.revParse("HEAD");
+    if (!remote || !head) return false;
+    const shared = await this.revParse(this.remoteRef());
+    if (shared === head || (shared && await this.isAncestor(head, shared))) return true;
+    const open = this.record.proposal ?? null;
+    const who = this.humanId().replace(/^human:/, "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9.]+/g, "-").replace(/^-|-$/g, "") || "gebruiker";
+    const branch = open?.branch ?? `bonzaiwork/${who}/${new Date(this.now()).toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-")}`;
+    const subjects = (await this.ok(["log", "--format=%s", shared ? `${this.remoteRef()}..HEAD` : "HEAD"])).trim().split("\n").filter(Boolean);
+    const request = { remote, branch, base: this.record.branch, title: subjects.at(-1) ?? "Wijzigingen", body: [...subjects.reverse().map((subject) => `- ${subject}`), "", "Via BonzaiWork"].join("\n") };
+    const options = !open && this.options.proposals ? this.options.proposals.pushOptions(request) : [];
+    const push = (extra: readonly string[]) => this.run(["push", "--porcelain", "--force", ...extra.flatMap((option) => ["-o", option]), "origin", `HEAD:refs/heads/${branch}`], { timeoutMs: 60_000 });
+    let result = await push(options);
+    // A server without push options (not GitLab) refuses them: a plain push, the link comes after.
+    if (result.exitCode !== 0 && options.length && /push options/i.test(result.stderr)) result = await push([]);
+    if (result.exitCode !== 0 || result.timedOut) {
+      const output = `${result.stdout}\n${result.stderr}`;
+      this.problem = this.fail(classifyGitError(output, result.timedOut), output);
+      if (this.problem.kind === "offline") this.scheduleRetry();
+      return false;
+    }
+    const link = open ?? { branch, ...(this.options.proposals ? await this.options.proposals.open({ ...request, pushOutput: `${result.stdout}\n${result.stderr}` }) : { url: null, manual: true }) };
+    await this.persist({ proposal: { branch, url: link.url, manual: link.manual }, lastSyncAt: this.now() });
+    this.problem = null;
+    this.clearRetry();
+    this.log("info", "brain proposal pushed", { branch, url: link.url });
+    return true;
+  }
+
   private async push(): Promise<boolean> {
+    if (this.record.mode === "proposal") return this.pushProposal();
     if (!this.record.remote || !await this.hasCommit("HEAD")) return false;
     for (let attempt = 0; attempt < MAX_PUSH_ATTEMPTS; attempt += 1) {
       const head = await this.revParse("HEAD");
@@ -643,7 +704,7 @@ export class BrainSync {
       if (await this.mergeInProgress() && !await this.finishMerge(turn.chatId)) return { committed: false, shared: false, status: await this.statusNow() };
       const result = await this.commit(`${title}\n\nVia BonzaiWork\n\nBonzaiWork-Chat: ${turn.chatId}\n`, "ai", title);
       let shared = false;
-      if (!result.blockedBy && this.record.mode === "auto" && this.problem?.kind !== "conflict") shared = await this.push();
+      if (!result.blockedBy && this.sharesByItself && this.problem?.kind !== "conflict") shared = await this.push();
       return { ...result, shared, status: await this.statusNow() };
     });
   }
@@ -677,7 +738,7 @@ export class BrainSync {
       const by = this.problem.by ?? await this.lastAuthor(files);
       if (!files.length) {
         await this.finishMerge(null);
-        if (this.record.mode === "auto") await this.push();
+        if (this.sharesByItself) await this.push();
         return { files: [], by, prompt: null, status: await this.statusNow() };
       }
       this.problem = { kind: "conflict", message: SYNC_MESSAGES.merging, files, by, merging: true };
@@ -810,7 +871,7 @@ export class BrainSync {
       await writeFile(target, withVerified(await readFile(target, "utf8"), this.humanId(), at));
       await this.ok(["add", "--", path]);
       await this.ok(["commit", "-q", "--no-verify", "-F", "-", "--", path], { input: `Nagekeken: ${view.title ?? path}\n\nVia BonzaiWork\n`, config: this.author() });
-      if (this.record.mode === "auto") await this.push();
+      if (this.sharesByItself) await this.push();
       return { concept: await this.concept(path), status: await this.statusNow() };
     });
   }
@@ -825,7 +886,7 @@ export class BrainSync {
       else await this.run(["rm", "-q", "--", path]);
       if ((await this.run(["diff", "--cached", "--quiet"])).exitCode === 1) {
         await this.ok(["commit", "-q", "--no-verify", "-F", "-"], { input: `Teruggezet: ${path}\n\nVia BonzaiWork\n`, config: this.author() });
-        if (this.record.mode === "auto") await this.push();
+        if (this.sharesByItself) await this.push();
       }
       return this.statusNow();
     });
@@ -844,7 +905,7 @@ export class BrainSync {
         return this.statusNow();
       }
       await this.ok(["commit", "-q", "--no-verify", "-F", "-"], { input: `Teruggedraaid: ${subject}\n\nVia BonzaiWork\n`, config: this.author() });
-      if (this.record.mode === "auto") await this.push();
+      if (this.sharesByItself) await this.push();
       return this.statusNow();
     });
   }
@@ -875,7 +936,7 @@ export class BrainSync {
       if (!await this.guard()) return { written: [], status: await this.statusNow() };
       const result = await applyTemplate(this.record.path, { kind: this.record.kind, name: input.name, description: input.description, now: new Date(this.now()) });
       await this.commit("Brein ingericht\n\nVia BonzaiWork\n", "own", "brein ingericht");
-      if (this.record.mode === "auto") await this.push();
+      if (this.sharesByItself) await this.push();
       return { written: result.written, status: await this.statusNow() };
     });
   }
@@ -939,6 +1000,7 @@ export class BrainSync {
       unshared: this.unshared,
       warnings: this.warnings,
       excluded: [...this.record.excluded],
+      proposal: this.record.proposal ?? null,
     };
   }
 

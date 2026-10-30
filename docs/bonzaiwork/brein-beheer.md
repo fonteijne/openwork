@@ -70,10 +70,32 @@ moet dat dus toelaten voor wie mag schrijven, en mag geschiedenis niet laten her
 
 **GitHub** (Settings → Branches of Rules → Rulesets, voor de standaardbranch):
 
-- **Geen** "Require a pull request before merging": daarmee wordt iedereen "Alleen lezen" tot de
-  modus "Via voorstel" er is (fase 3).
+- "Require a pull request before merging" kan, als het team de modus **"Als voorstel, na goedkeuring"**
+  gebruikt (§3.1). Zonder die modus wordt iedereen dan "Alleen lezen".
 - **Wel** "Block force pushes" en "Restrict deletions".
 - Geen verplichte status checks of ondertekende commits: BonzaiWork ondertekent niet.
+
+### 3.1 Delen als voorstel
+
+In de modus **"Als voorstel, na goedkeuring"** (Projectinstellingen → Brein → Delen) gaat het werk van een
+collega na elke beurt naar een eigen branch `bonzaiwork/<naam>/<datum>` met een merge request (GitLab)
+of pull request (GitHub). Na goedkeuring en samenvoegen (ook "squash") volgt de map van die collega weer
+het team. Geweigerde pushes op een beschermde branch bieden in de statuspil "Als voorstel delen" aan.
+
+- **GitLab** (ook een eigen server): niets extra; het merge request ontstaat bij de push zelf.
+- **GitHub**: BonzaiWork gebruikt de GitHub CLI (`gh`) die al op de laptop staat, met het account waarmee
+  de collega daar is ingelogd. BonzaiWork bewaart zelf geen token. Eenmalig per laptop:
+
+  ```bash
+  brew install gh
+  ```
+
+  ```bash
+  gh auth login
+  ```
+
+  Zonder `gh` pusht BonzaiWork de branch toch en toont "Voorstel maken" met een link naar GitHub om het
+  pull request daar te openen. Een `gh` op een andere plek wijs je aan met `BONZAIWORK_GH`.
 
 Wie alleen mag meelezen, geef je leesrechten, of zet je in BonzaiWork op **"Nooit (alleen lezen)"**
 (Projectinstellingen → Brein → Delen).

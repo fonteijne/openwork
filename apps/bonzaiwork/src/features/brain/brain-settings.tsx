@@ -22,7 +22,7 @@ import { BrainLinkField } from "./link-field";
 import { useStartChat } from "./start-chat";
 import { brainStateLabel } from "./status-pill";
 
-const MODES: BrainMode[] = ["auto", "manual", "read_only"];
+const MODES: BrainMode[] = ["auto", "proposal", "manual", "read_only"];
 
 function History(props: { projectId: string }) {
   const history = useBrainHistory(props.projectId);
@@ -112,7 +112,7 @@ function Care(props: { projectId: string; readOnly: boolean }) {
       <Row
         label={copy.brain.maintenance}
         hint={copy.brain.maintenanceHint}
-        action={planned ? (
+        action={!backend.capabilities.routines ? <Locked>{copy.routines.locked}</Locked> : planned ? (
           <a className="text-sm text-muted-foreground underline-offset-2 hover:underline" href={href({ name: "project-routines", projectId: props.projectId, routineId: planned.id })}>{copy.brain.maintenancePlanned}</a>
         ) : (
           <Button variant="secondary" size="sm" disabled={props.readOnly || busy !== null} onClick={() => void run("maintenance", () => backend.routines.create({
@@ -225,6 +225,17 @@ export function BrainSettingsSection(props: { project: Project }) {
                 items={MODES.map((mode) => ({ value: mode, label: copy.brain.modes[mode] }))}
               />
             }
+          />
+        ) : null}
+        {brainStatus.proposal ? (
+          <Row
+            label={brainStatus.proposal.manual ? copy.brain.proposalMake : copy.brain.proposalOpen}
+            hint={brainStatus.proposal.branch}
+            action={brainStatus.proposal.url ? (
+              <Button variant="secondary" size="sm" onClick={() => window.open(brainStatus.proposal?.url ?? "", "_blank", "noopener")}>
+                {brainStatus.proposal.manual ? copy.brain.proposalCreate : copy.brain.proposalView}
+              </Button>
+            ) : undefined}
           />
         ) : null}
         <Row label={copy.brain.lastSync} value={brainStatus.lastSyncAt ? formatDateTime(brainStatus.lastSyncAt) : copy.brain.never} />

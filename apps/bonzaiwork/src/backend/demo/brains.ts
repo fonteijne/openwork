@@ -48,6 +48,8 @@ const DEMO_WORKFLOW: Omit<Workflow, "stages"> & { stages: Array<Omit<WorkflowSta
 };
 
 const SWITCHES: Record<string, Partial<BrainStatus>> = {
+  voorstel: { state: "ahead", ahead: 2, mode: "proposal", proposal: { branch: "bonzaiwork/jij/20261030-1412", url: "https://github.com/bonzai-demo/offertes/pull/12", manual: false } },
+  "zonder-gh": { state: "ahead", ahead: 1, mode: "proposal", proposal: { branch: "bonzaiwork/jij/20261030-1412", url: "https://github.com/bonzai-demo/offertes/compare/main...bonzaiwork%2Fjij%2F20261030-1412?expand=1", manual: true } },
   conflict: { state: "conflict", ahead: 1, behind: 1, conflictFiles: ["knowledge/offertes/kortingsbeleid.md"], conflictBy: "Sanne de Vries", error: "Jij en een ander wijzigden hetzelfde. Er is niets verloren; kies hoe je verder wilt." },
   offline: { state: "offline", ahead: 3, error: "Geen verbinding. Je wijzigingen worden gedeeld zodra je weer online bent." },
   vertrouwen: {
@@ -67,7 +69,7 @@ const SWITCHES: Record<string, Partial<BrainStatus>> = {
 function base(now: number, path: string, kind: BrainStatus["kind"], remote: string | null): BrainStatus & { path: string } {
   return {
     path, kind, state: remote ? "synced" : "local_only", mode: "auto", remote, branch: "main", ahead: 0, behind: 0,
-    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, pendingTrust: [], unshared: [], warnings: [], excluded: [],
+    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
   };
 }
 

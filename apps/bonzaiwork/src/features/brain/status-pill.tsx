@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowUpFromLine, History, Wrench } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, ExternalLink, GitPullRequest, History, Wrench } from "lucide-react";
 
 import { useBrain, useBrainHistory } from "~/backend/queries";
 import type { BrainStatus } from "~/backend/types";
@@ -12,6 +12,7 @@ import { attention, useBrainAction } from "./actions";
 
 export function brainStateLabel(status: BrainStatus, now = Date.now()): string {
   const states = copy.brain.states;
+  if (status.proposal && status.state === "ahead") return status.proposal.manual ? copy.brain.proposalMake : copy.brain.proposalOpen;
   switch (status.state) {
     case "synced": return states.synced(status.lastSyncAt ? relativeTime(status.lastSyncAt, now) : null);
     case "syncing": return states.syncing;
@@ -83,6 +84,19 @@ export function BrainPill(props: { projectId: string; className?: string }) {
       {canShare ? (
         <MenuItem icon={<ArrowUpFromLine />} disabled={busy !== null} onClick={() => void run("share", () => brains.share(props.projectId), copy.brain.shared)}>
           {status.state === "offline" || status.state === "read_only" ? copy.brain.retry : copy.brain.shareNow}
+        </MenuItem>
+      ) : null}
+      {status.proposal?.url ? (
+        <MenuItem icon={<ExternalLink />} onClick={() => window.open(status.proposal?.url ?? "", "_blank", "noopener")}>
+          {status.proposal.manual ? copy.brain.proposalCreate : copy.brain.proposalView}
+        </MenuItem>
+      ) : null}
+      {status.state === "read_only" && status.mode !== "read_only" && status.remote ? (
+        <MenuItem icon={<GitPullRequest />} disabled={busy !== null} onClick={() => void run("proposal", async () => {
+          await brains.setMode(props.projectId, "proposal");
+          return brains.share(props.projectId);
+        }, copy.brain.proposalShared)}>
+          {copy.brain.proposalShare}
         </MenuItem>
       ) : null}
       {status.state === "error" ? (
