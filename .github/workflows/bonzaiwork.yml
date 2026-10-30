@@ -47,6 +47,7 @@ jobs:
           pnpm --filter @bonzaiwork/policy typecheck
           pnpm --filter @bonzaiwork/litellm typecheck
           pnpm --filter @bonzaiwork/brains typecheck
+          pnpm --filter @bonzaiwork/server-hooks typecheck
           pnpm --filter @bonzaiwork/app typecheck
 
       - name: Unit tests
@@ -54,11 +55,15 @@ jobs:
           pnpm --filter @bonzaiwork/policy test
           pnpm --filter @bonzaiwork/litellm test
           pnpm --filter @bonzaiwork/brains test
+          pnpm --filter @bonzaiwork/server-hooks test
           pnpm --filter @bonzaiwork/app test
           cd apps/server && bun test test/downstream-hooks.test.ts
 
       - name: Engine end-to-end (LiteLLM-only, per-workspace keys, no key leaks)
         run: pnpm --filter @bonzaiwork/litellm e2e
+
+      - name: Engine end-to-end (brains - clone, turn shared, git blocked, trust)
+        run: pnpm --filter @bonzaiwork/brains e2e
 
       - name: PATCHES.md lists every changed upstream file
         run: node scripts/bonzaiwork/check-patches.mjs

@@ -9,5 +9,10 @@ export { scanForSecrets, secretInContent, secretInName, type SecretHit } from ".
 export { commandRunsShell, findTrustItems, mcpServerNames, riskKind, type TrustItem, type TrustKind } from "./trust.ts";
 export {
   BrainCloneError, BrainSync, type Author, type BrainKind, type BrainMode, type BrainRecord, type BrainState,
-  type BrainStatus, type BrainSyncOptions, type TurnResult, type Unshared,
+  type BrainStatus, type BrainSyncOptions, type HistoryEntry, type TurnResult, type Unshared,
 } from "./sync.ts";
+export { BrainRegistry } from "./registry.ts";
+export {
+  BASE_ENGINE_POLICIES, createBrainsServerHooks, type BrainsHooksOptions, type BrainsHost, type BrainsRoute, type BrainsServerHooks,
+  type EnginePolicy, type SessionActivity,
+} from "./server-hooks.ts";

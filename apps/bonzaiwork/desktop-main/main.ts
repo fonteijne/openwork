@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { app } from "electron";
+
 import { SERVER_ENVIRONMENT_DEFAULTS } from "@bonzaiwork/policy";
 import { registerKeyStore } from "@bonzaiwork/litellm/keys";
 
@@ -14,7 +16,7 @@ import { SafeStorageKeyStore } from "./safe-storage-key-store";
  *
  *  - settings baked into the build (LiteLLM URL, default model, key mode);
  *  - OpenWork's hosted and free models off;
- *  - the openwork-server hooks module that installs the LiteLLM-only policy;
+ *  - the openwork-server hooks module: the LiteLLM-only policy and brains;
  *  - the OS-keychain key store, registered before the in-process server starts.
  */
 
@@ -42,6 +44,10 @@ const environment: Record<string, string> = {
   BONZAIWORK_KEY_MODE: baked.keyMode,
   ...(baked.defaultModel ? { BONZAIWORK_DEFAULT_MODEL: baked.defaultModel } : {}),
   OPENWORK_SERVER_HOOKS: pathToFileURL(join(here, "server-hooks.js")).href,
+  // Brains: registry, known_hosts and git state (never in a repository).
+  BONZAIWORK_STATE_DIR: join(app.getPath("userData"), "bonzaiwork"),
+  // The shipped dugite-native git, when this build has one (docs/bonzaiwork/project-breinen-plan.md §3.1).
+  ...(existsSync(join(process.resourcesPath ?? "", "git")) ? { BONZAIWORK_GIT_DIRECTORY: join(process.resourcesPath, "git") } : {}),
 };
 for (const [name, value] of Object.entries(environment)) {
   // Development may override a baked value; a packaged build never sets these itself.

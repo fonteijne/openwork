@@ -1,0 +1,133 @@
+import { afterEach, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type SessionActivity } from "../src/server-hooks.ts";
+import { createWorld, type World } from "./world.ts";
+
+let world: World;
+let hooks: BrainsServerHooks;
+afterEach(async () => {
+  hooks?.stop();
+  await world?.dispose();
+});
+
+type FakeHost = BrainsHost & { emit(activity: SessionActivity): void; reloads: number; running: string[]; workspaceList: Array<{ id: string; path: string }> };
+
+function fakeHost(): FakeHost {
+  const listeners = new Set<(activity: SessionActivity) => void>();
+  const host: FakeHost = {
+    readOnly: false,
+    reloads: 0,
+    running: [],
+    workspaceList: [],
+    workspaces: () => host.workspaceList,
+    reloadEngineProviders: async () => { host.reloads += 1; },
+    onSessionActivity: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    runningSessions: async () => host.running,
+    sessionInfo: async (id) => ({ id, title: id === "ses_child" ? "Sub" : "Offerte maken", parentId: id === "ses_child" ? "ses_1" : null }),
+    log: () => {},
+    emit: (activity) => { for (const listener of listeners) listener(activity); },
+  };
+  return host;
+}
+
+async function call(path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: Record<string, unknown> }> {
+  const method = init.method ?? "GET";
+  const route = hooks.routes.find((candidate) => {
+    if (candidate.method !== method) return false;
+    const pattern = new RegExp(`^${candidate.path.replace(/:[a-zA-Z]+/g, "[^/]+")}$`);
+    return pattern.test(path);
+  });
+  if (!route) throw new Error(`no route ${method} ${path}`);
+  const names = [...route.path.matchAll(/:([a-zA-Z]+)/g)].map((match) => match[1]);
+  const values = new RegExp(`^${route.path.replace(/:[a-zA-Z]+/g, "([^/]+)")}$`).exec(path)?.slice(1) ?? [];
+  const params = Object.fromEntries(names.map((name, index) => [name, values[index]]));
+  const request = new Request(`http://local${path}`, { method, ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }) });
+  const response = await route.handle(request, params);
+  return { status: response.status, body: await response.json() };
+}
+
+const until = async (check: () => Promise<boolean> | boolean, label: string) => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (await check()) return;
+    await Bun.sleep(20);
+  }
+  throw new Error(`timed out: ${label}`);
+};
+
+test("clone, registreren, een beurt en delen na de stille periode", async () => {
+  world = await createWorld();
+  await world.seed({ "opencode.json": JSON.stringify({ mcp: { rogue: { type: "local", command: ["x"] } } }) });
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, quietMs: 50, prepareTimeoutMs: 2_000, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+  const host = fakeHost();
+  await hooks.start(host);
+  expect(hooks.enginePolicies().map((policy) => policy.resource)).toEqual(["shell:git *", "edit:.git/*", "edit:*/.git/*"]);
+
+  expect((await call("/bonzaiwork/brains/settings", { method: "PUT", body: { name: "Anna", email: "anna@example.invalid" } })).status).toBe(200);
+  const folder = join(world.root, "BonzaiWork", "Sales");
+  const cloned = await call("/bonzaiwork/brains/clone", { method: "POST", body: { url: world.url, folderPath: folder } });
+  expect(cloned.status).toBe(202);
+  const jobId = String(cloned.body.jobId);
+  await until(async () => (await call(`/bonzaiwork/brains/jobs/${jobId}`)).body.state !== "running", "clone");
+  const job = await call(`/bonzaiwork/brains/jobs/${jobId}`);
+  expect(job.body.state).toBe("done");
+  expect(existsSync(join(folder, "AGENTS.md"))).toBe(true);
+  expect(existsSync(join(folder, "opencode.json"))).toBe(false);
+
+  host.workspaceList = [{ id: "ws_sales", path: folder }];
+  const registered = await call("/bonzaiwork/brains/ws_sales", { method: "PUT", body: { jobId, mode: "auto" } });
+  expect(registered.status).toBe(200);
+  expect(hooks.enginePolicies().at(-1)).toEqual({ action: "integration.use", resource: "mcp:rogue", effect: "deny" });
+  expect(host.reloads).toBeGreaterThan(0);
+
+  // UserPromptSubmit, then a turn with a sub-task, then quiet.
+  const pulled = await call("/bonzaiwork/brains/ws_sales/pull", { method: "POST", body: { sessionId: "ses_1" } });
+  expect(pulled.body.waited).toBe("updated");
+  host.emit({ workspaceId: "ws_sales", sessionId: "ses_1", state: "running" });
+  host.emit({ workspaceId: "ws_sales", sessionId: "ses_child", state: "running" });
+  await mkdir(join(folder, "knowledge"), { recursive: true });
+  await writeFile(join(folder, "knowledge/offerte.md"), "Offerte\n");
+  host.emit({ workspaceId: "ws_sales", sessionId: "ses_1", state: "idle", outcome: "succeeded" });
+  await Bun.sleep(150);
+  expect((await world.git.run(["show", "main:knowledge/offerte.md"], { cwd: world.bare })).exitCode).not.toBe(0);
+  host.emit({ workspaceId: "ws_sales", sessionId: "ses_child", state: "idle", outcome: "succeeded" });
+  await until(async () => (await world.git.run(["show", "main:knowledge/offerte.md"], { cwd: world.bare })).exitCode === 0, "shared");
+  const head = await world.git.ok(["log", "-1", "--format=%an|%s|%(trailers:key=BonzaiWork-Chat,valueonly)", "main"], { cwd: world.bare });
+  expect(head.trim()).toBe("Anna|Offerte maken|ses_child");
+
+  const history = await call("/bonzaiwork/brains/ws_sales/history");
+  const entries = history.body.entries;
+  expect(Array.isArray(entries) && entries[0]).toMatchObject({ author: "Anna", title: "Offerte maken", files: ["knowledge/offerte.md"] });
+
+  // Trusting the config lets the MCP load and lifts its engine deny.
+  const trusted = await call("/bonzaiwork/brains/ws_sales/trust", { method: "POST", body: { paths: ["opencode.json"] } });
+  expect(trusted.status).toBe(200);
+  expect(existsSync(join(folder, "opencode.json"))).toBe(true);
+  expect(hooks.enginePolicies().some((policy) => policy.resource === "mcp:rogue")).toBe(false);
+
+  const listed = await call("/bonzaiwork/brains");
+  expect(Array.isArray(listed.body.brains) && listed.body.brains.length).toBe(1);
+});
+
+test("bijwerken wacht niet op een andere lopende chat, en een onbekend project is geen brein", async () => {
+  world = await createWorld();
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+  const host = fakeHost();
+  await hooks.start(host);
+  const folder = join(world.root, "Sales");
+  const cloned = await call("/bonzaiwork/brains/clone", { method: "POST", body: { url: world.url, folderPath: folder } });
+  const jobId = String(cloned.body.jobId);
+  await until(async () => (await call(`/bonzaiwork/brains/jobs/${jobId}`)).body.state === "done", "clone");
+  host.workspaceList = [{ id: "ws", path: folder }];
+  await call("/bonzaiwork/brains/ws", { method: "PUT", body: { jobId } });
+  await world.seed({ "knowledge/nieuw.md": "nieuw\n" });
+  host.running = ["ses_other"];
+  const pulled = await call("/bonzaiwork/brains/ws/pull", { method: "POST", body: { sessionId: "ses_mine" } });
+  expect(pulled.body.waited).toBe("fetched");
+  expect(existsSync(join(folder, "knowledge/nieuw.md"))).toBe(false);
+  expect(pulled.body.status).toMatchObject({ behind: 1 });
+  expect((await call("/bonzaiwork/brains/other/status")).status).toBe(404);
+  expect((await call("/bonzaiwork/brains/check-remote", { method: "POST", body: { url: "https://gitlab.com/x" } })).body.code).toBe("link_invalid");
+});

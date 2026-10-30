@@ -61,6 +61,8 @@ export type BrainStatus = {
 
 export type Author = { name: string; email: string };
 
+export type HistoryEntry = { commit: string; author: string; at: number; title: string; chatId: string | null; files: string[] };
+
 export type BrainSyncOptions = {
   git: Git;
   record: BrainRecord;
@@ -544,6 +546,26 @@ export class BrainSync {
   dispose(): void {
     this.disposed = true;
     this.clearRetry();
+  }
+
+  /** The same brain under another id (a clone gets its workspace id once registered). */
+  rebind(id: string): BrainSync {
+    this.dispose();
+    return new BrainSync({ ...this.options, record: { ...this.snapshot, id } });
+  }
+
+  /** Latest commits for "Geschiedenis": who, what, when, from which chat. */
+  async history(limit = 30): Promise<HistoryEntry[]> {
+    if (!await this.hasCommit("HEAD")) return [];
+    // Record separator first: --name-only prints each commit's files after its header.
+    const format = "%x1e%H%x1f%an%x1f%at%x1f%s%x1f%(trailers:key=BonzaiWork-Chat,valueonly,separator=)";
+    const output = await this.ok(["log", `-n${Math.max(1, Math.min(limit, 200))}`, `--format=${format}`, "--name-only", "HEAD"]);
+    return output.split("\x1e").map((chunk) => chunk.replace(/^\n+/, "")).filter(Boolean).map((chunk) => {
+      const [header, ...rest] = chunk.split("\n");
+      const [commit, author, at, title, chat] = header.split("\x1f");
+      const files = rest.join("\n").split("\n").filter(Boolean);
+      return { commit, author, at: Number(at) * 1000, title, chatId: chat?.trim() || null, files };
+    });
   }
 
   private async statusNow(busy = false): Promise<BrainStatus> {

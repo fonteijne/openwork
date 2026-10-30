@@ -22,5 +22,5 @@ is regenerated with `pnpm install`, never merged by hand.
 
 | Bestand | Reden | Soort | Upstream-PR | Sinds |
 |---|---|---|---|---|
-| `apps/server/src/downstream-hooks.ts` | Het aanhaakpunt zelf: types, loader, routes, gate en engine-policies. Bevat geen BonzaiWork-logica | nieuw | – (kandidaat, samen met de drie hooks hierboven) | 20ddd4b |
+| `apps/server/src/downstream-hooks.ts` | Het aanhaakpunt zelf: types, loader, routes, gate en engine-policies, plus host-methodes voor sessie-activiteit, MCP-entries en de globale instructies/skills van de engine. Bevat geen BonzaiWork-logica | nieuw | – (kandidaat, samen met de drie hooks hierboven) | 20ddd4b |
 | `apps/server/test/downstream-hooks.test.ts` | Tests van het aanhaakpunt | nieuw | – | 20ddd4b |
