@@ -171,6 +171,10 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
       save();
       return view(projectId);
     },
+    async setUp(projectId) {
+      await later();
+      return view(projectId);
+    },
     async unregister(projectId) {
       await later();
       delete state.brains[projectId];

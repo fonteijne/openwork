@@ -600,6 +600,7 @@ export const copy = {
     testConnection: "Verbinding testen",
     testing: "Testen",
     connectionOk: "Verbinding werkt",
+    connectionEmpty: "Verbinding werkt. Dit brein is nog leeg; BonzaiWork richt het in.",
     hostTitle: (host: string) => `Eerste keer bij ${host}`,
     hostBody: "Vraag je beheerder of deze vingerafdruk klopt.",
     hostConfirm: "Vingerafdruk klopt",

@@ -257,6 +257,7 @@ describe("git-veiligheid (plan §7.4)", () => {
     await world.seed({ "knowledge/a.md": "a\n" }, "tweede");
     const a = await world.user("Anna");
     // Someone force-pushes the server back one commit, outside BonzaiWork.
+    const shared = (await world.raw(["rev-parse", "HEAD"])).stdout.trim();
     await world.raw(["reset", "-q", "--hard", "HEAD~1"]);
     await world.raw(["push", "-q", "--force", "origin", "HEAD:refs/heads/main"]);
     await a.write("knowledge/b.md", "b\n");
@@ -267,6 +268,16 @@ describe("git-veiligheid (plan §7.4)", () => {
     expect(turn.shared).toBe(false);
     expect(await onServer(world, "knowledge/b.md")).toBe("");
     expect(await onServer(world, "knowledge/a.md")).toBe("");
+    // "Herstellen" checks again: still rewritten, still stopped.
+    await a.sync.repair();
+    expect((await a.sync.prepareTurn()).error).toContain("herschreven");
+    // The administrator puts the history back; after "Herstellen" it is shared again.
+    await world.raw(["push", "-q", "--force", "origin", `${shared}:refs/heads/main`]);
+    await a.sync.repair();
+    const after = await a.sync.prepareTurn();
+    expect(after.error).toBeNull();
+    expect((await a.sync.finishTurn({ title: "b", chatId: "s" })).shared).toBe(true);
+    expect(await onServer(world, "knowledge/a.md")).toBe("a\n");
   });
 });
 

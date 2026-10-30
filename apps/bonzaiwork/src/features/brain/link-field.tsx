@@ -87,7 +87,7 @@ export function BrainLinkField(props: { check: RemoteCheck | null; onCheck: (che
       {check?.ok ? (
         <p className="flex items-center gap-1.5 text-sm text-muted-foreground [&_svg]:size-4" role="status" data-testid="brain-link-ok">
           <Check className="text-jade-11" />
-          {copy.brain.connectionOk}
+          {check.empty ? copy.brain.connectionEmpty : copy.brain.connectionOk}
         </p>
       ) : null}
       {host ? (

@@ -22,8 +22,12 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
   src/                           projecten, chats, routines, instellingen (zie apps/bonzaiwork/README.md)
   desktop-main/main.ts           zet env + keychain-store, laadt daarna de ONGEWIJZIGDE upstream main.mjs
   scripts/package.mjs            verpakken; smoke-packaged.mjs: smoketest van de verpakte app
+  src/features/brain/            breinen in de UI (statuspil, kaarten, instellingen, ophalen)
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
+packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
+packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm en brains
+scripts/bonzaiwork/fetch-git.mjs   meegeleverde git ophalen en uitdunnen (→ apps/bonzaiwork/resources/git)
 apps/server/src/downstream-hooks.ts   het aanhaakpunt in de server (nieuw bestand)
 apps/desktop/electron-builder.bonzaiwork.mjs   builder-config (nieuw bestand)
 PATCHES.md, bonzaiwork.upstream.json, scripts/bonzaiwork/check-patches.mjs

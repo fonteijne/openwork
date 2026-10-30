@@ -31,7 +31,8 @@ export type User = {
 
 export async function createWorld(options: { empty?: boolean } = {}): Promise<World> {
   const root = await mkdtemp(join(tmpdir(), "bonzaiwork-brains-"));
-  const git = await createGit({ stateDirectory: join(root, "state"), allowFileProtocol: true });
+  // BONZAIWORK_GIT_DIRECTORY runs the suite on the git the app ships (scripts/bonzaiwork/fetch-git.mjs).
+  const git = await createGit({ stateDirectory: join(root, "state"), allowFileProtocol: true, gitDirectory: process.env.BONZAIWORK_GIT_DIRECTORY || undefined });
   const bare = join(root, "server.git");
   await git.ok(["init", "-q", "--bare", "-b", "main", bare], { cwd: root });
   const url = `file://${bare}`;

@@ -1,7 +1,9 @@
 # Project-breinen: implementatieplan
 
 Status: **voorstel, alle beslissingen genomen** (B1–B6, N1–N6, I1–I3; §9). **Fase 0 gedaan**: bevindingen in
-[`project-breinen-fase0.md`](./project-breinen-fase0.md) en hieronder verwerkt. Nog niets gebouwd.
+[`project-breinen-fase0.md`](./project-breinen-fase0.md) en hieronder verwerkt. **Fase 1 gebouwd** (§10):
+`packages/bonzaiwork-brains`, de UI in `apps/bonzaiwork`, meegeleverde git en
+[`brein-beheer.md`](./brein-beheer.md); de handmatige tests op macOS en Windows (fase 0 §8) staan nog open.
 
 ## 1. Het idee in één alinea
 
@@ -949,6 +951,21 @@ cloudmappen, de file-watcher op macOS), staat daar in §8 en gebeurt aan het beg
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
   in project X wordt geleerd, staat in het persoonlijke brein en werkt in project Y; offline werken en
   later delen werkt; een conflict verliest niets; de app leest of bewaart geen SSH-sleutels.
+
+Stand fase 1 (gebouwd):
+- Alles hierboven, met tests: `packages/bonzaiwork-brains/test` (twee gebruikers op één bare repo:
+  delen na een beurt, conflict, offline, alleen-lezen, geheimen, vertrouwen, git-veiligheid, OKF/ICM,
+  persoonlijk brein) en `e2e/brains.e2e.ts` tegen de echte server en engine. Dezelfde tests draaien in CI
+  ook op de meegeleverde git.
+- Git meeleveren: `scripts/bonzaiwork/fetch-git.mjs` (checksum, uitdunnen, geen HTTPS) →
+  `apps/bonzaiwork/resources/git` → `extraResources` in `electron-builder.bonzaiwork.mjs`. Uitgedund:
+  Linux 14 MB, macOS 11 MB, Windows 52 MB. Op Linux gedraaid; macOS en Windows alleen uitgepakt en
+  gecontroleerd.
+- Een lege repo krijgt bij het ophalen het breinsjabloon (`/setup`).
+- "Herstellen" controleert een herschreven geschiedenis opnieuw: zet de beheerder de vorige stand terug,
+  dan loopt alles weer ([`brein-beheer.md`](./brein-beheer.md) §3).
+- Open: de handmatige tests uit fase 0 §8 (signing van de meegeleverde git, sleutelhanger,
+  Windows-agent, file-watcher, cloudmappen), en "twee apps op één repo" met twee echte laptops.
 
 **Fase 2: teamwerk**
 - Andere breinen raadplegen (`breinen_lijst`, `brein_zoeken`, `brein_lezen`), met de toestemmingskaart

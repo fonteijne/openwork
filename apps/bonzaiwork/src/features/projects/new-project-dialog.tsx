@@ -189,6 +189,8 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
       });
       if (jobId) {
         await backend.brains.register(project.id, { jobId, kind: "project" });
+        // An empty repository becomes a brain with the template; the first user sets it up (plan §6.1).
+        if (check?.ok && check.empty) await backend.brains.setUp(project.id, { name: trimmed, description: description.trim() });
         await client.invalidateQueries({ queryKey: keys.brains });
       }
       let keyFailure: string | null = null;

@@ -542,6 +542,8 @@ export interface Backend {
     /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
     register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
     unregister(projectId: string): Promise<void>;
+    /** Puts the brain template in an empty shared brain and shares it (plan §6.1). */
+    setUp(projectId: string, input: { name: string; description: string }): Promise<BrainStatus>;
     /** Before a turn: updates the project brain and the personal brain (at most ~5 s). */
     prepare(projectId: string, chatId: string): Promise<void>;
     share(projectId: string): Promise<BrainStatus>;

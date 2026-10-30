@@ -672,7 +672,9 @@ export class BrainSync {
       const head = await this.run(["symbolic-ref", "--short", "-q", "HEAD"]);
       if (head.stdout.trim() !== this.record.branch) await this.run(["checkout", "-q", this.record.branch]);
       await this.rememberConfig();
-      if (this.problem?.kind === "error" && this.problem.cause !== "history") this.problem = null;
+      // A rewritten history is checked again on the next update: it stays stopped until the
+      // shared history contains what was shared before (the administrator put it back).
+      if (this.problem?.kind === "error") this.problem = null;
       return this.statusNow();
     });
   }

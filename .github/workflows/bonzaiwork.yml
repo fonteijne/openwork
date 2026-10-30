@@ -65,6 +65,13 @@ jobs:
       - name: Engine end-to-end (brains - clone, turn shared, git blocked, trust)
         run: pnpm --filter @bonzaiwork/brains e2e
 
+      - name: Brains on the git the app ships (fetched, checksum checked, pruned)
+        run: |
+          node scripts/bonzaiwork/fetch-git.mjs
+          cd packages/bonzaiwork-brains
+          BONZAIWORK_GIT_DIRECTORY="$GITHUB_WORKSPACE/apps/bonzaiwork/resources/git" bun test test/sync.test.ts test/okf.test.ts test/personal.test.ts
+          BONZAIWORK_GIT_DIRECTORY="$GITHUB_WORKSPACE/apps/bonzaiwork/resources/git" pnpm e2e
+
       - name: PATCHES.md lists every changed upstream file
         run: node scripts/bonzaiwork/check-patches.mjs
 
