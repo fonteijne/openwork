@@ -1,6 +1,6 @@
 # Project-breinen: implementatieplan
 
-Status: **voorstel, beslissingen B1–B6 en N1–N5 genomen** (§9). Nog niets gebouwd.
+Status: **voorstel, alle beslissingen genomen** (B1–B6, N1–N6, I1–I3; §9). Nog niets gebouwd.
 
 ## 1. Het idee in één alinea
 
@@ -406,7 +406,7 @@ workflows/                ICM-werkwijzen: wat we doen
     CONTEXT.md            laag 1: de werkwijze in één scherm (stappen en hun taak)
     01_intake/
       CONTEXT.md          laag 2: stapcontract
-      output/             wat deze stap oplevert (per run; standaard niet gedeeld, I1)
+      output/             wat deze stap oplevert (per run; niet gedeeld, I1)
     02_opzet/
       CONTEXT.md
       references/         alleen wat specifiek is voor deze stap; algemene kennis staat in knowledge/
@@ -554,8 +554,20 @@ ICM-pipelines: ze draaien op elke vraag, niet als run met een product):
 | **Onderhoud** (`/onderhoud`, skill `okf-lint`) | Op verzoek of als wekelijkse routine | Kennis: tegenstrijdigheden, verlopen `stale_after`, oude `draft`s, concepten zonder bron, weesconcepten, gebroken links (melden, niet weghalen). Werkwijzen: de ICM-wandeltest, en contracten die naar een verdwenen of `deprecated` concept verwijzen |
 
 In een gedeeld brein slaat de wekelijkse routine over als `log.md` de afgelopen 7 dagen al een
-onderhoudsronde toont (van wie dan ook). `/werkwijze` start `icm-architect` in Build-modus: de AI vraagt
-door op hoe het team het werk nu doet en zet de kleinste werkwijze neer die dat draagt.
+onderhoudsronde toont (van wie dan ook).
+
+**Zelf werkwijzen maken (I2).** `/werkwijze` start `icm-architect` in Build-modus: de AI vraagt door op hoe
+het werk nu gaat (waar pauzeer je om te controleren, wat blijft elke keer hetzelfde, wat is "klaar") en zet
+de kleinste werkwijze neer die dat draagt, ter goedkeuring. Dat kan in elk project:
+
+- in een **projectbrein**: een gedeelde werkwijze in `workflows/` voor het hele team;
+- in het **persoonlijke brein**: een eigen werkwijze, in elk project te starten (§6.7);
+- in een **gewoon project** (geen brein): het project wordt een ICM-werkruimte met dezelfde indeling
+  (`AGENTS.md` en `workflows/<naam>/`), zonder sync en zonder `knowledge/` tenzij de gebruiker dat wil.
+  BonzaiWork vindt en draait hem op dezelfde manier (§6.5).
+
+`icm-architect` waarschuwt zelf tegen te veel structuur ("een werkruimte voor iets wat je twee keer deed,
+is steiger, geen architectuur"); die drempel houden we, zodat niet elke vraag een werkwijze wordt.
 
 ### 6.5 Wat BonzaiWork zelf doet, niet de AI
 
@@ -867,14 +879,10 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 | N4 | Mag de AI bestaande notities in een gekozen second brain wijzigen? | **Ja**, in de hele map (behalve uitgesloten mappen); iedereen migreert naar BonzaiWork. Met een eigen geschiedenis om terug te draaien en zonder werk van de gebruiker te overschrijven (§5.1.1) |
 | N5 | Welke formaten? | **Alleen Markdown** (`.md`-bestanden en mappen) |
 
-Nog open:
-
-| # | Vraag | Voorstel |
-|---|---|---|
-| N6 | Hoe groot mogen de persoonlijke instructies zijn die volledig in elke chat gaan? | **32 KiB** (ruwweg 8k tokens per beurt), met een waarschuwing in "Mijn brein" erboven en ingekort meesturen. 192 KiB zou ~50k tokens per beurt zijn, op LiteLLM-kosten. Met ICM wordt dit kleiner: `AGENTS.md` is alleen routering (~60 regels), dus vooral `voorkeuren.md` telt |
-| I1 | Worden de outputs van werkwijze-runs gedeeld (in git) of blijven ze per gebruiker? | **Per gebruiker** (§6.9): anders overschrijven collega's elkaars run. Wat blijvend is, gaat als kennis via `/vastleggen` |
-| I2 | `icm-architect` (MIT) meeleveren als skill voor `/werkwijze` en `/inrichten`? | **Ja**, met naamsvermelding; zijn Python-scripts niet, die doet de app (§6.9) |
-| I3 | Welke controles mag een werkwijze gebruiken? | Persoon en klein model (via LiteLLM, kost weinig) altijd; script alleen in een vertrouwd brein (§7.1) |
+| N6 | Hoe groot mogen de persoonlijke instructies zijn die volledig in elke chat gaan? | **32 KiB** (ruwweg 8k tokens per beurt), met een waarschuwing in "Mijn brein" erboven en ingekort meesturen. Met ICM is `AGENTS.md` alleen routering (~60 regels), dus vooral `voorkeuren.md` telt |
+| I1 | Worden de outputs van werkwijze-runs gedeeld of blijven ze per gebruiker? | **Per gebruiker** (§6.9). Blijvende kennis uit een run wordt opgeslagen als kennis in `knowledge/` (`/vastleggen`) |
+| I2 | `icm-architect` (MIT) meeleveren als skill? | **Ja**, met naamsvermelding, voor `/werkwijze` en `/inrichten`. Zo kunnen gebruikers ook zelf ICM-werkwijzen en -werkruimtes maken (§6.4); zijn Python-scripts niet, die doet de app (§6.9) |
+| I3 | Welke controles mag een werkwijze gebruiken? | **Persoon en klein model** (via LiteLLM) altijd; **script** alleen in een vertrouwd brein (§7.1) |
 
 ## 10. Fasering
 
