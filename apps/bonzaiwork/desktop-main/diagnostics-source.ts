@@ -23,6 +23,8 @@ export class ElectronDiagnosticsSource implements DiagnosticsSource {
   }
 
   saveDirectory(): string {
-    return app.getPath("downloads");
+    // Linux without an XDG download folder answers the home folder; keep reports out of its root.
+    const downloads = app.getPath("downloads");
+    return downloads === app.getPath("home") ? join(downloads, "Downloads") : downloads;
   }
 }
