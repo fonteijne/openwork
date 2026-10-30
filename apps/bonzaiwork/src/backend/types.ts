@@ -339,9 +339,11 @@ export type Routine = {
   lastRun: RoutineRun | null;
   createdAt: number;
   updatedAt: number;
+  /** Shared brains (project ids) this routine reads without asking (brains plan §5.2). */
+  brains: string[];
 };
 
-export type RoutineInput = Pick<Routine, "projectId" | "name" | "prompt" | "model" | "schedule">;
+export type RoutineInput = Pick<Routine, "projectId" | "name" | "prompt" | "model" | "schedule" | "brains">;
 export type RoutinePatch = Partial<RoutineInput> & { state?: Exclude<RoutineState, "needs_attention"> };
 
 // ---------------------------------------------------------------------------

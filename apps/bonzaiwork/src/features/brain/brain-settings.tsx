@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Ellipsis, MessageSquare } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { useBrain, useBrainAuthor, useBrainHistory, useRoutines, useStatus } from "~/backend/queries";
-import type { BrainMode, Project, RemoteCheck } from "~/backend/types";
+import { useBrain, useBrainAuthor, useBrainHistory, useBrains, useRoutines, useStatus } from "~/backend/queries";
+import type { BrainMode, Project, RemoteCheck, RoutineInput } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/field";
 import { Menu, MenuItem } from "~/components/ui/menu";
@@ -19,6 +19,7 @@ import { fileName } from "~/lib/tools";
 
 import { useBrainAction } from "./actions";
 import { BrainLinkField } from "./link-field";
+import { RoutineEditor } from "../routines/routine-editor";
 import { useStartChat } from "./start-chat";
 import { brainStateLabel } from "./status-pill";
 
@@ -100,6 +101,35 @@ function PrivateRepo(props: { projectId: string; path: string }) {
   );
 }
 
+/** Mijn brein: a morning routine that reads the shared brains the user picks (plan §5.2). */
+function News(props: { projectId: string; readOnly: boolean }) {
+  const backend = useBackend();
+  const brains = useBrains();
+  const routines = useRoutines(props.projectId);
+  const [open, setOpen] = useState(false);
+  const planned = (routines.data ?? []).find((routine) => routine.name === copy.brain.news && routine.state !== "archived");
+  const team = (brains.data ?? []).filter((brain) => brain.status.kind === "project").map((brain) => brain.projectId);
+  const teamKey = team.join(",");
+  const template = useMemo((): Partial<RoutineInput> => ({
+    name: copy.brain.news, prompt: copy.brain.newsPrompt, brains: teamKey ? teamKey.split(",") : [],
+    schedule: { kind: "daily", timezone: localTimezone(), hour: 8, minute: 30 },
+  }), [teamKey]);
+  return (
+    <Section title={copy.brain.careTitle}>
+      <Row
+        label={copy.brain.news}
+        hint={copy.brain.newsHint}
+        action={!backend.capabilities.routines ? <Locked>{copy.routines.locked}</Locked> : planned ? (
+          <a className="text-sm text-muted-foreground underline-offset-2 hover:underline" href={href({ name: "project-routines", projectId: props.projectId, routineId: planned.id })}>{copy.brain.maintenancePlanned}</a>
+        ) : (
+          <Button variant="secondary" size="sm" disabled={props.readOnly} onClick={() => setOpen(true)}>{copy.brain.maintenancePlan}</Button>
+        )}
+      />
+      <RoutineEditor open={open} onOpenChange={setOpen} routine={null} projectId={props.projectId} template={template} onSaved={() => void routines.refetch()} />
+    </Section>
+  );
+}
+
 /** Weekly maintenance as a routine, and "Inrichten" with icm-architect (fase 2). */
 function Care(props: { projectId: string; readOnly: boolean }) {
   const backend = useBackend();
@@ -116,7 +146,7 @@ function Care(props: { projectId: string; readOnly: boolean }) {
           <a className="text-sm text-muted-foreground underline-offset-2 hover:underline" href={href({ name: "project-routines", projectId: props.projectId, routineId: planned.id })}>{copy.brain.maintenancePlanned}</a>
         ) : (
           <Button variant="secondary" size="sm" disabled={props.readOnly || busy !== null} onClick={() => void run("maintenance", () => backend.routines.create({
-            projectId: props.projectId, name: copy.brain.maintenance, prompt: copy.brain.maintenancePrompt, model: null,
+            projectId: props.projectId, name: copy.brain.maintenance, prompt: copy.brain.maintenancePrompt, model: null, brains: [],
             schedule: { kind: "weekly", timezone: localTimezone(), daysOfWeek: [1], hour: 9, minute: 0 },
           }), copy.brain.maintenancePlanned).then(() => routines.refetch())}>
             {copy.brain.maintenancePlan}
@@ -266,7 +296,7 @@ export function BrainSettingsSection(props: { project: Project }) {
           />
         )}
       </Section>
-      {personalBrain ? null : <Care projectId={props.project.id} readOnly={readOnly} />}
+      {personalBrain ? <News projectId={props.project.id} readOnly={readOnly} /> : <Care projectId={props.project.id} readOnly={readOnly} />}
       <Section title={copy.brain.history}>
         <History projectId={props.project.id} />
       </Section>

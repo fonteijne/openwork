@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, projectModels, useProjects, useStatus } from "~/backend/queries";
-import type { Routine, RoutineSchedule } from "~/backend/types";
+import { keys, projectModels, useBrains, useProjects, useStatus } from "~/backend/queries";
+import type { Routine, RoutineInput, RoutineSchedule } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Field, Input, Textarea } from "~/components/ui/field";
 import { Dialog } from "~/components/ui/overlay";
@@ -213,7 +214,48 @@ function defaultSchedule(): RoutineSchedule {
   return { kind: "weekly", timezone: localTimezone(), daysOfWeek: WEEKDAYS, hour: 9, minute: 0 };
 }
 
-export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boolean) => void; routine: Routine | null; projectId: string | null; onSaved?: (routine: Routine) => void }) {
+/**
+ * Brains a routine reads without a click (brains plan §5.2): nobody is there
+ * to answer the question while it runs. Only shared brains on this laptop.
+ */
+function BrainChoice(props: { projectId: string | null; value: string[]; onChange: (value: string[]) => void }) {
+  const brains = useBrains();
+  const projects = useProjects();
+  const choices = (brains.data ?? [])
+    .filter((brain) => brain.status.kind === "project" && brain.projectId !== props.projectId)
+    .map((brain) => ({ id: brain.projectId, name: projects.data?.find((project) => project.id === brain.projectId)?.name ?? brain.path.split(/[\\/]/).at(-1) ?? brain.projectId }));
+  if (!choices.length) return null;
+  const toggle = (id: string) => props.onChange(props.value.includes(id) ? props.value.filter((entry) => entry !== id) : [...props.value, id]);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm font-medium" id="routine-brains">{copy.routines.brains}</span>
+      <div role="group" aria-labelledby="routine-brains" className="flex flex-wrap gap-1.5">
+        {choices.map((choice) => {
+          const checked = props.value.includes(choice.id);
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              role="checkbox"
+              aria-checked={checked}
+              onClick={() => toggle(choice.id)}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm ring-1 ring-inset transition-colors duration-100 pointer-coarse:h-10 [&_svg]:size-3.5",
+                checked ? "bg-muted text-foreground ring-foreground/40" : "text-muted-foreground ring-border hover:text-foreground",
+              )}
+            >
+              {checked ? <Check /> : null}
+              {choice.name}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">{copy.routines.brainsHint}</p>
+    </div>
+  );
+}
+
+export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boolean) => void; routine: Routine | null; projectId: string | null; onSaved?: (routine: Routine) => void; template?: Partial<RoutineInput> }) {
   const backend = useBackend();
   const client = useQueryClient();
   const status = useStatus();
@@ -224,19 +266,22 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState<string>("__default");
   const [schedule, setSchedule] = useState<RoutineSchedule>(defaultSchedule);
+  const [brains, setBrains] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!props.open) return;
     const routine = props.routine;
-    setName(routine?.name ?? "");
+    const template = routine ? undefined : props.template;
+    setName(routine?.name ?? template?.name ?? "");
     setProjectId(routine?.projectId ?? props.projectId ?? projects.data?.find((project) => !project.archivedAt)?.id ?? null);
-    setPrompt(routine?.prompt ?? "");
+    setPrompt(routine?.prompt ?? template?.prompt ?? "");
     setModel(routine?.model ?? "__default");
-    setSchedule(routine?.schedule ?? defaultSchedule());
+    setSchedule(routine?.schedule ?? template?.schedule ?? defaultSchedule());
+    setBrains(routine?.brains ?? template?.brains ?? []);
     setError(null);
-  }, [props.open, props.routine, props.projectId, projects.data]);
+  }, [props.open, props.routine, props.projectId, projects.data, props.template]);
 
   const project = projects.data?.find((entry) => entry.id === projectId) ?? null;
   const models = projectModels(status.data, project);
@@ -249,7 +294,7 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
     if (!projectId) return;
     setBusy(true);
     setError(null);
-    const input = { projectId, name: name.trim(), prompt: prompt.trim(), model: model === "__default" ? null : model, schedule };
+    const input = { projectId, name: name.trim(), prompt: prompt.trim(), model: model === "__default" ? null : model, schedule, brains: brains.filter((id) => id !== projectId) };
     try {
       const saved = props.routine ? await backend.routines.update(props.routine.id, input) : await backend.routines.create(input);
       await client.invalidateQueries({ queryKey: keys.allRoutines });
@@ -315,6 +360,7 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
             />
           )}
         </Field>
+        {backend.capabilities.brains ? <BrainChoice projectId={projectId} value={brains} onChange={setBrains} /> : null}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium">{copy.routines.schedule}</span>
           <ScheduleEditor value={schedule} onChange={setSchedule} />

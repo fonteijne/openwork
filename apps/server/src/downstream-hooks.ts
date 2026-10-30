@@ -68,6 +68,11 @@ export type DownstreamServerHost = {
   runningSessions(workspaceId: string): Promise<string[] | null>;
   /** Title and parent of an engine conversation, or null when unknown. */
   sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
+  /**
+   * A call to one local workspace's engine through this server's own proxy (`/workspace/:id/opencode2`),
+   * exactly as the app's chats go: start a conversation, send a prompt, answer a permission.
+   */
+  engineRequest(workspaceId: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   /** MCP entries in the engine-global runtime config (null removes one); every workspace gets them. */
   updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
   /**
@@ -388,6 +393,22 @@ export async function startDownstreamServerHooks(input: DownstreamStartInput): P
       } catch {
         return null;
       }
+    },
+    // Through the server's own proxy, as the app's chats go: the folder's MCPs and providers are
+    // prepared, OpenWork's instructions are set before a prompt, and engine mutations take turns.
+    engineRequest: async (workspaceId, method, path, body) => {
+      if (!localWorkspaces().some((candidate) => candidate.id === workspaceId)) throw new Error("Unknown local workspace");
+      const url = new URL(`/workspace/${encodeURIComponent(workspaceId)}/opencode2${path}`, `http://127.0.0.1:${input.port}`);
+      const response = await loopbackFetch(url.toString(), {
+        method,
+        headers: { authorization: `Bearer ${config.token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const text = await response.text();
+      let parsed: unknown = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* not JSON: the text itself */ }
+      return { status: response.status, body: parsed };
     },
     sessionInfo: async (sessionId) => {
       if (!sessionId.startsWith("ses_")) return null;

@@ -250,6 +250,35 @@ async function main() {
       const read = await waitFor("read from another brain", async () => toolResults.find((result) => result.includes("Uit het brein Sales")) ?? null, 30_000).catch(() => null);
       check("after allowing, the brain is read with its source", read !== null, toolResults.slice(-1).join("").slice(0, 200));
     }
+
+    // 6. A routine reads the brains it names without a click; another routine waits (plan §5.2).
+    const readsBefore = toolResults.filter((result) => result.includes("Uit het brein Sales")).length;
+    const schedule = { kind: "daily", timezone: "UTC", hour: 3, minute: 0 };
+    const allowed = await api("/bonzaiwork/routines", { method: "POST", headers: owner, body: { workspaceId: personalId, name: "Nieuws uit Sales", prompt: "ANDERBREIN wat is er nieuw", model: "e2e-model", schedule, brains: [workspaceId] } });
+    check("routine with a brain saved", allowed.status === 201, JSON.stringify(allowed.body).slice(0, 200));
+    const started = await api(`/bonzaiwork/routines/${text(allowed.body.id)}/run`, { method: "POST", headers: owner, body: {} });
+    const routineChat = text(record(started.body.data).chatId);
+    check("routine run started a chat", Boolean(routineChat), JSON.stringify(started.body).slice(0, 200));
+    const readByRoutine = await waitFor("routine read the brain", async () => (toolResults.filter((result) => result.includes("Uit het brein Sales")).length > readsBefore ? true : null), 30_000).catch(() => null);
+    check("the routine read the brain it names without a click", readByRoutine !== null);
+    const finished = await waitFor("routine run finished", async () => {
+      const runs = await api(`/bonzaiwork/routines/${text(allowed.body.id)}/runs`, { headers: owner });
+      const status = text(record(list(runs.body.items)[0]).status);
+      return status && status !== "running" ? status : null;
+    }, 30_000).catch(() => null);
+    check("the run is recorded as succeeded", finished === "succeeded", String(finished));
+
+    const other = await api("/bonzaiwork/routines", { method: "POST", headers: owner, body: { workspaceId: personalId, name: "Zonder breinen", prompt: "ANDERBREIN nog eens", model: "e2e-model", schedule } });
+    const otherRun = await api(`/bonzaiwork/routines/${text(other.body.id)}/run`, { method: "POST", headers: owner, body: {} });
+    const otherChat = text(record(otherRun.body.data).chatId);
+    const personalEngine = `${base}/workspace/${personalId}/opencode2`;
+    const waiting = await waitFor("question stays open", async () => {
+      const response = await fetch(`${personalEngine}/api/session/${otherChat}/permission`, { headers: owner });
+      return list(record(await response.json()).data).length ? true : null;
+    }, 30_000).catch(() => null);
+    await new Promise((done) => setTimeout(done, 3_000));
+    const still = list(record(await (await fetch(`${personalEngine}/api/session/${otherChat}/permission`, { headers: owner })).json()).data);
+    check("a routine without that brain still waits for the user", waiting !== null && still.length === 1, JSON.stringify(still).slice(0, 200));
     await log.flush();
   } finally {
     server?.kill("SIGTERM");

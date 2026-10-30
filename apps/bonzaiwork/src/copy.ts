@@ -481,6 +481,8 @@ export const copy = {
     and: "en",
     timezone: "Tijdzone",
     preview: "Volgende keren",
+    brains: "Breinen die deze routine zonder vragen mag lezen",
+    brainsHint: "Alleen lezen. Andere breinen vraagt de routine eerst aan jou, en dan wacht hij.",
     previewEmpty: "Dit schema heeft geen volgende keer",
     nextRun: "Volgende",
     lastRun: "Laatste",
@@ -707,6 +709,9 @@ export const copy = {
     runSubject: "Waar gaat deze run over?",
     runDone: "Alle stappen zijn goedgekeurd",
     runStarted: "Nieuwe run; de vorige staat apart",
+    news: "Wat is er nieuw in je breinen",
+    newsHint: "Elke ochtend vat de AI samen wat er in de gedeelde breinen is veranderd. Je kiest welke breinen hij zonder vragen mag lezen.",
+    newsPrompt: "Lees in elk gedeeld brein dat bij deze routine staat knowledge/log.md (met brein_lezen) en vat per brein samen wat er sinds gisteren nieuw of veranderd is, met de bron. Is er nergens iets nieuws, zeg dat dan in één zin.",
     // Care for a brain (fase 2).
     careTitle: "Onderhoud",
     maintenance: "Wekelijks onderhoud",

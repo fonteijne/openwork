@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import { createGit, type Git } from "./git.ts";
-import { handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
+import { findBrain, handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
 import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
 import { applyTemplate } from "./template.ts";
 import { listWorkflows, modelCheckPrompt, newRun, recordCheck, startStage } from "./workflows.ts";
@@ -757,6 +757,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     routes,
     enginePolicies,
     enginePermissions: () => ENGINE_PERMISSIONS,
+    /** The workspace id of a brain by the name the AI used (routines that may read it). */
+    resolveBrain: async (name: string) => findBrain(await access.teamBrains(), name)?.id ?? null,
     /** Tests: the tools without the engine. */
     personalAccess: access,
     async start(next: BrainsHost) {

@@ -1039,9 +1039,14 @@ Stand fase 2 (bezig):
   die de kennis controleert met `okf-lint`; staat er die week al een onderhoudsregel in `log.md`, dan
   stopt hij (in de opdracht, niet in code). "Inrichten" start een chat met `icm-architect` in de
   Restructure-modus, die eerst het plan laat zien en op akkoord wacht.
-- **Nog open in fase 2**: de dagelijkse routine "Wat is er nieuw in mijn breinen" (een routine draait
-  zonder iemand die de toestemmingskaart voor een ander brein beantwoordt; zie de beslissing hieronder),
-  een OKF-bundel importeren, runs als chatgroep, werkwijzen in de composer en een werkwijze als routine.
+- **Routines met breinen** (na de beslissing hieronder): de routineplanner draait nu in het serverproces
+  (`packages/bonzaiwork-routines`). In de routine-editor kies je "Breinen die deze routine zonder vragen
+  mag lezen"; voor die breinen beantwoordt de planner de vraag zelf, andere wachten op de gebruiker. Mijn
+  brein → Onderhoud → "Wat is er nieuw in je breinen" opent de editor met een ochtendroutine en alle
+  gedeelde breinen aangevinkt. e2e: een routine leest zonder klik in het brein dat erbij staat, een andere
+  wacht.
+- **Nog open in fase 2**: een OKF-bundel importeren, runs als chatgroep, werkwijzen in de composer en een
+  werkwijze als routine.
 - Beslist (30-10): GitHub-voorstellen via de `gh` van de gebruiker op de laptop (BonzaiWork bewaart geen
   token, B2 blijft staan); routines mogen zonder klik lezen in de breinen die bij de routine zijn
   aangevinkt.

@@ -26,7 +26,8 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
-packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm en brains
+packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
+packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm, brains en routines
 scripts/bonzaiwork/fetch-git.mjs   meegeleverde git ophalen en uitdunnen (→ apps/bonzaiwork/resources/git)
 apps/server/src/downstream-hooks.ts   het aanhaakpunt in de server (nieuw bestand)
 apps/desktop/electron-builder.bonzaiwork.mjs   builder-config (nieuw bestand)

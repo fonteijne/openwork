@@ -398,6 +398,7 @@ type Routine = {
   lastRun: RoutineRun | null;
   createdAt: number;
   updatedAt: number;
+  brains: string[];                     // breinen (workspace-id's) die de routine zonder vragen mag lezen
 };
 
 type RoutineRun = {
@@ -422,6 +423,12 @@ type RoutineRun = {
 | `POST /bonzaiwork/routines/:id/run` | Nu uitvoeren |
 | `GET /bonzaiwork/routines/:id/runs` | Runhistorie |
 | `POST /bonzaiwork/routines/preview` | Volgende N runs voor een schema (voor de editor) |
+
+Gebouwd in `packages/bonzaiwork-routines` (opslag in `<userData>/bonzaiwork/routines.json`). Een run gaat via
+de eigen `/workspace/:id/opencode2`-proxy van de server, dus precies als een chat uit de app. Leest de AI in
+een routine een brein dat bij de routine staat, dan beantwoordt de planner de vraag "Mag BonzaiWork in het
+brein … kijken?" zelf (één keer per vraag); andere breinen wachten op de gebruiker. Een run die viel terwijl de
+app dicht was, staat als "gemist" (`skipped`, `app_closed`) en wordt niet ingehaald (R1).
 
 Uitvoering: de planner draait in het serverproces (het draait zolang de app open is), maakt een chat aan in het
 project en stuurt de prompt, precies zoals de UI dat doet. Runs zijn dus gewone chats en verschijnen in de chatlijst.

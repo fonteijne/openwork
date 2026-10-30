@@ -131,7 +131,7 @@ async function search(root: string, excluded: readonly string[], query: string):
 }
 
 /** A brain by name, folder or a clear part of either. */
-function findBrain(brains: TeamBrain[], wanted: string): TeamBrain | null {
+export function findBrain(brains: TeamBrain[], wanted: string): TeamBrain | null {
   const key = wanted.trim().toLowerCase().replace(/[-_]?brein$/, "").trim();
   if (!key) return null;
   const names = (brain: TeamBrain) => [brain.name, posix.basename(brain.root.replace(/\\/g, "/"))].map((name) => name.toLowerCase());

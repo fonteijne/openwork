@@ -160,6 +160,7 @@ function readRoutine(value: unknown): Routine | null {
     lastRun: readRun(field(value, "lastRun")),
     createdAt: num(value, "createdAt") ?? 0,
     updatedAt: num(value, "updatedAt") ?? 0,
+    brains: strings(field(value, "brains")),
   };
 }
 
@@ -830,7 +831,7 @@ export async function createLiveBackend(): Promise<Backend> {
       list: (projectId) => routinesList(projectId),
       async create(input) {
         if (!routinesOnServer) throw unsupported("Routines");
-        const routine = readRoutine(await req("/bonzaiwork/routines", { method: "POST", body: { workspaceId: input.projectId, name: input.name, prompt: input.prompt, model: input.model, schedule: input.schedule } }));
+        const routine = readRoutine(await req("/bonzaiwork/routines", { method: "POST", body: { workspaceId: input.projectId, name: input.name, prompt: input.prompt, model: input.model, schedule: input.schedule, brains: input.brains } }));
         if (!routine) throw new BackendError("invalid_response", "De routine is opgeslagen, maar niet teruggekomen. Ververs de lijst.");
         return routine;
       },
