@@ -35,7 +35,7 @@ gebeurt altijd, is te testen en geeft één duidelijke status.
 | `SessionStart` | Project openen, en elke 5 min zolang de app open en het project rustig is | `fetch`; staat er iets nieuws en is de map schoon, dan bijwerken |
 | `UserPromptSubmit` | Vlak vóór elke beurt (chat én routine) | Projectbrein en persoonlijk brein bijwerken; de beurt wacht max. ~5 s, daarna gaat hij door met een melding |
 | `Stop` | Als **alle** chats in het project weer stil zijn (met 15 s rust) | Vastleggen (`commit`) en versturen (`push`), voor het projectbrein én het persoonlijke brein als dat veranderde |
-| `PreToolUse` | Engine-toestemmingen | De AI mag zelf geen `git *` uitvoeren (`deny`) |
+| `PreToolUse` | Engine-toestemmingen, **globaal** gezet door de hooks (niet in de repo) | De AI mag zelf geen git uitvoeren en niet in `.git/**` schrijven (`deny`). Best effort: zie §7.4 |
 
 De instructie aan de AI blijft daardoor kort en inhoudelijk (§6). Hooks die een brein zélf meebrengt
 (scripts in de repo die bij elke beurt draaien) bouwen we bewust **niet**: dat is code uitvoeren uit een
@@ -43,10 +43,23 @@ gedeelde repo op ieders laptop. Het gedrag is vast; per brein kies je alleen een
 
 ## 3. Waar het in de code komt
 
-Uitgangspunt van de fork blijft: zo min mogelijk upstream-patches (`PATCHES.md`). Dit plan voegt er
-**geen** toe. Alleen ons eigen bestand `apps/server/src/downstream-hooks.ts` (staat al in PATCHES als nieuw
-bestand) krijgt twee host-methodes: sessie-activiteit (§3.3) en een MCP-verbinding in de globale
-engine-config (§5).
+Uitgangspunt van de fork blijft: zo min mogelijk upstream-patches (`PATCHES.md`). **Doel: 0 nieuwe
+patches; fase 0 beslist.** Wat er al in ons eigen bestand `apps/server/src/downstream-hooks.ts` past (staat
+al in PATCHES als nieuw bestand), via wat de hooks nu al krijgen:
+
+| Nodig | Zonder patch? | Hoe |
+|---|---|---|
+| Sessie-activiteit (§3.3) | ja | `engine.connection()` (al gebruikt door `workspaceForSession`) |
+| MCP-entry "breinen" in de globale engine-config (§5.2) | ja | `writeGlobalRuntimeOpencodeConfig`, zoals `updateEngineProviders` |
+| Persoonlijke instructies per beurt (§5.1) | waarschijnlijk | eigen instructie-entry per sessie via `engine.connection()` (§5.1) |
+| Globale `git`-deny en `.git/**`-deny (§7.4) | **onbekend** | toestemmingen lopen via de `permissions`-optie van `managed-opencode-v2.ts`, die `server.ts` vult; de hooks hebben daar geen ingang |
+| `ask`/`allow` per breinen-MCP-tool (§5.2) | **onbekend** | idem |
+| Niet-vertrouwde plugins en MCP's uit een brein uitzetten (§7.1) | **onbekend** | idem, of `experimental.policies` zoals voor providers |
+
+Voor de drie onbekende punten is de waarschijnlijke uitweg een uitbreiding van de bestaande hook in
+`managed-opencode-v2.ts` (staat al in PATCHES), zodat downstream-hooks ook toestemmingsregels en policies
+kunnen aanleveren. Dat is geen nieuwe rij, wel een grotere patch en een groter upstream-voorstel. Het
+uitzetten van niet-vertrouwde onderdelen is het riskantste punt: lukt dat niet, dan valt B5 (§7.1).
 
 ```
 packages/bonzaiwork-brains/          NIEUW
@@ -203,13 +216,21 @@ Omdat we per beurt vastleggen, zijn conflicten klein en zeldzaam. Toch:
 - Het is ook een **gewoon project** ("Mijn brein", altijd bovenaan, niet te archiveren): daar chat je om
   je eigen kennis en workflows te ordenen.
 - **Telt mee in elk project**, op twee manieren:
-  1. **Instructies en skills**: het `AGENTS.md` van het persoonlijke brein komt **altijd volledig** als
-     extra instructie in elke chat (N3), met als enige grens dezelfde 192 KiB als voor projectinstructies
-     (`opencode-v2-instructions.ts`); wordt die overschreden, dan meldt "Mijn brein" dat en vraagt de app
-     om in te korten. Zijn skills staan in elk project in de composer. Fase 0 bepaalt hoe: de engine draait
-     met een eigen `OPENCODE_CONFIG_DIR` (`managed-opencode-v2.ts`), dus `~/.config/opencode` werkt niet;
-     opties zijn de globale skills- en instructiepaden van die config-map vanuit de hooks laten wijzen
-     naar `~/BonzaiWork/Persoonlijk`, of de MCP-route hieronder.
+  1. **Instructies**: het `AGENTS.md` van het persoonlijke brein komt **volledig** als extra instructie in
+     elke chat (N3), tot een eigen grens (N6). **Niet via de bestaande route**: `readConfiguredInstructions`
+     (`opencode-v2-instructions.ts`) laadt alleen bestanden binnen de workspace (`../` en paden buiten de
+     `insideRoot`-check slaat hij over), en zijn 192 KiB is één budget voor álle geconfigureerde
+     instructies samen, waarbij een te groot bestand stil wordt overgeslagen. Daarom een **eigen
+     instructie-entry**: vlak vóór elke beurt (in de `pull`-route die de UI toch al afwacht, en in de
+     routine-runner) zet de sync met `engine.connection()` de entry
+     `/api/experimental/session/:id/instructions/entries/bonzaiwork.personal`, op dezelfde manier als
+     `server.ts` zijn eigen entries per sessie zet. Fase 0, **ja/nee**: werkt een eigen entry-sleutel naast
+     die van de server, en erven sub-taken (child sessions) hem? Zo nee, dan is een hook in `server.ts`
+     nodig (patch). Boven de grens van N6 laat de app een waarschuwing zien in "Mijn brein" en stuurt hij
+     het bestand ingekort mee, nooit stil niets.
+     **Skills**: de engine draait met een eigen `OPENCODE_CONFIG_DIR` (`managed-opencode-v2.ts`), dus
+     `~/.config/opencode` werkt niet. Fase 0 kiest tussen de globale skillspaden van die config-map
+     vanuit de hooks naar het persoonlijke brein laten wijzen, of de skills via de breinen-MCP aanbieden.
   2. **Schrijven vanuit elk project**: leert de AI in project X iets persoonlijks ("ik wil samenvattingen
      altijd in drie punten"), dan legt hij dat vast met `persoonlijk_brein_schrijven` (nieuwe notitie) of
      `persoonlijk_brein_bewerken` (bestaande notitie). Dat kan overal in het persoonlijke brein, behalve
@@ -338,7 +359,6 @@ velden voor bronnen, vertrouwen en houdbaarheid die precies passen bij een brein
 AGENTS.md                 instructies voor de AI (geen concept, valt buiten de bundel)
 .opencode/skills/         werkwijzen die de AI uitvoert (OpenCode-skills, buiten de bundel)
 .opencode/commands/       /verwerk, /vastleggen, /onderhoud
-opencode.json             alleen: permission.bash "git *" → deny
 knowledge/                de OKF-bundel
   index.md                root-index; frontmatter alleen okf_version: "0.2"
   log.md                  updategeschiedenis, nieuwste eerst
@@ -522,6 +542,9 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
 - Komt er via een pull zo'n onderdeel bij of verandert het, dan opnieuw vragen vóór het laadt (diff op
   `opencode.json`, `.opencode/plugins/`, `.opencode/agents/`, `mcp`-sectie).
 - De keuzes staan per gebruiker in `brains.json` (niet in de repo).
+- Het mechanisme om onderdelen uit te zetten bestaat nog niet voor de hooks (§3, tabel). Fase 0 moet
+  aantonen dat het kan; zonder dat geen fase 1 met gedeelde breinen die `opencode.json` of `.opencode/`
+  meebrengen.
 
 ### 7.2 Geheimen
 
@@ -534,6 +557,23 @@ Providers zijn al dicht (alleen LiteLLM, via `experimental.policies`), de rest n
 
 Alleen tekstbestanden binnen geregistreerde breinmappen (geen symlinks naar buiten, geen `.git`, geen
 inbox); schrijven alleen in het persoonlijke brein; token alleen op loopback, net als de LiteLLM-proxy.
+
+### 7.4 De AI en git
+
+Een `git`-deny in de `opencode.json` van een gedeelde repo beschermt niets: een teamlid of de AI zelf
+(met de gewone bewerk-tools) haalt de regel weg, en een bash-patroon is te omzeilen (`cd x && git …`,
+`sh -c "git …"`, `/usr/bin/git`). Daarom in lagen, geen ervan in de repo:
+
+1. **Globale toestemmingen via de hooks** (afhankelijk van fase 0, §3): bash-patronen met `git` op `deny`,
+   en schrijven naar `.git/**` in elke breinmap op `deny`. Dat vangt het normale geval, geen kwaadwillende
+   omweg.
+2. **De sync controleert zelf**, vóór elke commit en push: is de remote nog die uit `brains.json`, staat
+   `HEAD` op de verwachte branch, en is de geschiedenis sinds de vorige sync alleen aangevuld (geen
+   herschreven commits)? Zo niet, dan geen push en status "Actie nodig".
+3. **Op de git-host**: de standaardbranch van een gedeeld brein beschermd tegen force-push en verwijderen
+   (GitHub branch protection, GitLab protected branch). Rechtstreeks pushen blijft kunnen (B4); een
+   `git push --force` met de SSH-sleutel van de gebruiker niet. Dit is de enige laag die ook een
+   omzeilde deny tegenhoudt; de instructie bij "Nieuw gedeeld brein" vraagt erom.
 
 ## 8. API en UI
 
@@ -619,9 +659,15 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 
 | N1 | Persoonlijk brein verplicht als privérepo? Kan een bestaand second brain? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel. Een bestaand second brain wordt **gekozen, niet gekopieerd** (§5.1.1) |
 | N2 | Mag de AI uit eigen beweging in andere breinen kijken? | **Alleen als de gebruiker erom vraagt, of na een voorstel van de AI** dat de gebruiker goedkeurt (§5.2) |
-| N3 | Persoonlijke instructies altijd volledig in elke chat? | **Ja**, tot de bestaande grens van 192 KiB |
+| N3 | Persoonlijke instructies altijd volledig in elke chat? | **Ja**, tot de grens van N6 (niet de 192 KiB van de projectinstructies; dat is een gedeeld budget, §5.1) |
 | N4 | Mag de AI bestaande notities in een gekozen second brain wijzigen? | **Ja**, in de hele map (behalve uitgesloten mappen); iedereen migreert naar BonzaiWork. Met een eigen geschiedenis om terug te draaien en zonder werk van de gebruiker te overschrijven (§5.1.1) |
 | N5 | Welke formaten? | **Alleen Markdown** (`.md`-bestanden en mappen) |
+
+Nog open:
+
+| # | Vraag | Voorstel |
+|---|---|---|
+| N6 | Hoe groot mogen de persoonlijke instructies zijn die volledig in elke chat gaan? | **32 KiB** (ruwweg 8k tokens per beurt), met een waarschuwing in "Mijn brein" erboven en ingekort meesturen. 192 KiB zou ~50k tokens per beurt zijn, op LiteLLM-kosten |
 
 ## 10. Fasering
 
@@ -629,11 +675,16 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
 - `dugite` in `electron-builder.bonzaiwork.mjs` op macOS en Windows; grootte en signing.
 - SSH via het systeem op Windows (OpenSSH-client en ssh-agent-service) en macOS (sleutelhanger); wat
   gebeurt er bij een sleutel met wachtwoord die niet in de agent zit.
-- `DownstreamServerHost`: sessie-activiteit, een MCP-entry in de globale engine-config, en of de
-  toestemmingsregels voor de breinen-MCP (`ask`/`allow` per tool) daar ook kunnen.
-- Hoe komen persoonlijke instructies en skills in elke chat (§5.1, punt 1).
+- `DownstreamServerHost`: sessie-activiteit en een MCP-entry in de globale engine-config (verwacht: ja).
+- **Ja/nee**: eigen instructie-entry per sessie voor de persoonlijke instructies, ook voor sub-taken
+  (§5.1). Nee → hook in `server.ts`.
+- **Ja/nee**: toestemmingsregels vanuit de hooks (globale `git`- en `.git/**`-deny, `ask`/`allow` per
+  breinen-MCP-tool). Nee → uitbreiding van de hook in `managed-opencode-v2.ts`.
+- Hoe komen persoonlijke skills in elke chat (§5.1, punt 1).
 - Laadt de v2-engine nieuwe skills na een pull vanzelf, of altijd `engine/reload`?
-- Lokale MCP's/plugins uit een niet-vertrouwd brein uitzetten zonder upstream-patch.
+- **Ja/nee, blokkerend voor B5**: lokale MCP's, plugins en agents uit een niet-vertrouwd brein uitzetten,
+  zonder of met (welke) patch.
+- Uitkomst van fase 0: de tabel in §3 ingevuld, en `PATCHES.md` bijgewerkt als er toch een patch komt.
 
 **Fase 1: MVP**
 - `packages/bonzaiwork-brains`: git/ssh, links omzetten, host-sleutels, sync-machine (mutex, pull, commit
@@ -644,7 +695,8 @@ Volgens `DESIGN.md`; regels per scherm citeren in de PR, met screenshots (headle
   "Mijn brein", optionele privérepo, instructies (volledig) en skills in elk project,
   `persoonlijk_brein_*`-tools (lezen, zoeken, schrijven, bewerken), geschiedenis met terugzetten (`git init` zonder origin, of buiten de map bij cloud-sync).
 - OKF-sjabloon (§6): `AGENTS.md`, `knowledge/` met root-`index.md` (`okf_version: "0.2"`), `log.md` en
-  `references/`, skills en commando's voor verwerken, vastleggen en onderhoud, `git *`-deny. In de sync
+  `references/`, skills en commando's voor verwerken, vastleggen en onderhoud. Globale `git`- en `.git/**`-deny via de
+  hooks; controle van remote, branch en geschiedenis in de sync (§7.4). In de sync
   (`okf.ts`): conformiteit, `generated`, `index.md` per map, `log.md`, `references/` onveranderlijk.
 - UI: knop "Klopt" (`verified`) en de vertrouwenstrede en `status` bij een concept in de sidecar.
 - Klaar als: twee apps (twee gebruikers) op één repo zien elkaars kennis na één beurt; een voorkeur die
