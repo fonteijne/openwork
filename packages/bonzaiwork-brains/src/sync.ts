@@ -2,6 +2,9 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path";
 
 import { GitError, type Git, type GitRunOptions } from "./git.ts";
+import { checkContract, contentWarnings, isStageContract } from "./icm.ts";
+import { describeConcept, isConceptPath, isKnowledgePath, isReserved, KNOWLEDGE, mergeLogs, planKnowledge, renderIndexes, withVerified, type ConceptView, type StagedChange } from "./okf.ts";
+import { applyTemplate } from "./template.ts";
 import { remoteProblemMessage, SYNC_MESSAGES } from "./messages.ts";
 import { scanForSecrets } from "./secrets.ts";
 import { classifyGitError, type RemoteProblem } from "./ssh.ts";
@@ -57,6 +60,8 @@ export type BrainStatus = {
   pendingTrust: TrustItem[];
   /** New files that were not shared by themselves (plan §4.3). */
   unshared: Unshared[];
+  /** Advice that blocks nothing (a long AGENTS.md, a source put back). */
+  warnings: string[];
 };
 
 export type Author = { name: string; email: string };
@@ -74,13 +79,15 @@ export type BrainSyncOptions = {
   retryDelaysMs?: readonly number[];
   sizeLimitBytes?: number;
   platform?: NodeJS.Platform;
+  /** `generated.by` for the AI's changes: `bonzaiwork/<version>` (plan §6.2). */
+  producer?: string;
 };
 
 type Problem =
   | { kind: "offline"; message: string }
   | { kind: "read_only"; message: string }
   | { kind: "conflict"; message: string; files: string[]; by: string | null }
-  | { kind: "error"; message: string; cause: RemoteProblem | "secret" | "config" | "remote" | "branch" | "history" | "git" };
+  | { kind: "error"; message: string; cause: RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" };
 
 export type TurnResult = { committed: boolean; shared: boolean; blockedBy?: string };
 
@@ -101,6 +108,7 @@ export class BrainSync {
   private problem: Problem | null = null;
   private pending: TrustItem[] = [];
   private unshared: Unshared[] = [];
+  private warnings: string[] = [];
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryIndex = 0;
   private disposed = false;
@@ -304,7 +312,9 @@ export class BrainSync {
     return { staged: (await this.run(["diff", "--cached", "--quiet"])).exitCode === 1 };
   }
 
-  private async commit(message: string): Promise<{ committed: boolean; blockedBy?: string }> {
+  private async commit(message: string, actor: "ai" | "own", note: string): Promise<{ committed: boolean; blockedBy?: string }> {
+    const content = await this.content(actor, note);
+    if (content.blockedBy) return { committed: false, blockedBy: content.blockedBy };
     const { staged, blockedBy } = await this.stage();
     if (blockedBy) {
       this.problem = { kind: "error", cause: "secret", message: SYNC_MESSAGES.secret(blockedBy) };
@@ -312,13 +322,93 @@ export class BrainSync {
     }
     if (!staged) return { committed: false };
     await this.ok(["commit", "-q", "--no-verify", "-F", "-"], { input: message, config: this.author() });
-    if (this.problem?.kind === "error" && this.problem.cause === "secret") this.problem = null;
+    if (this.problem?.kind === "error" && (this.problem.cause === "secret" || this.problem.cause === "content")) this.problem = null;
     return { committed: true };
   }
 
   /** The user's own changes since the last turn (Obsidian, Finder), in a commit of their own. */
   private commitOwn(): Promise<{ committed: boolean; blockedBy?: string }> {
-    return this.commit("Eigen wijzigingen\n\nVia BonzaiWork\n");
+    return this.commit("Eigen wijzigingen\n\nVia BonzaiWork\n", "own", "eigen wijziging");
+  }
+
+  private async isFile(path: string): Promise<boolean> {
+    return (await stat(join(this.record.path, path)).catch(() => null))?.isFile() ?? false;
+  }
+
+  private async inHead(path: string): Promise<boolean> {
+    return (await this.run(["cat-file", "-e", `HEAD:${path}`])).exitCode === 0;
+  }
+
+  private async writeFiles(files: ReadonlyMap<string, string>): Promise<string[]> {
+    const written: string[] = [];
+    for (const [path, content] of files) {
+      const target = join(this.record.path, path);
+      if (await readFile(target, "utf8").catch(() => null) === content) continue;
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, content);
+      written.push(path);
+    }
+    return written;
+  }
+
+  /** index.md for every knowledge folder, as the concepts on disk say. */
+  private async regenerateIndexes(): Promise<string[]> {
+    return this.writeFiles(await renderIndexes(this.record.path));
+  }
+
+  /**
+   * OKF and ICM before a commit (plan §6.5): sources stay as they were,
+   * concepts must be conformant, `generated` and `log.md` are filled in by
+   * BonzaiWork, indexes follow the concepts, stage contracts must be whole.
+   * Runs on the work tree; stage() picks the result up.
+   */
+  private async content(actor: "ai" | "own", note: string): Promise<{ blockedBy?: string }> {
+    const changed = await this.changedFiles();
+    this.warnings = [];
+    const okf = await this.isFile(`${KNOWLEDGE}/index.md`);
+    if (okf && changed.some((change) => isKnowledgePath(change.path))) {
+      const by = actor === "ai" ? (this.options.producer ?? "bonzaiwork/0.1.0") : this.humanId();
+      const at = new Date(this.now()).toISOString().replace(/\.\d{3}Z$/, "Z");
+      const plan = await planKnowledge({ root: this.record.path, staged: changed, by, at, note, existed: (path) => this.inHead(path) });
+      for (const path of plan.restore) {
+        await this.run(["restore", "--source=HEAD", "--staged", "--worktree", "--", path]);
+        this.warnings.push(`${path} is een bron en blijft zoals hij was; zet een nieuwe versie als nieuw bestand in references/.`);
+      }
+      if (plan.invalid.length) {
+        const files = plan.invalid.map((item) => item.path);
+        this.problem = { kind: "error", cause: "content", message: SYNC_MESSAGES.invalidKnowledge(files) };
+        return { blockedBy: files[0] };
+      }
+      await this.writeFiles(plan.write);
+      await this.regenerateIndexes();
+    }
+    const problems = [];
+    for (const change of changed) {
+      if (change.status === "D" || !isStageContract(change.path)) continue;
+      const text = await readFile(join(this.record.path, change.path), "utf8").catch(() => null);
+      if (text !== null) problems.push(...await checkContract(this.record.path, change.path, text));
+    }
+    if (problems.length) {
+      this.problem = { kind: "error", cause: "content", message: SYNC_MESSAGES.brokenWorkflow(problems) };
+      return { blockedBy: problems[0].path };
+    }
+    const readable = await Promise.all(changed.filter((change) => change.status !== "D" && (change.path === "AGENTS.md" || isKnowledgePath(change.path)))
+      .map(async (change) => ({ path: change.path, content: await readFile(join(this.record.path, change.path), "utf8").catch(() => "") })));
+    this.warnings.push(...contentWarnings(readable).map((warning) => `${warning.path}: ${warning.warning}`));
+    return {};
+  }
+
+  /** What stage() would share now, with its status: tracked changes and new Markdown. */
+  private async changedFiles(): Promise<StagedChange[]> {
+    const changes: StagedChange[] = [];
+    for (const path of splitNul(await this.ok(["ls-files", "-z", "--modified"]))) {
+      changes.push({ path, status: await this.isFile(path) ? "M" : "D" });
+    }
+    for (const path of splitNul(await this.ok(["ls-files", "-z", "--others", "--exclude-standard"]))) {
+      if (/\.md$/i.test(path)) changes.push({ path, status: "A" });
+    }
+    const seen = new Set<string>();
+    return changes.filter((change) => !seen.has(change.path) && seen.add(change.path));
   }
 
   // --- updating ---------------------------------------------------------------
@@ -359,7 +449,7 @@ export class BrainSync {
       return;
     }
     const rebased = await this.run(["rebase", "-q", this.remoteRef()], { config: this.author() });
-    if (rebased.exitCode !== 0) {
+    if (rebased.exitCode !== 0 && !await this.resolveContentConflicts()) {
       const files = await this.conflictFiles();
       const by = await this.lastAuthor(files);
       await this.run(["rebase", "--abort"]);
@@ -368,6 +458,37 @@ export class BrainSync {
       return;
     }
     await this.persist({ lastSyncedRemote: remote });
+  }
+
+  /**
+   * The files everyone touches never conflict for the user (plan §4.5):
+   * an index.md is generated again, a log.md keeps both sides per date.
+   */
+  private async resolveContentConflicts(): Promise<boolean> {
+    for (let step = 0; step < 50; step += 1) {
+      const files = await this.conflictFiles();
+      if (!files.length || !files.every((file) => isKnowledgePath(file) && isReserved(file))) return false;
+      for (const file of files.filter((path) => path.endsWith("log.md"))) {
+        const ours = (await this.run(["show", `:2:${file}`])).stdout;
+        const theirs = (await this.run(["show", `:3:${file}`])).stdout;
+        await writeFile(join(this.record.path, file), mergeLogs(ours, theirs));
+      }
+      // Index files: whatever the conflict, they follow the concepts now on disk.
+      for (const file of files.filter((path) => path.endsWith("index.md"))) await rm(join(this.record.path, file), { force: true });
+      await this.regenerateIndexes();
+      await this.ok(["add", "--", ...files]);
+      const next = await this.run(["rebase", "--continue"], { config: { ...this.author(), "core.editor": "true" } });
+      if (next.exitCode === 0 && !await this.rebaseInProgress()) {
+        this.log("info", "brain index/log conflict resolved", { files });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async rebaseInProgress(): Promise<boolean> {
+    return (await stat(join(this.gitDir, "rebase-merge")).catch(() => null)) !== null
+      || (await stat(join(this.gitDir, "rebase-apply")).catch(() => null)) !== null;
   }
 
   private async conflictFiles(): Promise<string[]> {
@@ -476,7 +597,7 @@ export class BrainSync {
     return this.lock(async () => {
       if (this.record.mode === "read_only" || !await this.guard()) return { committed: false, shared: false, status: await this.statusNow() };
       const title = turn.title.replace(/\s+/g, " ").trim() || "Chat";
-      const result = await this.commit(`${title}\n\nVia BonzaiWork\n\nBonzaiWork-Chat: ${turn.chatId}\n`);
+      const result = await this.commit(`${title}\n\nVia BonzaiWork\n\nBonzaiWork-Chat: ${turn.chatId}\n`, "ai", title);
       let shared = false;
       if (!result.blockedBy && this.record.mode === "auto" && this.problem?.kind !== "conflict") shared = await this.push();
       return { ...result, shared, status: await this.statusNow() };
@@ -548,6 +669,49 @@ export class BrainSync {
     this.clearRetry();
   }
 
+  private humanId(): string {
+    const { email, name } = this.options.author();
+    return `human:${(email.split("@")[0] || name).replace(/\s+/g, ".")}`;
+  }
+
+  /** The trust step and status of one concept, for the sidebar. */
+  async concept(path: string): Promise<ConceptView | null> {
+    if (!isConceptPath(path) || path.includes("..")) return null;
+    const text = await readFile(join(this.record.path, path), "utf8").catch(() => null);
+    return text === null ? null : describeConcept(text, new Date(this.now()));
+  }
+
+  /**
+   * "Klopt" (plan §6.2): the user confirms a concept. Its own commit, so
+   * `generated` stays who wrote it; shared right away in auto mode.
+   */
+  verify(path: string): Promise<{ concept: ConceptView | null; status: BrainStatus }> {
+    return this.lock(async () => {
+      const view = await this.concept(path);
+      if (!view || this.record.mode === "read_only" || !await this.guard()) return { concept: view, status: await this.statusNow() };
+      const own = await this.commitOwn();
+      if (own.blockedBy) return { concept: view, status: await this.statusNow() };
+      const target = join(this.record.path, path);
+      const at = new Date(this.now()).toISOString().replace(/\.\d{3}Z$/, "Z");
+      await writeFile(target, withVerified(await readFile(target, "utf8"), this.humanId(), at));
+      await this.ok(["add", "--", path]);
+      await this.ok(["commit", "-q", "--no-verify", "-F", "-", "--", path], { input: `Nagekeken: ${view.title ?? path}\n\nVia BonzaiWork\n`, config: this.author() });
+      if (this.record.mode === "auto") await this.push();
+      return { concept: await this.concept(path), status: await this.statusNow() };
+    });
+  }
+
+  /** Sets up the brain template where it is missing (an empty repository), then shares it. */
+  setUp(input: { name: string; description: string }): Promise<{ written: string[]; status: BrainStatus }> {
+    return this.lock(async () => {
+      if (!await this.guard()) return { written: [], status: await this.statusNow() };
+      const result = await applyTemplate(this.record.path, { kind: this.record.kind, name: input.name, description: input.description, now: new Date(this.now()) });
+      await this.commit("Brein ingericht\n\nVia BonzaiWork\n", "own", "brein ingericht");
+      if (this.record.mode === "auto") await this.push();
+      return { written: result.written, status: await this.statusNow() };
+    });
+  }
+
   /** The same brain under another id (a clone gets its workspace id once registered). */
   rebind(id: string): BrainSync {
     this.dispose();
@@ -604,6 +768,7 @@ export class BrainSync {
       error: problem?.message ?? null,
       pendingTrust: this.pending,
       unshared: this.unshared,
+      warnings: this.warnings,
     };
   }
 

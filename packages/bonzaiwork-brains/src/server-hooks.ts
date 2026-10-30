@@ -404,6 +404,27 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       },
     },
     { method: "POST", path: "/bonzaiwork/brains/:workspaceId/repair", auth: "host-token", handle: (_request, params) => act(params.workspaceId, (sync) => sync.repair()) },
+    {
+      method: "POST", path: "/bonzaiwork/brains/:workspaceId/setup", auth: "host-token",
+      handle: async (request, params) => {
+        const body = (await readBody(request)) ?? {};
+        return act(params.workspaceId, (sync) => sync.setUp({ name: text(body, "name") ?? "", description: text(body, "description") ?? "" }));
+      },
+    },
+    {
+      method: "GET", path: "/bonzaiwork/brains/:workspaceId/concept", auth: "client",
+      handle: async (request, params) => {
+        const path = new URL(request.url).searchParams.get("path") ?? "";
+        return act(params.workspaceId, async (sync) => ({ concept: await sync.concept(path) }));
+      },
+    },
+    {
+      method: "POST", path: "/bonzaiwork/brains/:workspaceId/verify", auth: "client",
+      handle: async (request, params) => {
+        const body = (await readBody(request)) ?? {};
+        return act(params.workspaceId, (sync) => sync.verify(text(body, "path") ?? ""));
+      },
+    },
   ] satisfies BrainsRoute[]).map((route) => ({ ...route, handle: whenStarted(route.handle) }));
 
   return {

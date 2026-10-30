@@ -12,7 +12,11 @@ Project-breinen: git-repo's die BonzaiWork vóór een beurt bijwerkt en erna dee
 | `src/messages.ts` | Nederlandse meldingen voor `BrainStatus.error` |
 | `src/secrets.ts` | Geheimenscan vóór elke commit |
 | `src/trust.ts` | Wat code kan draaien (plugins, agents, `opencode.json`, commando's met shell, `_tools/`) en de sparse-checkout-regels die het buiten de map houden |
+| `src/okf.ts` | OKF v0.2 vóór elke commit: conformiteit, `generated` (AI en mens apart), `index.md` per map, `log.md`, `references/` onveranderlijk; "Klopt" (`verified`) en de vertrouwenstrede voor de UI |
+| `src/icm.ts` | Structuurcontrole van stapcontracten in `workflows/`; waarschuwingen voor een lange `AGENTS.md` en kennis die naar werkwijzen linkt |
+| `src/template.ts`, `templates/` | Het breinsjabloon (team en persoonlijk), skills `okf-ingest`, `okf-query`, `okf-lint` en het meegeleverde `icm-architect` (MIT), commando's `/verwerk`, `/vastleggen`, `/onderhoud`, `/werkwijze`. `src/template-files.ts` bundelt ze als tekst |
+| `src/registry.ts`, `src/server-hooks.ts` | `brains.json`, de routes `/bonzaiwork/brains/*`, de `Stop`-hook en de engine-policies |
 | `src/sync.ts` | `BrainSync`: clone, bijwerken, vastleggen per beurt, delen met retry, offline, alleen-lezen, conflict met "Bewaar mijn versie apart", controles van plan §7.4 |
 
-Tests (`bun test`) draaien echte git tegen een bare repo als server, met twee gebruikers. De SSH-tests
+Tests (`bun test`, en `pnpm e2e` tegen de echte server en engine) draaien echte git tegen een bare repo als server, met twee gebruikers. De SSH-tests
 tegen een echte `sshd` worden overgeslagen als `sshd` hier niet kan starten.

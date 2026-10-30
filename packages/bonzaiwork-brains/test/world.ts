@@ -50,7 +50,8 @@ export async function createWorld(options: { empty?: boolean } = {}): Promise<Wo
     await git.ok(["commit", "-q", "-m", message], { cwd: scratch, config: identity });
     await git.ok(["push", "-q", "origin", "HEAD:refs/heads/main"], { cwd: scratch });
   };
-  if (!options.empty) await seed({ "AGENTS.md": "# Team\n", "knowledge/index.md": "# Kennis\n" });
+  // A plain repository; test/okf.test.ts seeds an OKF bundle where it needs one.
+  if (!options.empty) await seed({ "AGENTS.md": "# Team\n" });
 
   return {
     root, bare, url, git, seed, raw,

@@ -17,6 +17,9 @@
     "test": "bun test",
     "e2e": "bun e2e/brains.e2e.ts"
   },
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
   "devDependencies": {
     "@bonzaiwork/policy": "workspace:*",
     "@types/node": "^22.10.2",

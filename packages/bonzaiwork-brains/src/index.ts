@@ -16,3 +16,9 @@ export {
   BASE_ENGINE_POLICIES, createBrainsServerHooks, type BrainsHooksOptions, type BrainsHost, type BrainsRoute, type BrainsServerHooks,
   type EnginePolicy, type SessionActivity,
 } from "./server-hooks.ts";
+export {
+  appendLog, describeConcept, mergeLogs, parseConcept, planKnowledge, renderIndex, renderIndexes, withGenerated, withVerified,
+  type ConceptView, type TrustTier,
+} from "./okf.ts";
+export { checkContract, contentWarnings, isStageContract } from "./icm.ts";
+export { applyTemplate, templateTargets, type TemplateKind } from "./template.ts";
