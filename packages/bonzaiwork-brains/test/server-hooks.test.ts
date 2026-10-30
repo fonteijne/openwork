@@ -205,3 +205,26 @@ test("een bestaand project wordt een brein: een eigen repo, of delen in een lege
   expect((await call("/bonzaiwork/brains/ws_s/sync", { method: "POST" })).body).toMatchObject({ state: "synced" });
   expect(await world.git.ok(["show", "main:knowledge/b.md"], { cwd: world.bare })).toBe("b\n");
 });
+
+test("werkwijzen via de routes: lijst, invoer ontbreekt, controle door een persoon", async () => {
+  world = await createWorld();
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+  const host = fakeHost();
+  await hooks.start(host);
+  const folder = join(world.root, "Sales");
+  const contract = "# 01_intake - aanvraag tot brief\n\n## Inputs\n- Working (deze run): `../../../_inbox/aanvraag.md`\n\n## Process\n1. Lees.\n\n## Outputs\n- `brief.md` -> `output/`\n\n## Check\nDe gebruiker leest de brief na.\n";
+  await mkdir(join(folder, "workflows", "offerte", "01_intake"), { recursive: true });
+  await writeFile(join(folder, "workflows", "offerte", "CONTEXT.md"), "# Offerte - van aanvraag naar offerte\n");
+  await writeFile(join(folder, "workflows", "offerte", "01_intake", "CONTEXT.md"), contract);
+  host.workspaceList = [{ id: "ws", path: folder }];
+  const listed = await call("/bonzaiwork/brains/ws/workflows");
+  expect(listed.body.workflows).toMatchObject([{ name: "offerte", title: "Offerte", stages: [{ id: "01_intake", state: "waiting" }] }]);
+  const blocked = await call("/bonzaiwork/brains/ws/workflows/offerte/stages/01_intake/start", { method: "POST", body: {} });
+  expect(blocked.status).toBe(409);
+  expect(blocked.body).toMatchObject({ code: "missing_input", missing: ["../../../_inbox/aanvraag.md"] });
+  await mkdir(join(folder, "workflows", "offerte", "01_intake", "output"), { recursive: true });
+  await writeFile(join(folder, "workflows", "offerte", "01_intake", "output", "brief.md"), "Brief\n");
+  const checked = await call("/bonzaiwork/brains/ws/workflows/offerte/stages/01_intake/check", { method: "POST", body: { verdict: "pass" } });
+  expect(checked.body.stage).toMatchObject({ state: "done" });
+  expect((await call("/bonzaiwork/brains/ws/workflows/offerte/stages/01_intake/check", { method: "POST", body: { model: true } })).body.prompt).toContain("check.md");
+});

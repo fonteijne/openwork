@@ -8,6 +8,7 @@ import { createGit, type Git } from "./git.ts";
 import { handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
 import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
 import { applyTemplate } from "./template.ts";
+import { listWorkflows, modelCheckPrompt, newRun, recordCheck, startStage } from "./workflows.ts";
 import { remoteProblemMessage } from "./messages.ts";
 import { BrainRegistry } from "./registry.ts";
 import { parseRemote } from "./remote.ts";
@@ -536,6 +537,35 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     return json({ workspaceId, status });
   }
 
+  /** Workflows run in any project folder that has them (plan §6.5); status comes from disk. */
+  async function workflows(request: Request, params: Record<string, string>, action: "list" | "run" | "start" | "check"): Promise<Response> {
+    const workspace = host?.workspaces().find((entry) => entry.id === params.workspaceId);
+    if (!workspace) return failure(404, "workspace_not_found", "Workspace not found.");
+    const root = workspace.path;
+    const name = params.name ?? "";
+    const stage = params.stage ?? "";
+    if (action === "list") return json({ workflows: await listWorkflows(root) });
+    if (host?.readOnly) return failure(403, "read_only", "This device is read-only.");
+    const body = (await readBody(request)) ?? {};
+    if (action === "run") {
+      const run = await newRun(root, name, text(body, "subject") ?? "", new Date());
+      return json({ run, workflows: await listWorkflows(root) });
+    }
+    if (action === "start") {
+      const started = await startStage(root, name, stage);
+      if (!started.ok) return json({ code: started.reason, message: started.reason === "missing_input" ? `Deze invoer ontbreekt of is leeg: ${started.missing.join(", ")}` : "Deze stap kan nog niet starten.", missing: started.missing }, 409);
+      return json(started);
+    }
+    if (body.model === true) {
+      const prompt = await modelCheckPrompt(root, name, stage);
+      return prompt ? json({ prompt, title: `Controle: ${stage.replace(/^\d{2}_/, "")}` }) : failure(404, "stage_not_found", "Stage not found.");
+    }
+    const verdict = body.verdict === "pass" || body.verdict === "fail" ? body.verdict : null;
+    if (!verdict) return failure(400, "invalid_verdict", "Send verdict pass or fail.");
+    const checked = await recordCheck(root, name, stage, { verdict, reason: text(body, "reason") ?? null, by: author().name, at: new Date() });
+    return checked ? json({ stage: checked }) : failure(404, "stage_not_found", "Stage not found.");
+  }
+
   async function unregister(workspaceId: string): Promise<Response> {
     const sync = known(workspaceId);
     sync?.dispose();
@@ -681,6 +711,13 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         });
       },
     },
+    {
+      method: "GET", path: "/bonzaiwork/brains/:workspaceId/workflows", auth: "client",
+      handle: (request, params) => workflows(request, params, "list"),
+    },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/runs", auth: "client", handle: (request, params) => workflows(request, params, "run") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start", auth: "client", handle: (request, params) => workflows(request, params, "start") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check", auth: "client", handle: (request, params) => workflows(request, params, "check") },
     {
       method: "GET", path: "/bonzaiwork/brains/:workspaceId/candidate", auth: "host-token",
       handle: (_request, params) => candidate(params.workspaceId),

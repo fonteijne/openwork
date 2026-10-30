@@ -2,6 +2,9 @@ import {
   BackendError,
   type Backend,
   type BrainCandidate,
+  type ChatStart,
+  type Workflow,
+  type WorkflowStage,
   type BrainHistoryEntry,
   type BrainKind,
   type BrainMode,
@@ -115,6 +118,34 @@ function readProposals(value: unknown): PreferenceProposal[] {
   });
 }
 
+const STAGE_STATES: readonly WorkflowStage["state"][] = ["waiting", "ready", "check", "done", "failed"];
+const CHECK_KINDS: readonly WorkflowStage["check"]["kind"][] = ["person", "model", "script"];
+
+export function readWorkflows(value: unknown): Workflow[] {
+  return list(value, "workflows").flatMap((entry): Workflow[] => {
+    const name = str(entry, "name");
+    if (!name) return [];
+    const stages = list(entry, "stages").flatMap((item): WorkflowStage[] => {
+      const id = str(item, "id");
+      const state = STAGE_STATES.find((candidate) => candidate === str(item, "state"));
+      if (!id || !state) return [];
+      const check = field(item, "check");
+      return [{
+        id, state, task: str(item, "task") ?? "", outputs: strings(field(item, "outputs")),
+        check: { kind: CHECK_KINDS.find((kind) => kind === str(check, "kind")) ?? "person", text: str(check, "text") ?? "" },
+        failure: str(item, "failure") ?? null, missing: strings(field(item, "missing")),
+      }];
+    });
+    return [{ name, title: str(entry, "title") ?? name, task: str(entry, "task") ?? "", stages, runs: strings(field(entry, "runs")) }];
+  });
+}
+
+function readChatStart(value: unknown): ChatStart {
+  const prompt = str(value, "prompt");
+  if (!prompt) throw new BackendError("invalid_response", "De server gaf geen opdracht voor de chat.");
+  return { title: str(value, "title") ?? "", prompt };
+}
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function createBrainsClient(req: Request, folderFor: (target: { folderPath: string | null; name: string }) => Promise<string>): Backend["brains"] {
@@ -171,6 +202,11 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     },
     register: async (projectId, input) => requireStatus(await req(brain(projectId), { method: "PUT", body: input, ...host })),
     unregister: async (projectId) => void (await req(brain(projectId), { method: "DELETE", ...host })),
+    workflows: async (projectId) => readWorkflows(await req(`${brain(projectId)}/workflows`)),
+    startStage: async (projectId, workflow, stage) => readChatStart(await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/start`, { method: "POST", body: {} })),
+    checkStage: async (projectId, workflow, stage, verdict, reason) => void (await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/check`, { method: "POST", body: { verdict, ...(reason ? { reason } : {}) } })),
+    modelCheck: async (projectId, workflow, stage) => readChatStart(await req(`${brain(projectId)}/workflows/${enc(workflow)}/stages/${enc(stage)}/check`, { method: "POST", body: { model: true } })),
+    newRun: async (projectId, workflow, subject) => void (await req(`${brain(projectId)}/workflows/${enc(workflow)}/runs`, { method: "POST", body: { subject } })),
     async candidate(projectId): Promise<BrainCandidate> {
       const repository = field(await req(`${brain(projectId)}/candidate`, host), "repository");
       return { repository: rec(repository) ? { remote: str(repository, "remote") ?? null, branch: str(repository, "branch") ?? null, ssh: field(repository, "ssh") === true } : null };

@@ -9,6 +9,8 @@ import {
   type HistoryAuthor,
   type PreferenceProposal,
   type TrustItem,
+  type Workflow,
+  type WorkflowStage,
 } from "../types";
 import { readLocalJson, writeLocalJson } from "~/lib/storage";
 
@@ -29,6 +31,20 @@ type DemoBrains = {
   author: HistoryAuthor | null;
   proposals: PreferenceProposal[];
   verified: Record<string, boolean>;
+  /** Workflow stage states per project: the demo has no folder to read them from. */
+  stages?: Record<string, WorkflowStage["state"][]>;
+};
+
+const DEMO_WORKFLOW: Omit<Workflow, "stages"> & { stages: Array<Omit<WorkflowStage, "state" | "failure" | "missing">> } = {
+  name: "offerte-maken",
+  title: "Offerte maken",
+  task: "van aanvraag naar gecontroleerde offerte",
+  runs: ["20261028-1410-fysiopraktijk-de-linde"],
+  stages: [
+    { id: "01_intake", task: "aanvraag tot korte brief", outputs: ["output/brief.md"], check: { kind: "person", text: "De gebruiker leest de brief na." } },
+    { id: "02_opzet", task: "brief tot conceptofferte", outputs: ["output/conceptofferte.md"], check: { kind: "person", text: "De gebruiker keurt de conceptofferte goed." } },
+    { id: "03_controle", task: "offerte tegen beleid toetsen", outputs: ["output/toetsing.md"], check: { kind: "model", text: "Een klein model beantwoordt: valt elke korting binnen het kortingsbeleid?" } },
+  ],
 };
 
 const SWITCHES: Record<string, Partial<BrainStatus>> = {
@@ -170,6 +186,44 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
       state.history[projectId] = [{ commit: "0a1b2c3", author: state.author?.name ?? "Jij", at: Date.now(), title: registration.kind === "personal" ? "Begin geschiedenis" : "Opgehaald", chatId: null, files: [] }];
       save();
       return view(projectId);
+    },
+    // Workflows (plan §6.5). In the demo, starting a stage counts as its chat having written the output.
+    async workflows(projectId) {
+      await later(120);
+      if (projectId !== DEMO_BRAINS.offertes) return [];
+      const states = state.stages?.[projectId] ?? ["done", "check", "waiting"];
+      return [{
+        ...DEMO_WORKFLOW,
+        stages: DEMO_WORKFLOW.stages.map((stage, index) => ({ ...stage, state: states[index] ?? "waiting", failure: null, missing: [] })),
+      }];
+    },
+    async startStage(projectId, workflow, stageId) {
+      await later(300);
+      const index = DEMO_WORKFLOW.stages.findIndex((stage) => stage.id === stageId);
+      const states = [...(state.stages?.[projectId] ?? ["done", "check", "waiting"])];
+      states[index] = "check";
+      state.stages = { ...state.stages, [projectId]: states };
+      save();
+      const stage = DEMO_WORKFLOW.stages[index];
+      return { title: `${DEMO_WORKFLOW.title}: ${stageId.replace(/^\d{2}_/, "")}`, prompt: `Voer stap \`${stageId}\` van de werkwijze ${DEMO_WORKFLOW.title} uit: ${stage?.task ?? ""}.\n\nLees eerst het contract \`workflows/${workflow}/${stageId}/CONTEXT.md\` en volg het.` };
+    },
+    async checkStage(projectId, _workflow, stageId, verdict) {
+      await later(300);
+      const index = DEMO_WORKFLOW.stages.findIndex((stage) => stage.id === stageId);
+      const states = [...(state.stages?.[projectId] ?? ["done", "check", "waiting"])];
+      states[index] = verdict === "pass" ? "done" : "failed";
+      if (verdict === "pass" && index + 1 < states.length) states[index + 1] = "ready";
+      state.stages = { ...state.stages, [projectId]: states };
+      save();
+    },
+    async modelCheck(projectId, workflow, stageId) {
+      await this.checkStage(projectId, workflow, stageId, "pass", null);
+      return { title: `Controle: ${stageId.replace(/^\d{2}_/, "")}`, prompt: `Controleer stap \`${stageId}\` van deze werkwijze en schrijf \`check.md\` met pass of fail.` };
+    },
+    async newRun(projectId) {
+      await later(300);
+      state.stages = { ...state.stages, [projectId]: ["ready", "waiting", "waiting"] };
+      save();
     },
     async candidate(projectId) {
       await later(150);

@@ -683,6 +683,23 @@ export const copy = {
     readAlways: "Altijd in dit gesprek",
     otherBrain: "een ander brein",
     locked: "Breinen hebben een nieuwere versie van de app nodig.",
+    // Workflows in the app (§6.5). "Stap" and "controle", never "stage" or "check" (C3).
+    workflows: "Werkwijzen",
+    stageStates: { waiting: "Wacht", ready: "Klaar om te starten", check: "Wacht op controle", done: "Goedgekeurd", failed: "Afgekeurd" },
+    stageStart: (stage: string) => `Start ${stage}`,
+    stageAgain: "Opnieuw",
+    stageApprove: "Goedkeuren",
+    stageReject: "Afkeuren",
+    stageRejectReason: "Wat moet er anders?",
+    stageOpen: "Openen",
+    stageModelCheck: "Laat controleren",
+    stageScriptLocked: "Een controle met een script volgt later",
+    stageMissing: (inputs: string) => `Ontbreekt: ${inputs}`,
+    stageCheckQuestion: (stage: string) => `Klopt de uitvoer van ${stage}?`,
+    runNew: "Nieuwe run",
+    runSubject: "Waar gaat deze run over?",
+    runDone: "Alle stappen zijn goedgekeurd",
+    runStarted: "Nieuwe run; de vorige staat apart",
   },
 
   common: {

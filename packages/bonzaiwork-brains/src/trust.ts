@@ -94,6 +94,8 @@ export const LOCAL_EXCLUDES = [
   ".DS_Store",
   "Thumbs.db",
   "/workflows/**/output/",
+  "/workflows/**/check.md",
+  "/workflows/*/_runs/",
   "/.opencode/plugin/",
   "/.opencode/plugins/",
   "/.opencode/agent/",

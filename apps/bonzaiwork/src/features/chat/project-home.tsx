@@ -18,6 +18,7 @@ import { useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { BrainCards } from "../brain/cards";
 import { BrainPill } from "../brain/status-pill";
+import { WorkflowsPanel } from "../brain/workflows";
 import { useProjectState, useRuntime } from "../project/runtime";
 import { FOCUS_COMPOSER_EVENT } from "../shell/sidebar";
 import { useUi } from "../shell/ui-store";
@@ -160,6 +161,7 @@ export function ProjectHome(props: { project: Project }) {
             </div>
           ) : null}
 
+          {hasKey ? <WorkflowsPanel projectId={project.id} /> : null}
           {recent.length ? (
             <section className="mt-10 lg:hidden" aria-label={copy.chatList.recent}>
               <h3 className="mb-1 text-xs font-medium text-subtle-foreground">{copy.chatList.recent}</h3>

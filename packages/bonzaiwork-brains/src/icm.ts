@@ -22,11 +22,11 @@ const SECTIONS: ReadonlyArray<{ name: string; heading: RegExp }> = [
   { name: "Outputs", heading: /^##\s+(outputs|uitvoer)\s*$/im },
   { name: "Check", heading: /^##\s+(check|controle)\s*$/im },
 ];
-const [INPUTS, , , CHECK] = SECTIONS;
+export const [INPUTS, , OUTPUTS, CHECK] = SECTIONS;
 
 export type ContractProblem = { path: string; problem: string };
 
-function section(text: string, heading: RegExp): string {
+export function section(text: string, heading: RegExp): string {
   const match = heading.exec(text);
   if (!match) return "";
   const rest = text.slice(match.index + match[0].length);

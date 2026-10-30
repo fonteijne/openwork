@@ -476,6 +476,10 @@ type BrainStatus = {
 | `PUT /bonzaiwork/brains/:workspaceId/excluded` | host | `{ folders }`: uitgesloten mappen (persoonlijk brein) |
 | `POST /bonzaiwork/brains/:workspaceId/remote` | host | `{ url }`: privérepo aan het persoonlijke brein koppelen |
 | `POST /bonzaiwork/brains/:workspaceId/restore` | client | `{ commit, path? }`: notitie terugzetten, of zonder `path` de beurt terugdraaien |
+| `GET /bonzaiwork/brains/:workspaceId/workflows` | client | `{ workflows: [{ name, title, task, runs, stages: [{ id, task, outputs, check: { kind, text }, state, failure, missing }] }] }`; `state`: `waiting` / `ready` / `check` / `done` / `failed` |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start` | client | `{ title, prompt }` voor een nieuwe chat; `409 { code: "missing_input", missing }` |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check` | client | `{ verdict: "pass" \| "fail", reason? }` van een persoon, of `{ model: true }` → `{ title, prompt }` |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/runs` | client | `{ subject }`: nieuwe run, de vorige naar `_runs/` |
 | `GET /bonzaiwork/brains/:workspaceId/candidate` | host | `{ repository: { remote, branch, ssh } \| null }`: is de projectmap al een git-repo? |
 | `POST /bonzaiwork/brains/:workspaceId/adopt` | host | "Als brein synchroniseren": repo met SSH-link wordt een brein zoals hij is |
 | `POST /bonzaiwork/brains/:workspaceId/publish` | host | `{ url, name }`: "Deel als nieuw brein" in een lege repo; `409 remote_not_empty` / `already_repository` |

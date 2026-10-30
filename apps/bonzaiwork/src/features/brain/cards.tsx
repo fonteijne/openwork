@@ -3,19 +3,17 @@ import { useState, type ReactNode } from "react";
 import { GitMerge, ShieldQuestion, UserRoundPen } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, startModel, useBrain, useProject, useProposals, useStatus } from "~/backend/queries";
+import { keys, useBrain, useProposals } from "~/backend/queries";
 import type { PreferenceProposal, TrustItem } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/field";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
-import { navigate } from "~/lib/router";
 import { fileName } from "~/lib/tools";
 
-import { useRuntime } from "../project/runtime";
-
 import { useBrainAction } from "./actions";
+import { useStartChat } from "./start-chat";
 
 /** Same shape as the consent card: the decision sits where the user acts (DESIGN.md T4). */
 function Card(props: { icon: ReactNode; title: string; body: ReactNode; actions: ReactNode; label: string; testId: string }) {
@@ -39,19 +37,11 @@ function Card(props: { icon: ReactNode; title: string; body: ReactNode; actions:
  */
 function useMergeWithAi(projectId: string) {
   const backend = useBackend();
-  const runtime = useRuntime();
-  const status = useStatus();
-  const { project } = useProject(projectId);
+  const startChat = useStartChat(projectId);
   const { run } = useBrainAction(projectId);
   return () => run("merge", async () => {
     const { prompt } = await backend.brains.mergeWithAi(projectId);
-    const model = startModel(status.data, project);
-    if (!prompt || !model) return;
-    const chat = await backend.chats.create(projectId, { model });
-    runtime.upsertChat({ ...chat, title: copy.brain.mergeChatTitle, untitled: false });
-    runtime.addLocalMessage(chat.id, prompt, []);
-    navigate({ name: "project", projectId, chatId: chat.id });
-    await backend.chats.send(projectId, chat.id, { text: prompt, model, agent: null, attachments: [], command: null, skills: [] });
+    if (prompt) await startChat({ title: copy.brain.mergeChatTitle, prompt });
   });
 }
 

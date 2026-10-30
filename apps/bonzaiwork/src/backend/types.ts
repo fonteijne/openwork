@@ -389,6 +389,20 @@ export type RemoteCheck =
   | { ok: true; sshUrl: string; name: string; empty: boolean }
   | { ok: false; sshUrl: string | null; name: string | null; problem: RemoteProblem | "link"; message: string; host: { name: string; fingerprints: string[] } | null };
 
+export type WorkflowStageState = "waiting" | "ready" | "check" | "done" | "failed";
+export type WorkflowStage = {
+  id: string;
+  task: string;
+  outputs: string[];
+  check: { kind: "person" | "model" | "script"; text: string };
+  state: WorkflowStageState;
+  failure: string | null;
+  missing: string[];
+};
+/** An ICM workflow in the project folder; its status is what is on disk (plan §6.5). */
+export type Workflow = { name: string; title: string; task: string; stages: WorkflowStage[]; runs: string[] };
+export type ChatStart = { title: string; prompt: string };
+
 export type BrainCandidate = { repository: { remote: string | null; branch: string | null; ssh: boolean } | null };
 
 export type CloneJob = { state: "running" | "done" | "failed"; error: string | null; status: BrainStatus | null };
@@ -546,6 +560,12 @@ export interface Backend {
     /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
     register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
     unregister(projectId: string): Promise<void>;
+    workflows(projectId: string): Promise<Workflow[]>;
+    /** Throws with the missing inputs when the stage cannot start; otherwise the chat to start. */
+    startStage(projectId: string, workflow: string, stage: string): Promise<ChatStart>;
+    checkStage(projectId: string, workflow: string, stage: string, verdict: "pass" | "fail", reason: string | null): Promise<void>;
+    modelCheck(projectId: string, workflow: string, stage: string): Promise<ChatStart>;
+    newRun(projectId: string, workflow: string, subject: string): Promise<void>;
     /** What a project that is not a brain yet can become: its git repository, if it is one. */
     candidate(projectId: string): Promise<BrainCandidate>;
     /** "Als brein synchroniseren": a repository with an SSH link becomes a brain as it is. */

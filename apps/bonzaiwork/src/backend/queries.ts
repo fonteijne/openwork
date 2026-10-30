@@ -28,6 +28,7 @@ export const keys = {
   concept: (projectId: string, path: string) => ["brains", projectId, "concept", path] as const,
   proposals: ["brain-proposals"] as const,
   brainAuthor: ["brain-author"] as const,
+  workflows: (projectId: string) => ["workflows", projectId] as const,
   env: ["env"] as const,
   versions: ["versions"] as const,
 };
@@ -166,4 +167,10 @@ export function useProposals() {
 export function useBrainAuthor() {
   const backend = useBackend();
   return useQuery({ queryKey: keys.brainAuthor, queryFn: () => backend.brains.author(), enabled: backend.capabilities.brains });
+}
+
+/** The project's ICM workflows with their status from disk (plan §6.5); polled, a chat changes it. */
+export function useWorkflows(projectId: string) {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.workflows(projectId), queryFn: () => backend.brains.workflows(projectId), enabled: backend.capabilities.brains, refetchInterval: 10_000, staleTime: 5_000 });
 }

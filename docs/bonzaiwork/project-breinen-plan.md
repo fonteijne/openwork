@@ -1003,6 +1003,15 @@ Stand fase 2 (bezig):
   een lege repo: `git init` in de map, het sjabloon waar het ontbreekt, eerste commit en push. Een repo die
   niet leeg is, wordt geweigerd ("haal hem op als gedeeld brein"). Een lege repo ophalen via "Uit een
   gedeeld brein" richt hem ook in (fase 1).
+- **Werkwijzen draaien in de app** (§6.5): de projectstart toont elke werkwijze (`workflows/*/CONTEXT.md`)
+  met een stappenbalk en de ene volgende handeling. Status komt van schijf (`output/` en `check.md`). Een
+  stap start alleen als zijn invoer er is (anders "Ontbreekt: …") en de vorige stap `pass` heeft, als
+  nieuwe chat "<werkwijze>: <stap>" met het contract en de exacte invoerpaden. Controle door een persoon:
+  Goedkeuren / Openen / Afkeuren (met reden) schrijft `check.md`; door een model: een chat die de Check
+  uit het contract beantwoordt en `check.md` schrijft (dat is het projectmodel, niet een apart klein model
+  via LiteLLM); een script volgt in fase 3. "Nieuwe run" zet de vorige in `_runs/<datum>-<onderwerp>/`.
+  `output/`, `check.md` en `_runs/` worden niet gedeeld (I1). Nog niet: runs als chatgroep, werkwijzen in
+  de composer, en een werkwijze als routine.
 
 **Fase 3: via voorstel en groter zoeken**
 - Modus "via voorstel": branch + merge request (GitLab) / pull request (GitHub). Ook aangeboden als een
