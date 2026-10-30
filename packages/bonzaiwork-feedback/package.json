@@ -1,0 +1,21 @@
+{
+  "name": "@bonzaiwork/feedback",
+  "private": true,
+  "type": "module",
+  "description": "BonzaiWork feedback: window screenshot and redacted logs for a GitHub issue, served as openwork-server hook routes.",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "bun-types": "^1.3.13",
+    "typescript": "^5.6.3"
+  }
+}

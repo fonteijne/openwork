@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@bonzaiwork/brains": "workspace:*",
+    "@bonzaiwork/feedback": "workspace:*",
     "@bonzaiwork/litellm": "workspace:*",
     "@bonzaiwork/routines": "workspace:*"
   },

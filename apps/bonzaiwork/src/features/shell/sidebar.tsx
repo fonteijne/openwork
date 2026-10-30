@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { CalendarClock, ChevronLeft, FolderPlus, LayoutGrid, MessageSquarePlus, Search, Settings, SlidersHorizontal } from "lucide-react";
+import { CalendarClock, ChevronLeft, FolderPlus, LayoutGrid, Megaphone, MessageSquarePlus, Search, Settings, SlidersHorizontal } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { usePersonalBrain, useProject, useProjects, useStatus } from "~/backend/queries";
@@ -154,6 +154,7 @@ function ProjectNav(props: { projectId: string; route: Route }) {
 export function Sidebar(props: { route: Route; projectId: string | null }) {
   const backend = useBackend();
   const setPalette = useUi((state) => state.setPalette);
+  const setFeedback = useUi((state) => state.setFeedback);
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar">
       <div className="flex h-12 shrink-0 items-center gap-2 px-3 pt-[env(safe-area-inset-top)]" data-titlebar="sidebar">
@@ -176,6 +177,12 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
         </Tooltip>
       </div>
       {props.projectId ? <ProjectNav projectId={props.projectId} route={props.route} /> : <GlobalNav route={props.route} />}
+      <div className="px-2 pb-2">
+        <Button variant="ghost" className="w-full justify-start gap-2.5 px-2.5 text-muted-foreground hover:text-foreground" onClick={() => setFeedback(true)}>
+          <Megaphone />
+          {copy.feedback.open}
+        </Button>
+      </div>
     </div>
   );
 }

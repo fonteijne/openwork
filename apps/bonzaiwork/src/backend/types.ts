@@ -440,6 +440,20 @@ export type EnvVar = { key: string; hasValue: boolean };
 export type Versions = { app: string; server: string | null; engine: string | null };
 
 // ---------------------------------------------------------------------------
+// Feedback (docs/bonzaiwork/feedback.md)
+// ---------------------------------------------------------------------------
+
+export type FeedbackReport = {
+  id: string;
+  /** Operating system and version, e.g. "macOS 15.1 (arm64)". */
+  system: string | null;
+  /** The redacted text for logs.txt, exactly as it is saved. */
+  logs: string;
+  /** The window when the person pressed the button (PNG data URL), or null without one. */
+  screenshot: string | null;
+};
+
+// ---------------------------------------------------------------------------
 // The interface
 // ---------------------------------------------------------------------------
 
@@ -614,6 +628,15 @@ export interface Backend {
   desktop: {
     pickFolder(): Promise<string | null>;
     revealPath(path: string): Promise<void>;
+    /** Opens a web page in the person's browser. */
+    openUrl(url: string): Promise<void>;
+  };
+
+  feedback: {
+    /** Screenshot and redacted logs, taken before the dialog opens; null when this backend has neither. */
+    collect(notes: string): Promise<FeedbackReport | null>;
+    /** Writes screenshot.png and logs.txt to a new folder in Downloads and returns that folder. */
+    save(reportId: string, input: { screenshot: boolean }): Promise<string>;
   };
 }
 

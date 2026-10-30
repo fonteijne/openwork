@@ -36,6 +36,7 @@
 | Chat: takenlijst (todo's) van de agent | ⛔ | Niet beschikbaar in de v2-engine. Niet ontwerpen. |
 | Sidecar met chat-informatie | 🟡 | Meeste velden zijn er (model, tokens, tijden, bestanden, status); totalen rekenen we zelf uit. |
 | Routines (geplande taken) | 🔨 | OpenWork plant via Den (`/ee`), dat mogen we niet gebruiken. Eigen planner in de app. |
+| Feedback sturen (fout of idee → GitHub-formulier) | ✅ | Gebouwd voor #9; zie [`feedback.md`](./feedback.md) en [§7.5](#75-feedback). |
 | Instellingenpagina (app + project) | ✅ / 🔨 | Wat er per instelling kan, staat in [§5.5](#55-projectinstellingen) en [§5.7](#57-app-instellingen). |
 | Voice recording / meetings | ⛔ | Bewust buiten scope (werkstroom D komt later). |
 | Providers kiezen, inloggen bij OpenWork Cloud, marketplace | ⛔ | Nooit (LiteLLM is de enige provider, E4; geen Den, E7). |
@@ -507,6 +508,16 @@ Schermafbeeldingen: `screenshots/brein-*.png`. Beheer van een gedeeld brein:
 [`brein-beheer.md`](./brein-beheer.md).
 
 ---
+
+### 7.5 Feedback
+
+Gebouwd (#9, [`feedback.md`](./feedback.md)) in `packages/bonzaiwork-feedback`. Niets verlaat de machine via deze
+routes: de gebruiker maakt het issue zelf aan op GitHub.
+
+| Route | Doel |
+|---|---|
+| `POST /bonzaiwork/feedback/collect` | `{ notes }` → `{ id, system, logs, screenshot }`: venster vastleggen, logs lezen en opschonen |
+| `POST /bonzaiwork/feedback/:id/save` | `{ screenshot }` → `{ folder, files }`: `screenshot.png` en `logs.txt` in een nieuwe map in Downloads |
 
 ## 8. Open beslissingen
 

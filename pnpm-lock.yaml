@@ -331,6 +331,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.4.1
         version: 1.4.1(@types/react@19.2.14)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@bonzaiwork/feedback':
+        specifier: workspace:*
+        version: link:../../packages/bonzaiwork-feedback
       '@bonzaiwork/litellm':
         specifier: workspace:*
         version: link:../../packages/bonzaiwork-litellm
@@ -1607,6 +1610,18 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/bonzaiwork-feedback:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.7
+      bun-types:
+        specifier: ^1.3.13
+        version: 1.3.14
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/bonzaiwork-litellm:
     dependencies:
       '@bonzaiwork/policy':
@@ -1656,6 +1671,9 @@ importers:
       '@bonzaiwork/brains':
         specifier: workspace:*
         version: link:../bonzaiwork-brains
+      '@bonzaiwork/feedback':
+        specifier: workspace:*
+        version: link:../bonzaiwork-feedback
       '@bonzaiwork/litellm':
         specifier: workspace:*
         version: link:../bonzaiwork-litellm

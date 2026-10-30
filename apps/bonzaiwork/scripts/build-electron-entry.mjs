@@ -1,7 +1,7 @@
 /**
  * Builds BonzaiWork's Electron entry into dist-electron/:
  *   main.mjs           the entry (bundled, `electron` external)
- *   server-hooks.js    the openwork-server hooks module (LiteLLM and brains)
+ *   server-hooks.js    the openwork-server hooks module (LiteLLM, brains, routines, feedback routes)
  *   build-config.json  settings baked into this build (O3: the LiteLLM URL is fixed per build)
  *
  * Required: BONZAIWORK_LITELLM_BASE_URL. Optional: BONZAIWORK_DEFAULT_MODEL,
