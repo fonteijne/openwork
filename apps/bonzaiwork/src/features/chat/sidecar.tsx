@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileText, FilePen, FolderOpen, GitBranch, Plug, BookOpen, Repeat, X } from "lucide-react";
+import { BookOpen, ChevronLeft, FilePen, FileText, FolderOpen, GitBranch, Plug, Repeat, X } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { modelName, projectHasKey, useRoutines, useStatus, useSummary, useUsage } from "~/backend/queries";
@@ -11,15 +11,20 @@ import { Locked, Skeleton, StatusDot } from "~/components/ui/misc";
 import { Dialog } from "~/components/ui/overlay";
 import { Select } from "~/components/ui/select";
 import { toast } from "~/components/ui/toast";
+import { Tooltip } from "~/components/ui/tooltip";
 import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
+import { folderOf, projectRelativePath } from "~/lib/file-links";
 import { formatBytes, formatDateTime, formatMoney, formatTokens, formatWhen, relativeTime } from "~/lib/format";
 import { renderMarkdown } from "~/lib/markdown";
 import { href } from "~/lib/router";
 import { touchedFiles, usedCapabilities } from "~/lib/tools";
+import { useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { useProjectState, useRuntime } from "../project/runtime";
+import { useUi, type SidecarFile } from "../shell/ui-store";
+import { catchFileLink, useMarkdownLinkOpener, type OpenLink } from "./file-link";
 
 function Group(props: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -44,32 +49,91 @@ function Fact(props: { label: string; children: ReactNode }) {
 
 const EMPTY: Message[] = [];
 
-export function FilePreview(props: { projectId: string; chatId: string | null; path: string | null; onClose: () => void }) {
+const MARKDOWN = /\.(md|markdown|mdx)$/i;
+
+/** A project file's contents: Markdown rendered, other text as is. */
+function FileBody(props: { projectId: string; chatId: string | null; path: string; onLink?: OpenLink }) {
   const backend = useBackend();
   const file = useQuery({
-    queryKey: ["file", props.projectId, props.path],
-    queryFn: () => backend.config.readFile(props.projectId, props.path ?? "", props.chatId),
-    enabled: Boolean(props.path),
+    queryKey: ["file", props.projectId, props.chatId, props.path],
+    queryFn: () => backend.config.readFile(props.projectId, props.path, props.chatId),
   });
-  const markdown = props.path?.toLowerCase().endsWith(".md");
+  if (file.isLoading) {
+    return (
+      <div className="flex flex-col gap-2" aria-busy="true">
+        <Skeleton className="h-5 w-1/2" />
+        <Skeleton className="h-4 w-11/12" />
+        <Skeleton className="h-4 w-10/12" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+    );
+  }
+  if (file.isError) return <p className="text-sm text-muted-foreground">{errorText(file.error)}</p>;
+  const content = file.data?.content;
+  if (content === null || content === undefined) return <p className="text-sm text-muted-foreground">{copy.sidecar.noPreview(file.data ? formatBytes(file.data.bytes) : null)}</p>;
+  if (MARKDOWN.test(props.path)) {
+    // Sanitized in renderMarkdown (DOMPurify): file contents are untrusted.
+    return <div className="bw-prose" onClick={(event) => catchFileLink(event, props.onLink ?? null)} dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />;
+  }
+  return <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">{content}</pre>;
+}
+
+export function FilePreview(props: { projectId: string; chatId: string | null; path: string | null; onClose: () => void }) {
   return (
     <Dialog open={Boolean(props.path)} onOpenChange={(open) => !open && props.onClose()} title={<span className="font-mono text-sm">{props.path}</span>} size="lg">
-      {file.isLoading ? (
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-4 w-3/4" />
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-4 w-1/2" />
-        </div>
-      ) : file.isError ? (
-        <p className="text-sm text-muted-foreground">{errorText(file.error)}</p>
-      ) : file.data?.content === null || file.data?.content === undefined ? (
-        <p className="text-sm text-muted-foreground">Voor dit bestand is geen voorbeeld beschikbaar{file.data ? ` (${formatBytes(file.data.bytes)})` : ""}.</p>
-      ) : markdown ? (
-        <div className="bw-prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(file.data.content) }} />
-      ) : (
-        <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">{file.data.content}</pre>
-      )}
+      {props.path ? <FileBody projectId={props.projectId} chatId={props.chatId} path={props.path} /> : null}
     </Dialog>
+  );
+}
+
+/** A project file in the side panel, opened from a link in the chat or the file list. */
+function FileView(props: { project: Project; file: SidecarFile; onClose?: () => void }) {
+  const backend = useBackend();
+  const closeFile = useUi((state) => state.closeSidecarFile);
+  const { project, file } = props;
+  const openLink = useMarkdownLinkOpener(project, file.chatId, folderOf(file.path));
+  const scroller = useRef<HTMLDivElement>(null);
+  const name = file.path.split("/").at(-1) ?? file.path;
+  const separator = project.path.includes("\\") ? "\\" : "/";
+
+  // A new file starts at the top.
+  useEffect(() => {
+    if (scroller.current) scroller.current.scrollTop = 0;
+  }, [file.path]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border ps-2 pe-3" data-titlebar="sidecar">
+        <Tooltip label={copy.sidecar.fileBack}>
+          <Button variant="quiet" size="icon-sm" aria-label={copy.sidecar.fileBack} onClick={closeFile}>
+            <ChevronLeft />
+          </Button>
+        </Tooltip>
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={file.path}>
+          {name}
+        </h2>
+        {backend.capabilities.revealPath ? (
+          <Tooltip label={copy.sidecar.reveal}>
+            <Button
+              variant="quiet"
+              size="icon-sm"
+              aria-label={copy.sidecar.reveal}
+              onClick={() => void backend.desktop.revealPath(`${project.path.replace(/[\\/]+$/, "")}${separator}${file.path.split("/").join(separator)}`)}
+            >
+              <FolderOpen />
+            </Button>
+          </Tooltip>
+        ) : null}
+        {props.onClose ? (
+          <Button variant="quiet" size="icon-sm" aria-label={copy.common.close} onClick={props.onClose}>
+            <X />
+          </Button>
+        ) : null}
+      </div>
+      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-testid="sidecar-file">
+        <FileBody projectId={project.id} chatId={file.chatId} path={file.path} onLink={openLink} />
+      </div>
+    </div>
   );
 }
 
@@ -82,7 +146,8 @@ function ChatDetails(props: { project: Project; chat: Chat }) {
   const groups = useProjectState((state) => state.groups);
   const routines = useRoutines(props.project.id);
   const [note, setNote] = useState(props.chat.note ?? "");
-  const [preview, setPreview] = useState<string | null>(null);
+  const wide = useMediaQuery(WIDE);
+  const openSidecarFile = useUi((state) => state.openSidecarFile);
   const { chat } = props;
 
   useEffect(() => setNote(chat.note ?? ""), [chat.id, chat.note]);
@@ -145,15 +210,24 @@ function ChatDetails(props: { project: Project; chat: Chat }) {
       <Group title={copy.sidecar.files}>
         {files.length ? (
           <ul className="-mx-1.5 flex flex-col">
-            {files.map((file) => (
-              <li key={file.path}>
-                <button type="button" onClick={() => setPreview(file.path)} className="flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 text-start text-sm hover:bg-hover" title={file.path}>
-                  {file.changed ? <FilePen className="size-4 shrink-0 text-electric-11" /> : <FileText className="size-4 shrink-0 text-subtle-foreground" />}
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.name}</span>
-                  <span className="shrink-0 text-xs text-subtle-foreground">{file.changed ? copy.sidecar.changed : copy.sidecar.read}</span>
-                </button>
-              </li>
-            ))}
+            {files.map((file) => {
+              const path = projectRelativePath(file.path, props.project.path);
+              return (
+                <li key={file.path}>
+                  <button
+                    type="button"
+                    disabled={!path}
+                    onClick={() => path && openSidecarFile({ projectId: props.project.id, chatId: chat.id, path }, wide)}
+                    className="flex min-h-8 w-full items-center gap-2 rounded-md px-1.5 text-start text-sm hover:bg-hover disabled:hover:bg-transparent"
+                    title={file.path}
+                  >
+                    {file.changed ? <FilePen className="size-4 shrink-0 text-electric-11" /> : <FileText className="size-4 shrink-0 text-subtle-foreground" />}
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.name}</span>
+                    <span className="shrink-0 text-xs text-subtle-foreground">{file.changed ? copy.sidecar.changed : copy.sidecar.read}</span>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">{copy.sidecar.filesEmpty}</p>
@@ -227,8 +301,6 @@ function ChatDetails(props: { project: Project; chat: Chat }) {
       <Group title={copy.sidecar.note}>
         <Textarea value={note} onChange={(event) => setNote(event.target.value)} onBlur={() => void saveNote()} placeholder={copy.sidecar.notePlaceholder} rows={3} className="min-h-16 text-sm" />
       </Group>
-
-      <FilePreview projectId={props.project.id} chatId={chat.id} path={preview} onClose={() => setPreview(null)} />
     </>
   );
 }
@@ -295,6 +367,8 @@ export function ProjectDetails(props: { project: Project }) {
 
 export function Sidecar(props: { project: Project; chatId: string | null; onClose?: () => void }) {
   const chat = useProjectState((state) => (props.chatId ? state.chats[props.chatId] : undefined));
+  const file = useUi((state) => state.sidecarFile);
+  if (file && file.projectId === props.project.id) return <FileView project={props.project} file={file} onClose={props.onClose} />;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4" data-titlebar="sidecar">

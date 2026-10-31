@@ -167,7 +167,7 @@ function plan(prompt: string): Plan {
         text: "**Voorstel**\n\n**Week 1**\n- [ ] Doel en planning vastleggen\n- [ ] Betrokkenen informeren\n\n**Week 2**\n- [ ] Eerste versie maken\n- [ ] Feedback ophalen bij twee collega's\n\n**Week 3**\n- [ ] Verwerken en afronden\n- [ ] Evaluatie inplannen\n\nIk zet deze checklist in de projectmap.",
       },
       writeStep(file),
-      { kind: "text", text: `Klaar: **${file}**. Wil je er data en namen bij?` },
+      { kind: "text", text: `Klaar: [${file}](${encodeURI(file)}). Wil je er data en namen bij?` },
     ],
   };
 }

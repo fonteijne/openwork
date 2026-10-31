@@ -293,6 +293,8 @@ export const copy = {
     noteSaved: "Notitie bewaard",
     folder: "Map",
     reveal: "Tonen in map",
+    fileBack: "Terug naar details",
+    noPreview: (size: string | null) => `Voor dit bestand is geen voorbeeld beschikbaar${size ? ` (${size})` : ""}.`,
     key: "Key",
     defaultModel: "Standaardmodel",
     usage: "Verbruik deze maand",

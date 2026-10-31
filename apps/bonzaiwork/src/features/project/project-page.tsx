@@ -4,6 +4,7 @@ import { Button } from "~/components/ui/button";
 import { EmptyState, Skeleton } from "~/components/ui/misc";
 import { Sheet } from "~/components/ui/overlay";
 import { copy } from "~/copy";
+import { cn } from "~/lib/cn";
 import { navigate } from "~/lib/router";
 import { useMediaQuery, WIDE } from "~/lib/use-media";
 
@@ -51,6 +52,8 @@ export function ProjectPage(props: { projectId: string; chatId: string | null })
   const sidecarPinned = useUi((state) => state.sidecarPinned);
   const sheetOpen = useUi((state) => state.sidecarSheetOpen);
   const setSheet = useUi((state) => state.setSidecarSheet);
+  // A file to read gets more room than the details.
+  const reading = useUi((state) => state.sidecarFile?.projectId === props.projectId);
 
   if (!project) return isLoading ? <ProjectLoading /> : <ProjectMissing />;
 
@@ -58,11 +61,11 @@ export function ProjectPage(props: { projectId: string; chatId: string | null })
     <div className="flex h-full min-h-0" data-sidecar-pinned={wide && sidecarPinned ? "" : undefined}>
       <div className="flex min-w-0 flex-1 flex-col">{props.chatId ? <ChatView key={props.chatId} project={project} chatId={props.chatId} /> : <ProjectHome project={project} />}</div>
       {wide && sidecarPinned ? (
-        <aside className="hidden w-80 shrink-0 border-s border-border bg-background xl:flex xl:flex-col" aria-label={copy.sidecar.title}>
+        <aside className={cn("hidden shrink-0 border-s border-border bg-background xl:flex xl:flex-col", reading ? "w-[clamp(20rem,36vw,40rem)]" : "w-80")} aria-label={copy.sidecar.title}>
           <Sidecar project={project} chatId={props.chatId} />
         </aside>
       ) : null}
-      <Sheet open={sheetOpen && !wide} onOpenChange={setSheet} side="right" label={copy.sidecar.title}>
+      <Sheet open={sheetOpen && !wide} onOpenChange={setSheet} side="right" label={copy.sidecar.title} className={reading ? "w-[min(92vw,36rem)]" : undefined}>
         <Sidecar project={project} chatId={props.chatId} onClose={() => setSheet(false)} />
       </Sheet>
     </div>

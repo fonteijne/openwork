@@ -12,6 +12,14 @@ let hooked = false;
 function ensureHooks() {
   if (hooked) return;
   hooked = true;
+  // DOMPurify drops `file:` links. Keep the path they point at, so a link to a
+  // project file can still open in the side panel (see file-links.ts); a bare
+  // path cannot load anything by itself.
+  DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+    if (data.attrName === "href" && /^\s*file:/i.test(data.attrValue)) {
+      data.attrValue = data.attrValue.trim().replace(/^file:(\/\/[^/]*)?/i, "") || "#";
+    }
+  });
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     if (node.tagName === "A") {
       node.setAttribute("target", "_blank");
