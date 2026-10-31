@@ -1,0 +1,480 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { chmod, lstat, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { BrainCloneError, BrainSync } from "../src/sync.ts";
+import { createWorld, fail, failing, type World } from "./world.ts";
+
+let world: World;
+afterEach(async () => { await world?.dispose(); });
+
+const log = async (w: World, format = "%an|%s") => (await w.git.ok(["log", "--format=" + format, "main"], { cwd: w.bare })).trim().split("\n");
+const onServer = async (w: World, path: string) => (await w.git.run(["show", `main:${path}`], { cwd: w.bare })).stdout;
+
+describe("twee gebruikers op één brein", () => {
+  test("A deelt na een beurt, B ziet het vóór zijn beurt", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    const b = await world.user("Bram");
+    await a.write("knowledge/offertes.md", "Offertes gaan via de teamleider.\n");
+    const turn = await a.sync.finishTurn({ title: "Offerteproces  vastleggen", chatId: "ses_1" });
+    expect(turn).toMatchObject({ committed: true, shared: true });
+    expect(turn.status.state).toBe("synced");
+    const [message] = (await world.git.ok(["log", "-1", "--format=%B", "main"], { cwd: world.bare })).split("\n\n");
+    expect(message).toBe("Offerteproces vastleggen");
+    expect(await world.git.ok(["log", "-1", "--format=%an <%ae>%n%(trailers:key=BonzaiWork-Chat,valueonly)", "main"], { cwd: world.bare }))
+      .toContain("Anna <anna@example.invalid>\nses_1");
+
+    const before = await b.sync.prepareTurn();
+    expect(before.state).toBe("synced");
+    expect(await readFile(join(b.path, "knowledge/offertes.md"), "utf8")).toContain("teamleider");
+  });
+
+  test("eigen wijzigingen en die van de AI komen in aparte commits", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    await a.write("knowledge/eigen.md", "Zelf getypt in Obsidian.\n");
+    await a.sync.prepareTurn();
+    await a.write("knowledge/ai.md", "Door de AI.\n");
+    await a.sync.finishTurn({ title: "Beurt", chatId: "ses_2" });
+    expect((await log(world, "%s")).slice(0, 2)).toEqual(["Beurt", "Eigen wijzigingen"]);
+    expect(await world.git.ok(["show", "--name-only", "--format=", "main~1"], { cwd: world.bare })).toContain("knowledge/eigen.md");
+  });
+
+  test("wie later deelt, haalt eerst op en deelt dan ook", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    const b = await world.user("Bram");
+    await a.write("knowledge/a.md", "A\n");
+    await b.write("knowledge/b.md", "B\n");
+    await a.sync.finishTurn({ title: "A", chatId: "ses_a" });
+    const second = await b.sync.finishTurn({ title: "B", chatId: "ses_b" });
+    expect(second.shared).toBe(true);
+    expect(await onServer(world, "knowledge/a.md")).toBe("A\n");
+    expect(await onServer(world, "knowledge/b.md")).toBe("B\n");
+  });
+});
+
+describe("conflict", () => {
+  test("niets gaat verloren, en 'Bewaar mijn versie apart' zet de map terug", async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/korting.md": "Korting: 10%\n" });
+    const a = await world.user("Anna");
+    const b = await world.user("Bram");
+    await a.write("knowledge/korting.md", "Korting: 15%\n");
+    await a.sync.finishTurn({ title: "A", chatId: "ses_a" });
+    await b.write("knowledge/korting.md", "Korting: 20%\n");
+    const turn = await b.sync.finishTurn({ title: "B", chatId: "ses_b" });
+    expect(turn.shared).toBe(false);
+    expect(turn.status.state).toBe("conflict");
+    expect(turn.status.conflictFiles).toEqual(["knowledge/korting.md"]);
+    expect(turn.status.conflictBy).toBe("Anna");
+    // B's version is still committed locally.
+    expect(await world.git.ok(["show", "HEAD:knowledge/korting.md"], { cwd: b.path })).toBe("Korting: 20%\n");
+    // Updating pauses; the folder keeps B's version meanwhile.
+    expect((await b.sync.prepareTurn()).state).toBe("conflict");
+
+    const apart = await b.sync.keepMineApart();
+    expect(apart.branch).toMatch(/^bonzaiwork\/bram\/\d{8}-\d{4}$/);
+    expect((await world.git.ok(["show", `${apart.branch}:knowledge/korting.md`], { cwd: world.bare }))).toBe("Korting: 20%\n");
+    expect(await readFile(join(b.path, "knowledge/korting.md"), "utf8")).toBe("Korting: 15%\n");
+    expect(apart.status.state).toBe("synced");
+  });
+});
+
+describe("niet vastgelegde wijzigingen bij bijwerken (review #5)", () => {
+  test("alleen lezen: een lokale wijziging blijft staan en de status zegt waarom er niet bijgewerkt is", async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/a.md": "a\n" });
+    const reader = await world.user("Lezer", { mode: "read_only" });
+    await reader.write("knowledge/a.md", "mijn aantekening\n");
+    await world.seed({ "knowledge/a.md": "a van het team\n" });
+    const status = await reader.sync.prepareTurn();
+    expect(status.state).toBe("error");
+    expect(status.error).toContain("knowledge/a.md");
+    expect(await readFile(join(reader.path, "knowledge/a.md"), "utf8")).toBe("mijn aantekening\n");
+    expect((await world.git.ok(["status", "--porcelain"], { cwd: reader.path })).trim()).toBe("M knowledge/a.md");
+    // Put back: the next update goes through.
+    await reader.write("knowledge/a.md", "a\n");
+    expect((await reader.sync.prepareTurn()).state).toBe("read_only");
+    expect(await readFile(join(reader.path, "knowledge/a.md"), "utf8")).toBe("a van het team\n");
+  });
+});
+
+describe("Bewaar mijn versie apart verliest niets (review #5)", () => {
+  test("wat na het conflict getypt is gaat mee; wat niet vast te leggen is, staat in _bewaard/", async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/korting.md": "10%\n", "groot.bin": "klein\n" });
+    const a = await world.user("Anna");
+    const b = await world.user("Bram", { sizeLimitBytes: 64 });
+    await a.write("knowledge/korting.md", "15%\n");
+    await a.sync.finishTurn({ title: "A", chatId: "a" });
+    await b.write("knowledge/korting.md", "20%\n");
+    expect((await b.sync.finishTurn({ title: "B", chatId: "b" })).status.state).toBe("conflict");
+    // After the conflict, Bram keeps working in Obsidian, and a tracked file grows too large to record.
+    await b.write("knowledge/nieuw.md", "Na het conflict\n");
+    await b.write("groot.bin", "x".repeat(200));
+    const apart = await b.sync.keepMineApart();
+    expect(apart.branch).not.toBeNull();
+    const branch = apart.branch ?? "";
+    expect(await world.git.ok(["show", `${branch}:knowledge/nieuw.md`], { cwd: world.bare })).toBe("Na het conflict\n");
+    expect(await world.git.ok(["show", `${branch}:knowledge/korting.md`], { cwd: world.bare })).toBe("20%\n");
+    const kept = apart.status.warnings.find((warning) => warning.includes("_bewaard/")) ?? "";
+    const folder = /(_bewaard\/[^/ ]+)\//.exec(kept)?.[1] ?? "";
+    expect(await readFile(join(b.path, folder, "groot.bin"), "utf8")).toBe("x".repeat(200));
+    expect(await readFile(join(b.path, "groot.bin"), "utf8")).toBe("klein\n");
+  });
+});
+
+describe("Laat de AI het samenvoegen", () => {
+  const conflicted = async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/korting.md": "# Korting\n\nStandaard: 10%\n", "knowledge/log.md": "# Log\n" });
+    const a = await world.user("Anna");
+    const b = await world.user("Bram");
+    await a.write("knowledge/korting.md", "# Korting\n\nStandaard: 15%\n");
+    await a.write("knowledge/a.md", "Van Anna\n");
+    await a.sync.finishTurn({ title: "A", chatId: "ses_a" });
+    await b.write("knowledge/korting.md", "# Korting\n\nStandaard: 10%, vaste klanten 20%\n");
+    expect((await b.sync.finishTurn({ title: "B", chatId: "ses_b" })).status.state).toBe("conflict");
+    return b;
+  };
+
+  test("beide versies in de notitie, een chat voegt samen, de beurt deelt het", async () => {
+    const b = await conflicted();
+    const merge = await b.sync.startAiMerge();
+    expect(merge.files).toEqual(["knowledge/korting.md"]);
+    expect(merge.status.merging).toBe(true);
+    expect(merge.prompt).toContain("`knowledge/korting.md`");
+    expect(merge.prompt).toContain("Anna");
+    const both = await readFile(join(b.path, "knowledge/korting.md"), "utf8");
+    expect(both).toContain("<<<<<<<");
+    expect(both).toContain("15%");
+    expect(both).toContain("vaste klanten 20%");
+    // Anna's other note came along with the merge.
+    expect(await readFile(join(b.path, "knowledge/a.md"), "utf8")).toBe("Van Anna\n");
+
+    // The chat's turn ends with two versions still there: nothing is shared.
+    const early = await b.sync.finishTurn({ title: "Samenvoegen", chatId: "ses_m" });
+    expect(early.shared).toBe(false);
+    expect(early.status.error).toContain("nog twee versies");
+
+    // A secret in the merged note blocks the merge commit too (review #5).
+    await b.write("knowledge/korting.md", "# Korting\n\nStandaard: 15%\nghp_abcdefghijklmnopqrstuvwxyz0123456789AB\n");
+    const leaked = await b.sync.finishTurn({ title: "Samenvoegen", chatId: "ses_m" });
+    expect(leaked.shared).toBe(false);
+    expect(leaked.status.error).toContain("wachtwoord of sleutel");
+    // The chat merged them.
+    await b.write("knowledge/korting.md", "# Korting\n\nStandaard: 15%, vaste klanten 20%\n");
+    const done = await b.sync.finishTurn({ title: "Samenvoegen", chatId: "ses_m" });
+    expect(done.shared).toBe(true);
+    expect(done.status.state).toBe("synced");
+    expect(await onServer(world, "knowledge/korting.md")).toBe("# Korting\n\nStandaard: 15%, vaste klanten 20%\n");
+    expect(await onServer(world, "knowledge/a.md")).toBe("Van Anna\n");
+    const subjects = (await world.git.ok(["log", "-3", "--format=%s|%(trailers:key=BonzaiWork-Chat,valueonly)", "main"], { cwd: world.bare })).trim();
+    expect(subjects).toContain("Samengevoegd met de versie van het team|ses_m");
+  });
+
+  test("na een herstart staat de samenvoeging er nog; apart bewaren kan ook dan", async () => {
+    const b = await conflicted();
+    await b.sync.startAiMerge();
+    const again = new BrainSync({ git: world.git, record: b.sync.snapshot, author: () => ({ name: "Bram", email: "bram@example.invalid" }), save: async () => {} });
+    const opened = await again.open();
+    expect(opened.state).toBe("conflict");
+    expect(opened.merging).toBe(true);
+    expect((await again.prepareTurn()).state).toBe("conflict");
+    const apart = await again.keepMineApart();
+    expect(apart.branch).not.toBeNull();
+    expect(apart.status.state).toBe("synced");
+    expect(await readFile(join(b.path, "knowledge/korting.md"), "utf8")).toBe("# Korting\n\nStandaard: 15%\n");
+    again.dispose();
+  });
+});
+
+describe("offline en zonder schrijfrechten", () => {
+  test("offline blijven commits lokaal en worden later vanzelf gedeeld", async () => {
+    world = await createWorld();
+    let offline = true;
+    const git = failing(world.git, (args) => offline && (args.includes("push") || args.includes("fetch"))
+      ? fail("ssh: Could not resolve hostname gitlab.com: Name or service not known\nfatal: Could not read from remote repository.") : null);
+    const a = await world.user("Anna", { git, retryDelaysMs: [50] });
+    await a.write("knowledge/trein.md", "Geschreven in de trein.\n");
+    const turn = await a.sync.finishTurn({ title: "Trein", chatId: "ses_t" });
+    expect(turn).toMatchObject({ committed: true, shared: false });
+    expect(turn.status).toMatchObject({ state: "offline", ahead: 1 });
+    expect(turn.status.error).toContain("weer online");
+    offline = false;
+    for (let attempt = 0; attempt < 80 && (await a.sync.status()).state !== "synced"; attempt += 1) await Bun.sleep(25);
+    expect((await a.sync.status()).state).toBe("synced");
+    expect(await onServer(world, "knowledge/trein.md")).toBe("Geschreven in de trein.\n");
+    a.sync.dispose();
+  });
+
+  test("handmatig deelt ook na offline niet vanzelf; een retry wacht op een stille map (review #5)", async () => {
+    world = await createWorld();
+    let offline = true;
+    const git = failing(world.git, (args) => offline && (args.includes("push") || args.includes("fetch"))
+      ? fail("ssh: Could not resolve hostname gitlab.com: Name or service not known\nfatal: Could not read from remote repository.") : null);
+    const manual = await world.user("Mia", { git, mode: "manual", retryDelaysMs: [30] });
+    await manual.write("knowledge/m.md", "nog niet delen\n");
+    await manual.sync.finishTurn({ title: "M", chatId: "m" });
+    expect((await manual.sync.prepareTurn()).state).toBe("offline");
+    offline = false;
+    for (let attempt = 0; attempt < 40 && (await manual.sync.status()).state === "offline"; attempt += 1) await Bun.sleep(25);
+    await Bun.sleep(100);
+    expect((await manual.sync.status()).state).toBe("ahead");
+    expect(await onServer(world, "knowledge/m.md")).toBe("");
+    manual.sync.dispose();
+
+    offline = true;
+    let busy = true;
+    const auto = await world.user("Anna", { git, retryDelaysMs: [30], busy: async () => busy });
+    await auto.write("knowledge/a.md", "a\n");
+    expect((await auto.sync.finishTurn({ title: "A", chatId: "a" })).status.state).toBe("offline");
+    offline = false;
+    await Bun.sleep(200);
+    expect(await onServer(world, "knowledge/a.md")).toBe("");
+    busy = false;
+    for (let attempt = 0; attempt < 80 && (await auto.sync.status()).state !== "synced"; attempt += 1) await Bun.sleep(25);
+    expect(await onServer(world, "knowledge/a.md")).toBe("a\n");
+    auto.sync.dispose();
+  });
+
+  test("een beschermde branch geeft 'alleen lezen', de commit blijft", async () => {
+    world = await createWorld();
+    let protectedBranch = true;
+    const git = failing(world.git, (args) => protectedBranch && args.includes("push")
+      ? fail("remote: GitLab: You are not allowed to push code to protected branches on this project.\nTo gitlab.com:team/brein.git\n ! [remote rejected] HEAD -> main (pre-receive hook declined)") : null);
+    const a = await world.user("Anna", { git });
+    await a.write("knowledge/x.md", "x\n");
+    const turn = await a.sync.finishTurn({ title: "X", chatId: "ses_x" });
+    expect(turn.status).toMatchObject({ state: "read_only", ahead: 1 });
+    protectedBranch = false;
+    expect((await a.sync.share()).state).toBe("synced");
+  });
+
+  test("modus alleen lezen: bijwerken wel, vastleggen nooit", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna", { mode: "read_only" });
+    await a.write("knowledge/lokaal.md", "lokaal\n");
+    await world.seed({ "knowledge/nieuw.md": "nieuw\n" });
+    expect((await a.sync.prepareTurn()).state).toBe("read_only");
+    expect(existsSync(join(a.path, "knowledge/nieuw.md"))).toBe(true);
+    expect(await readFile(join(a.path, "knowledge/lokaal.md"), "utf8")).toBe("lokaal\n");
+    expect((await a.sync.finishTurn({ title: "x", chatId: "s" })).committed).toBe(false);
+    expect(await onServer(world, "knowledge/lokaal.md")).toBe("");
+  });
+});
+
+describe("wat er meegaat", () => {
+  test("alleen Markdown vanzelf, gewijzigde gedeelde bestanden wel, inbox en te groot nooit", async () => {
+    world = await createWorld();
+    await world.seed({ ".opencode/skills/pptx/maak.py": "print(1)\n" });
+    const a = await world.user("Anna", { sizeLimitBytes: 1000 });
+    await a.write("knowledge/ok.md", "ok\n");
+    await a.write("presentatie.pptx", "binary");
+    await a.write(".opencode/skills/pptx/maak.py", "print(2)\n");
+    await a.write(".opencode/openwork/inbox/bijlage.md", "privé\n");
+    await a.write("knowledge/groot.md", "x".repeat(2000));
+    await a.write("workflows/offerte/01_intake/output/run.md", "per run\n");
+    const turn = await a.sync.finishTurn({ title: "Mix", chatId: "ses_m" });
+    expect(turn.shared).toBe(true);
+    const files = (await world.git.ok(["show", "--name-only", "--format=", "main"], { cwd: world.bare })).trim().split("\n").sort();
+    expect(files).toEqual([".opencode/skills/pptx/maak.py", "knowledge/ok.md"]);
+    expect(turn.status.unshared).toEqual([
+      { path: "knowledge/groot.md", reason: "too_large" },
+      { path: "presentatie.pptx", reason: "not_markdown" },
+    ]);
+  });
+
+  test("een geheim blokkeert de hele commit", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    await a.write("knowledge/ok.md", "ok\n");
+    await a.write("knowledge/notitie.md", "sleutel:\n-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n");
+    const turn = await a.sync.finishTurn({ title: "Geheim", chatId: "ses_g" });
+    expect(turn).toMatchObject({ committed: false, shared: false, blockedBy: "knowledge/notitie.md" });
+    expect(turn.status.state).toBe("error");
+    expect(turn.status.error).toContain("knowledge/notitie.md");
+    expect(await onServer(world, "knowledge/ok.md")).toBe("");
+    // Removing it clears the problem with the next turn.
+    await a.write("knowledge/notitie.md", "zonder sleutel\n");
+    expect((await a.sync.finishTurn({ title: "Opgeruimd", chatId: "ses_g" })).status.state).toBe("synced");
+  });
+});
+
+describe("vertrouwen (plan §7.1)", () => {
+  test("een symlink wacht altijd op akkoord; hoofdletters omzeilen niets; rare namen stoppen het bijwerken (review #5)", async () => {
+    world = await createWorld();
+    await world.seed({ "plug/plugins/evil.js": "export default {}\n", ".OpenCode/Plugins/p.js": "x\n", "OpenCode.json": "{}\n" });
+    const scratch = join(world.root, "scratch");
+    await symlink("plug", join(scratch, ".opencode"));
+    await world.raw(["add", "-A"]);
+    await world.raw(["commit", "-q", "-m", "link"]);
+    await world.raw(["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    const a = await world.user("Anna");
+    const status = await a.sync.status();
+    expect(status.pendingTrust.map((item) => `${item.kind}:${item.path}`).sort()).toEqual(["config:OpenCode.json", "link:.opencode", "plugin:.OpenCode/Plugins/p.js"]);
+    expect(await lstat(join(a.path, ".opencode")).catch(() => null)).toBeNull();
+
+    // A name that ends in a space cannot be excluded for certain: nothing is updated.
+    await world.seed({ "knowledge/raar.md ": "x\n" });
+    const after = await a.sync.prepareTurn();
+    expect(after.state).toBe("error");
+    expect(after.error).toContain("bestandsnaam");
+    expect(existsSync(join(a.path, "knowledge/raar.md "))).toBe(false);
+  });
+
+  test("riskante onderdelen staan pas in de map na akkoord, en opnieuw na een wijziging", async () => {
+    world = await createWorld();
+    await world.seed({
+      ".opencode/plugins/p.js": "export default {}\n",
+      "opencode.json": JSON.stringify({ mcp: { rogue: { type: "local", command: ["x"] } } }),
+      ".opencode/commands/shell.md": "Uit: !`ls`\n",
+      ".opencode/commands/verwerk.md": "Verwerk $ARGUMENTS\n",
+      ".opencode/agents/ruim.md": "agent\n",
+    });
+    const a = await world.user("Anna");
+    const status = await a.sync.status();
+    expect(status.state).toBe("needs_trust");
+    expect(status.pendingTrust.map((item) => `${item.kind}:${item.path}`).sort()).toEqual([
+      "agent:.opencode/agents/ruim.md", "command:.opencode/commands/shell.md", "config:opencode.json", "plugin:.opencode/plugins/p.js",
+    ]);
+    expect(a.sync.untrustedMcpServers).toEqual(["rogue"]);
+    for (const path of [".opencode/plugins/p.js", "opencode.json", ".opencode/commands/shell.md", ".opencode/agents/ruim.md"]) {
+      expect(existsSync(join(a.path, path))).toBe(false);
+    }
+    expect(existsSync(join(a.path, ".opencode/commands/verwerk.md"))).toBe(true);
+
+    // Sharing still works and keeps the excluded files on the server.
+    await a.write("knowledge/x.md", "x\n");
+    await a.sync.finishTurn({ title: "x", chatId: "s" });
+    expect(await onServer(world, ".opencode/plugins/p.js")).toBe("export default {}\n");
+
+    const trusted = await a.sync.trust(status.pendingTrust.map((item) => item.path));
+    expect(trusted.pendingTrust).toEqual([]);
+    expect(existsSync(join(a.path, ".opencode/plugins/p.js"))).toBe(true);
+    expect(a.sync.untrustedMcpServers).toEqual([]);
+
+    await world.seed({ ".opencode/plugins/p.js": "export default { changed: true }\n" });
+    const after = await a.sync.prepareTurn();
+    expect(after.pendingTrust.map((item) => item.path)).toEqual([".opencode/plugins/p.js"]);
+    expect(existsSync(join(a.path, ".opencode/plugins/p.js"))).toBe(false);
+    expect(existsSync(join(a.path, "opencode.json"))).toBe(true);
+  });
+
+  test("een plugin die de AI zelf maakt, gaat niet vanzelf mee", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    await a.write(".opencode/plugins/nieuw.js", "export default {}\n");
+    await a.write(".opencode/agents/nieuw.md", "agent\n");
+    await a.write("knowledge/x.md", "x\n");
+    const turn = await a.sync.finishTurn({ title: "x", chatId: "s" });
+    expect(turn.shared).toBe(true);
+    expect(await onServer(world, ".opencode/agents/nieuw.md")).toBe("");
+  });
+});
+
+describe("git-veiligheid (plan §7.4)", () => {
+  test("hooks in .git draaien niet bij de sync", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    const marker = join(world.root, "hook-ran");
+    await writeFile(join(a.path, ".git/hooks/pre-commit"), `#!/bin/sh\ntouch "${marker}"\n`);
+    await chmod(join(a.path, ".git/hooks/pre-commit"), 0o755);
+    await a.write("knowledge/x.md", "x\n");
+    expect((await a.sync.finishTurn({ title: "x", chatId: "s" })).shared).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("een gewijzigde .git/config stopt alles tot 'Herstellen'", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    const config = join(a.path, ".git/config");
+    await writeFile(config, `${await readFile(config, "utf8")}[core]\n\tfsmonitor = /tmp/evil\n`);
+    await world.seed({ "knowledge/nieuw.md": "nieuw\n" });
+    const stopped = await a.sync.prepareTurn();
+    expect(stopped.state).toBe("error");
+    expect(stopped.error).toContain("Herstellen");
+    expect(existsSync(join(a.path, "knowledge/nieuw.md"))).toBe(false);
+    expect((await a.sync.repair()).state).not.toBe("error");
+    expect(await readFile(config, "utf8")).not.toContain("evil");
+    await a.sync.prepareTurn();
+    expect(existsSync(join(a.path, "knowledge/nieuw.md"))).toBe(true);
+  });
+
+  test("een andere remote of branch stopt de sync", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    await world.git.ok(["checkout", "-q", "-b", "ander"], { cwd: a.path });
+    expect((await a.sync.prepareTurn()).error).toContain("andere versie");
+    expect((await a.sync.repair()).state).toBe("synced");
+  });
+
+  test("een herschreven gedeelde geschiedenis: niets wordt verstuurd", async () => {
+    world = await createWorld();
+    await world.seed({ "knowledge/a.md": "a\n" }, "tweede");
+    const a = await world.user("Anna");
+    // Someone force-pushes the server back one commit, outside BonzaiWork.
+    const shared = (await world.raw(["rev-parse", "HEAD"])).stdout.trim();
+    await world.raw(["reset", "-q", "--hard", "HEAD~1"]);
+    await world.raw(["push", "-q", "--force", "origin", "HEAD:refs/heads/main"]);
+    await a.write("knowledge/b.md", "b\n");
+    const before = await a.sync.prepareTurn();
+    expect(before.state).toBe("error");
+    expect(before.error).toContain("herschreven");
+    const turn = await a.sync.finishTurn({ title: "b", chatId: "s" });
+    expect(turn.shared).toBe(false);
+    expect(await onServer(world, "knowledge/b.md")).toBe("");
+    expect(await onServer(world, "knowledge/a.md")).toBe("");
+    // "Herstellen" checks again: still rewritten, still stopped.
+    await a.sync.repair();
+    expect((await a.sync.prepareTurn()).error).toContain("herschreven");
+    // The administrator puts the history back; after "Herstellen" it is shared again.
+    await world.raw(["push", "-q", "--force", "origin", `${shared}:refs/heads/main`]);
+    await a.sync.repair();
+    const after = await a.sync.prepareTurn();
+    expect(after.error).toBeNull();
+    expect((await a.sync.finishTurn({ title: "b", chatId: "s" })).shared).toBe(true);
+    expect(await onServer(world, "knowledge/a.md")).toBe("a\n");
+  });
+});
+
+describe("toevoegen", () => {
+  test("niet in een map die al iets bevat", async () => {
+    world = await createWorld();
+    const target = join(world.root, "kapot");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "iets.md"), "x");
+    const notEmpty = await world.user("kapot").catch((error: unknown) => error);
+    expect(notEmpty).toBeInstanceOf(BrainCloneError);
+    expect(notEmpty instanceof BrainCloneError && notEmpty.problem).toBe("not_empty");
+  });
+
+  test("een lege repo: de eerste beurt maakt de eerste commit", async () => {
+    world = await createWorld({ empty: true });
+    const a = await world.user("Anna");
+    expect((await a.sync.status()).state).toBe("synced");
+    await a.write("AGENTS.md", "# Nieuw brein\n");
+    const turn = await a.sync.finishTurn({ title: "Begin", chatId: "s" });
+    expect(turn.shared).toBe(true);
+    expect(await onServer(world, "AGENTS.md")).toBe("# Nieuw brein\n");
+  });
+
+  test("clonen van een plek die niet bestaat", async () => {
+    world = await createWorld();
+    const error = await createWorldUserFrom(world, `file://${join(world.root, "bestaat-niet.git")}`).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(BrainCloneError);
+    expect(error instanceof BrainCloneError && error.problem).toBe("not_found");
+    expect(existsSync(join(world.root, "nergens"))).toBe(false);
+  });
+});
+
+async function createWorldUserFrom(w: World, remote: string) {
+  const { BrainSync } = await import("../src/sync.ts");
+  return BrainSync.clone({
+    git: w.git, id: "x", kind: "project", mode: "auto", remote, path: join(w.root, "nergens"),
+    author: () => ({ name: "x", email: "x@example.invalid" }), save: async () => {},
+  });
+}

@@ -3,7 +3,7 @@ import { FolderPlus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, useStatus } from "~/backend/queries";
+import { keys, usePersonalBrain, useStatus } from "~/backend/queries";
 import { BrandMark } from "~/components/brand";
 import { Button } from "~/components/ui/button";
 import { Field, SecretInput, type SecretInputHandle } from "~/components/ui/field";
@@ -11,6 +11,7 @@ import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
 
+import { PersonalBrainStep, personalBrainLater } from "../brain/personal-setup";
 import { NewProjectDialog } from "../projects/new-project-dialog";
 
 function LinkUserKey() {
@@ -66,7 +67,11 @@ function LinkUserKey() {
 }
 
 function FirstProject() {
+  const backend = useBackend();
+  const personal = usePersonalBrain();
   const [open, setOpen] = useState(false);
+  const [later, setLater] = useState(personalBrainLater);
+  if (backend.capabilities.brains && !personal && !later) return <PersonalBrainStep onLater={() => setLater(true)} />;
   return (
     <div className="flex w-full flex-col gap-4">
       <div>

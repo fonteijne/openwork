@@ -187,10 +187,43 @@ function answer(prompt: string): Plan {
   };
 }
 
+/** "Laat de AI het samenvoegen" (plan §4.5): read both versions, write one. */
+function mergeVersions(prompt: string): Plan {
+  const file = /`([^`]+\.md)`/.exec(prompt)?.[1] ?? "knowledge/notitie.md";
+  return {
+    title: "Versies samenvoegen",
+    steps: [
+      { kind: "tool", tool: "read", input: { filePath: file }, output: "<<<<<<< jouw versie\nStandaard 10%, vaste klanten 20%\n=======\nStandaard 15%\n>>>>>>>", ms: 500 },
+      { kind: "tool", tool: "edit", input: { filePath: file }, output: "Bijgewerkt", ms: 700 },
+      { kind: "text", text: "Samengevoegd: de standaardkorting is nu 15% (de versie van je collega) en de 20% voor vaste klanten uit jouw versie staat erbij." },
+    ],
+  };
+}
+
+/** Another brain (plan §5.2): the AI lists the brains, then asks before it reads one the user did not name. */
+function otherBrain(prompt: string): Plan {
+  const brain = "Klantenservice";
+  return {
+    title: titleFrom(prompt),
+    steps: [
+      { kind: "tool", tool: "breinen_breinen_lijst", input: {}, output: "- Klantenservice: retouren, klachten en de toon van onze antwoorden.", ms: 400 },
+      { kind: "text", text: `Het brein ${brain} heeft het retourbeleid. Mag ik daar kijken?` },
+      {
+        kind: "tool", tool: "breinen_brein_lezen", input: { brein: brain, pad: "knowledge/beleid/retouren.md" },
+        output: "Retouren binnen 30 dagen, op kosten van de klant tenzij het product defect is.", ms: 600,
+        permission: { action: "breinen_brein_lezen", resources: ["*"] },
+      },
+      { kind: "text", text: `Volgens het brein ${brain} (\`knowledge/beleid/retouren.md\`): retouren binnen 30 dagen, op kosten van de klant, behalve bij een defect. Zal ik dat in de offertevoorwaarden van dit project zetten?` },
+    ],
+  };
+}
+
 export function planReply(prompt: string, context: PlanContext): Plan {
   const text = prompt.toLowerCase();
   if (text.includes("budget op") || text.includes("#budget")) return { title: titleFrom(prompt), steps: [{ kind: "error", error: "budget_exceeded" }] };
   if (text.includes("#fout")) return { title: titleFrom(prompt), steps: [{ kind: "error", error: "litellm_unreachable" }] };
+  if (text.includes("twee versies samen")) return mergeVersions(prompt);
+  if (/\bretour|#brein\b/.test(text)) return otherBrain(prompt);
   if (/\bofferte/.test(text)) return quote(prompt);
   if (/\b(e-?mail|mail|brief|bericht aan)\b/.test(text)) return mail(prompt);
   if (/\b(zoek|onderzoek|concurrent|markt|nieuws|vergelijk|web)\w*/.test(text)) return research(prompt, context);

@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { app } from "electron";
+
 import { registerDiagnosticsSource } from "@bonzaiwork/feedback";
 import { SERVER_ENVIRONMENT_DEFAULTS } from "@bonzaiwork/policy";
 import { registerKeyStore } from "@bonzaiwork/litellm/keys";
@@ -16,7 +18,7 @@ import { SafeStorageKeyStore } from "./safe-storage-key-store";
  *
  *  - settings baked into the build (LiteLLM URL, default model, key mode);
  *  - OpenWork's hosted and free models off;
- *  - the openwork-server hooks module that installs the LiteLLM-only policy;
+ *  - the openwork-server hooks module: the LiteLLM-only policy, brains, routines and feedback;
  *  - the OS-keychain key store, registered before the in-process server starts;
  *  - the window, logs and Downloads folder for feedback reports.
  */
@@ -45,11 +47,21 @@ const environment: Record<string, string> = {
   BONZAIWORK_KEY_MODE: baked.keyMode,
   ...(baked.defaultModel ? { BONZAIWORK_DEFAULT_MODEL: baked.defaultModel } : {}),
   OPENWORK_SERVER_HOOKS: pathToFileURL(join(here, "server-hooks.js")).href,
+  // The shipped dugite-native git, when this build has one (docs/bonzaiwork/project-breinen-plan.md §3.1).
+  ...(existsSync(join(process.resourcesPath ?? "", "git")) ? { BONZAIWORK_GIT_DIRECTORY: join(process.resourcesPath, "git") } : {}),
 };
 for (const [name, value] of Object.entries(environment)) {
   // Development may override a baked value; a packaged build never sets these itself.
   process.env[name] = process.env[name]?.trim() || value;
 }
+
+// Brains: registry, known_hosts and git state (never in a repository). userData is only final once
+// upstream's main.mjs has set it (dev profiles, OPENWORK_ELECTRON_USERDATA, blank-slate launches),
+// which it does while it loads; the server and its hooks start after "ready", and this listener
+// runs before upstream's whenReady continuation (review #5).
+app.once("ready", () => {
+  process.env.BONZAIWORK_STATE_DIR = process.env.BONZAIWORK_STATE_DIR?.trim() || join(app.getPath("userData"), "bonzaiwork");
+});
 
 registerKeyStore(new SafeStorageKeyStore());
 registerDiagnosticsSource(new ElectronDiagnosticsSource());

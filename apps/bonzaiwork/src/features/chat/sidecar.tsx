@@ -19,6 +19,7 @@ import { renderMarkdown } from "~/lib/markdown";
 import { href } from "~/lib/router";
 import { touchedFiles, usedCapabilities } from "~/lib/tools";
 
+import { ConceptFacts } from "../brain/concept-facts";
 import { useProjectState, useRuntime } from "../project/runtime";
 
 function Group(props: { title: string; children: ReactNode; action?: ReactNode }) {
@@ -65,7 +66,10 @@ export function FilePreview(props: { projectId: string; chatId: string | null; p
       ) : file.data?.content === null || file.data?.content === undefined ? (
         <p className="text-sm text-muted-foreground">Voor dit bestand is geen voorbeeld beschikbaar{file.data ? ` (${formatBytes(file.data.bytes)})` : ""}.</p>
       ) : markdown ? (
-        <div className="bw-prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(file.data.content) }} />
+        <>
+          <ConceptFacts projectId={props.projectId} path={props.path} />
+          <div className="bw-prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(file.data.content) }} />
+        </>
       ) : (
         <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">{file.data.content}</pre>
       )}

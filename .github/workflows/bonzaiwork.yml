@@ -46,6 +46,9 @@ jobs:
           pnpm --filter @openwork/app typecheck
           pnpm --filter @bonzaiwork/policy typecheck
           pnpm --filter @bonzaiwork/litellm typecheck
+          pnpm --filter @bonzaiwork/brains typecheck
+          pnpm --filter @bonzaiwork/routines typecheck
+          pnpm --filter @bonzaiwork/server-hooks typecheck
           pnpm --filter @bonzaiwork/feedback typecheck
           pnpm --filter @bonzaiwork/app typecheck
 
@@ -53,12 +56,25 @@ jobs:
         run: |
           pnpm --filter @bonzaiwork/policy test
           pnpm --filter @bonzaiwork/litellm test
+          pnpm --filter @bonzaiwork/brains test
+          pnpm --filter @bonzaiwork/routines test
+          pnpm --filter @bonzaiwork/server-hooks test
           pnpm --filter @bonzaiwork/feedback test
           pnpm --filter @bonzaiwork/app test
           cd apps/server && bun test test/downstream-hooks.test.ts
 
       - name: Engine end-to-end (LiteLLM-only, per-workspace keys, no key leaks)
         run: pnpm --filter @bonzaiwork/litellm e2e
+
+      - name: Engine end-to-end (brains - clone, turn shared, git blocked, trust)
+        run: pnpm --filter @bonzaiwork/brains e2e
+
+      - name: Brains on the git the app ships (fetched, checksum checked, pruned)
+        run: |
+          node scripts/bonzaiwork/fetch-git.mjs
+          cd packages/bonzaiwork-brains
+          BONZAIWORK_GIT_DIRECTORY="$GITHUB_WORKSPACE/apps/bonzaiwork/resources/git" bun test test/sync.test.ts test/okf.test.ts test/personal.test.ts
+          BONZAIWORK_GIT_DIRECTORY="$GITHUB_WORKSPACE/apps/bonzaiwork/resources/git" pnpm e2e
 
       - name: PATCHES.md lists every changed upstream file
         run: node scripts/bonzaiwork/check-patches.mjs

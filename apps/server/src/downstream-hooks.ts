@@ -1,8 +1,10 @@
+import { createHash, randomBytes } from "node:crypto";
+import { lstat, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { addRoute, type AuthMode, type Route } from "./routes/registry.js";
-import { mergeRuntimeProviderUpdate, writeGlobalRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { mergeRuntimeProviderUpdate, runtimeStorageDir, writeGlobalRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { createV2SessionHomes } from "./opencode-v2-session-home.js";
 import { externalFetch, loopbackFetch } from "./server-fetch.js";
 import type { ServerConfig } from "./types.js";
@@ -32,6 +34,22 @@ export type DownstreamProviderUpdate = {
   disabledProviders?: string[];
 };
 
+/** A turn starting or ending in a workspace (engine `session.execution.*`). */
+export type DownstreamSessionActivity = {
+  workspaceId: string;
+  sessionId: string;
+  state: "running" | "idle";
+  outcome?: "succeeded" | "failed" | "interrupted";
+};
+
+export type DownstreamEnginePermission = { action: string; resource: string; effect: "allow" | "ask" | "deny" };
+
+export type DownstreamEnginePolicy = {
+  action: "provider.use" | "tool.use" | "integration.use";
+  resource: string;
+  effect: "allow" | "deny";
+};
+
 export type DownstreamServerHost = {
   /** The port the server actually bound. */
   port: number;
@@ -44,6 +62,32 @@ export type DownstreamServerHost = {
   reloadEngineProviders(): Promise<void>;
   /** Proxy-aware fetch for traffic that leaves this machine. */
   externalFetch(input: string, init?: RequestInit): Promise<Response>;
+  /** Follows turns in every local workspace; returns an unsubscribe. */
+  onSessionActivity(listener: (activity: DownstreamSessionActivity) => void): () => void;
+  /** Conversations running in a workspace now, or null when the engine cannot say. */
+  runningSessions(workspaceId: string): Promise<string[] | null>;
+  /** Title and parent of an engine conversation, or null when unknown. */
+  sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
+  /**
+   * A call to one local workspace's engine through this server's own proxy (`/workspace/:id/opencode2`),
+   * exactly as the app's chats go: start a conversation, send a prompt, answer a permission.
+   */
+  engineRequest(workspaceId: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
+  /** MCP entries in the engine-global runtime config (null removes one); every workspace gets them. */
+  updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
+  /**
+   * Instructions and a skills folder that count in every conversation of
+   * every workspace, sub-tasks included: `AGENTS.md` and `skills/` in the
+   * engine's own config folder, which the engine watches.
+   */
+  setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
+  /** The engine's own config folder (OPENCODE_CONFIG_DIR), where the global instructions live. */
+  engineConfigDirectory: string;
+  /**
+   * Rebuilds every folder the engine has loaded with the current config (new policies reach open
+   * folders), then registers OpenWork's MCP connections again. Pending questions are cancelled.
+   */
+  reloadEngineFolders(): Promise<void>;
   log(level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>): void;
 };
 
@@ -51,6 +95,10 @@ export type DownstreamServerHooks = {
   /** When set, only these providers reach the engine, whatever an organization or project configures. */
   allowedProviderIds?: readonly string[];
   routes?: readonly DownstreamRoute[];
+  /** Extra engine policies, read on every engine config write; `reloadEngineProviders()` causes one. */
+  enginePolicies?(): readonly DownstreamEnginePolicy[];
+  /** Extra engine permission rules (`allow`/`ask`/`deny` per tool action), written with the same config. */
+  enginePermissions?(): readonly DownstreamEnginePermission[];
   start?(host: DownstreamServerHost): Promise<void>;
 };
 
@@ -81,11 +129,23 @@ export function downstreamProviderGate(): ((providerId: string) => boolean) | nu
  */
 export function downstreamEnginePolicies(): Array<{ action: string; resource: string; effect: "allow" | "deny" }> {
   const allowed = active?.allowedProviderIds;
-  if (!allowed) return [];
+  const extra = active?.enginePolicies?.() ?? [];
   return [
-    { action: "provider.use", resource: "*", effect: "deny" },
-    ...allowed.map((id) => ({ action: "provider.use", resource: id, effect: "allow" as const })),
+    ...(allowed ? [
+      { action: "provider.use", resource: "*", effect: "deny" as const },
+      ...allowed.map((id) => ({ action: "provider.use", resource: id, effect: "allow" as const })),
+    ] : []),
+    ...extra.filter((policy) => policy.action !== "provider.use").map((policy) => ({ ...policy })),
   ];
+}
+
+/**
+ * Engine permission rules from the hooks. They go first: the engine applies
+ * the last matching rule, so OpenWork's own rules (agent permissions, the
+ * managed execution denials) still win.
+ */
+export function downstreamEnginePermissions(): DownstreamEnginePermission[] {
+  return (active?.enginePermissions?.() ?? []).map((rule) => ({ ...rule }));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,9 +164,11 @@ function isDownstreamRoute(value: unknown): value is DownstreamRoute {
 
 function isDownstreamServerHooks(value: unknown): value is DownstreamServerHooks {
   if (!isRecord(value)) return false;
-  const { allowedProviderIds, routes, start } = value;
+  const { allowedProviderIds, routes, start, enginePolicies, enginePermissions } = value;
   return (allowedProviderIds === undefined || (Array.isArray(allowedProviderIds) && allowedProviderIds.every((id) => typeof id === "string")))
     && (routes === undefined || (Array.isArray(routes) && routes.every(isDownstreamRoute)))
+    && (enginePolicies === undefined || typeof enginePolicies === "function")
+    && (enginePermissions === undefined || typeof enginePermissions === "function")
     && (start === undefined || typeof start === "function");
 }
 
@@ -141,16 +203,150 @@ export function addDownstreamRoutes(routes: Route[]): void {
 export type DownstreamStartInput = {
   config: ServerConfig;
   port: number;
-  engine: { connection(): { url: string; password: string } | undefined; refreshProviders(): Promise<unknown> };
+  engine: {
+    connection(): { url: string; password: string } | undefined;
+    refreshProviders(): Promise<unknown>;
+    /** Registers a folder's MCP connections again; the engine forgets them when it rebuilds a folder. */
+    syncWorkspaceMcp?(workspaceId: string, directory: string): Promise<void>;
+  };
   markReloadPending(): void;
   logger: { log(level: "info" | "warn" | "error", message: string, attributes?: Record<string, unknown>): void };
 };
+
+/**
+ * The engine's own config folder (OPENCODE_CONFIG_DIR), as managed-opencode-v2.ts
+ * lays it out: `<runtime>/opencode-v2/state[/instances/<id>]/config`. The id is
+ * engine-v2-preview.ts's engineInstanceId(), repeated here because that module
+ * imports this one; test/downstream-hooks.test.ts keeps the two equal.
+ */
+export function engineConfigDirectory(config: Pick<ServerConfig, "configPath">, environment: NodeJS.ProcessEnv = process.env): string {
+  const key = environment.OPENWORK_SERVER_STATE_PATH?.trim() || environment.OPENWORK_ELECTRON_APP_IDENTIFIER?.trim();
+  const instance = key ? createHash("sha256").update(key).digest("hex").slice(0, 12) : null;
+  return join(runtimeStorageDir(config), "opencode-v2", "state", ...(instance ? ["instances", instance] : []), "config");
+}
+
+type EngineConnection = { url: string; password: string };
+
+function engineAuthorization(connection: EngineConnection): string {
+  return `Basic ${Buffer.from(`opencode:${connection.password}`).toString("base64")}`;
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * One event stream per local workspace (`/api/event`), reconnecting after an
+ * engine restart and following workspaces as they come and go.
+ */
+function createSessionActivityFeed(
+  workspaces: () => Array<{ id: string; path: string }>,
+  connection: () => EngineConnection | undefined,
+  log: DownstreamServerHost["log"],
+) {
+  const listeners = new Set<(activity: DownstreamSessionActivity) => void>();
+  const streams = new Map<string, AbortController>();
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  const emit = (activity: DownstreamSessionActivity) => {
+    for (const listener of listeners) {
+      try { listener(activity); } catch (error) {
+        log("warn", "Session activity listener failed", { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  };
+
+  async function follow(workspace: { id: string; path: string }, abort: AbortController): Promise<void> {
+    while (!abort.signal.aborted) {
+      const engine = connection();
+      if (engine) {
+        try {
+          const url = new URL("/api/event", engine.url);
+          url.searchParams.set("location[directory]", workspace.path);
+          const response = await loopbackFetch(url.toString(), { headers: { authorization: engineAuthorization(engine), accept: "text/event-stream" }, signal: abort.signal });
+          if (response.ok && response.body) {
+            const decoder = new TextDecoder();
+            let buffer = "";
+            for await (const chunk of response.body) {
+              // SSE allows CRLF line ends; the whole buffer, so a pair split over two chunks joins too.
+              buffer = (buffer + decoder.decode(chunk, { stream: true })).replace(/\r\n/g, "\n");
+              for (let end = buffer.indexOf("\n\n"); end >= 0; end = buffer.indexOf("\n\n")) {
+                const data = buffer.slice(0, end).split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5)).join("\n");
+                buffer = buffer.slice(end + 2);
+                if (!data) continue;
+                let event: unknown;
+                try { event = JSON.parse(data); } catch { continue; }
+                if (!isRecordValue(event) || typeof event.type !== "string" || !event.type.startsWith("session.execution.")) continue;
+                const sessionId = isRecordValue(event.data) && typeof event.data.sessionID === "string" ? event.data.sessionID : null;
+                if (!sessionId) continue;
+                const kind = event.type.slice("session.execution.".length);
+                if (kind === "started") emit({ workspaceId: workspace.id, sessionId, state: "running" });
+                else if (kind === "succeeded" || kind === "failed" || kind === "interrupted") {
+                  emit({ workspaceId: workspace.id, sessionId, state: "idle", outcome: kind });
+                }
+              }
+            }
+          }
+        } catch { /* engine restarting or stream closed */ }
+      }
+      if (!abort.signal.aborted) await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+  }
+
+  function reconcile(): void {
+    const wanted = new Map(workspaces().map((workspace) => [workspace.id, workspace]));
+    for (const [id, abort] of streams) {
+      if (!wanted.has(id)) { abort.abort(); streams.delete(id); }
+    }
+    for (const [id, workspace] of wanted) {
+      if (streams.has(id)) continue;
+      const abort = new AbortController();
+      streams.set(id, abort);
+      void follow(workspace, abort);
+    }
+  }
+
+  return (listener: (activity: DownstreamSessionActivity) => void) => {
+    listeners.add(listener);
+    if (!timer) {
+      reconcile();
+      timer = setInterval(reconcile, 5_000);
+      timer.unref?.();
+    }
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0 && timer) {
+        clearInterval(timer);
+        timer = undefined;
+        for (const abort of streams.values()) abort.abort();
+        streams.clear();
+      }
+    };
+  };
+}
+
+async function writeFileAtomic(path: string, content: string): Promise<void> {
+  const temporary = `${path}.tmp-${randomBytes(6).toString("hex")}`;
+  await writeFile(temporary, content, { mode: 0o600 });
+  await rename(temporary, path);
+}
 
 /** Starts the active hooks once the listener is bound. A failing hook is logged, never fatal. */
 export async function startDownstreamServerHooks(input: DownstreamStartInput): Promise<void> {
   const start = active?.start;
   if (!start) return;
   const { config, engine, logger } = input;
+  const log: DownstreamServerHost["log"] = (level, message, fields) => logger.log(level, message, fields);
+  const localWorkspaces = () => config.workspaces
+    .filter((workspace) => workspace.workspaceType === "local")
+    .map((workspace) => ({ id: workspace.id, path: workspace.path }));
+  const readEngine = async (path: string): Promise<unknown> => {
+    const connection = engine.connection();
+    if (!connection) throw new Error("The engine is not running");
+    const response = await loopbackFetch(new URL(path, connection.url).toString(), { headers: { authorization: engineAuthorization(connection) }, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Engine returned HTTP ${response.status}`);
+    return response.json();
+  };
   const host: DownstreamServerHost = {
     port: input.port,
     readOnly: config.readOnly,
@@ -195,7 +391,93 @@ export async function startDownstreamServerHooks(input: DownstreamStartInput): P
       input.markReloadPending();
     },
     externalFetch,
-    log: (level, message, fields) => logger.log(level, message, fields),
+    log,
+    onSessionActivity: createSessionActivityFeed(localWorkspaces, () => engine.connection(), log),
+    runningSessions: async (workspaceId) => {
+      const workspace = localWorkspaces().find((candidate) => candidate.id === workspaceId);
+      if (!workspace) return null;
+      try {
+        const payload = await readEngine(`/api/session/active?${new URLSearchParams({ "location[directory]": workspace.path })}`);
+        const data = isRecordValue(payload) && isRecordValue(payload.data) ? payload.data : null;
+        if (!data) return null;
+        return Object.entries(data)
+          .filter(([, status]) => isRecordValue(status) && ["running", "busy", "retry"].includes(String(status.type)))
+          .map(([id]) => id);
+      } catch {
+        return null;
+      }
+    },
+    // Through the server's own proxy, as the app's chats go: the folder's MCPs and providers are
+    // prepared, OpenWork's instructions are set before a prompt, and engine mutations take turns.
+    engineRequest: async (workspaceId, method, path, body) => {
+      if (!localWorkspaces().some((candidate) => candidate.id === workspaceId)) throw new Error("Unknown local workspace");
+      const url = new URL(`/workspace/${encodeURIComponent(workspaceId)}/opencode2${path}`, `http://127.0.0.1:${input.port}`);
+      const response = await loopbackFetch(url.toString(), {
+        method,
+        headers: { authorization: `Bearer ${config.token}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const text = await response.text();
+      let parsed: unknown = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* not JSON: the text itself */ }
+      return { status: response.status, body: parsed };
+    },
+    sessionInfo: async (sessionId) => {
+      if (!sessionId.startsWith("ses_")) return null;
+      try {
+        const payload = await readEngine(`/api/session/${encodeURIComponent(sessionId)}`);
+        const session = isRecordValue(payload) && isRecordValue(payload.data) ? payload.data : payload;
+        if (!isRecordValue(session)) return null;
+        const parent = session.parentID ?? session.parentId;
+        return { id: sessionId, title: typeof session.title === "string" ? session.title : null, parentId: typeof parent === "string" ? parent : null };
+      } catch {
+        return null;
+      }
+    },
+    updateEngineMcp: async (servers) => {
+      let changed = false;
+      await writeGlobalRuntimeOpencodeConfig(config, (current) => {
+        const mcp: Record<string, Record<string, unknown>> = { ...current.mcp };
+        for (const [name, entry] of Object.entries(servers)) {
+          if (entry === null) delete mcp[name];
+          else mcp[name] = entry;
+        }
+        changed = JSON.stringify(mcp) !== JSON.stringify(current.mcp ?? {});
+        const { mcp: _previous, ...rest } = current;
+        return changed ? { ...rest, ...(Object.keys(mcp).length ? { mcp } : {}) } : current;
+      });
+      return changed;
+    },
+    engineConfigDirectory: engineConfigDirectory(config),
+    reloadEngineFolders: async () => {
+      const connection = engine.connection();
+      if (!connection) throw new Error("The engine is not running");
+      const response = await loopbackFetch(new URL("/api/location/reload", connection.url).toString(), {
+        method: "POST", headers: { authorization: engineAuthorization(connection) }, signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) throw new Error(`Engine returned HTTP ${response.status}`);
+      // The rebuild drops the MCP connections OpenWork registered per folder; the upkeep would only
+      // notice within its health interval, so a chat in between would miss tools.
+      await Promise.all(localWorkspaces().map((workspace) => engine.syncWorkspaceMcp?.(workspace.id, workspace.path)
+        .catch((error: unknown) => log("warn", "MCP not registered again after a folder rebuild", { workspace: workspace.id, error: error instanceof Error ? error.message : String(error) }))));
+    },
+    setEngineGlobalContext: async ({ instructions, skillsDirectory }) => {
+      const directory = engineConfigDirectory(config);
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const agents = join(directory, "AGENTS.md");
+      if (instructions === null) await rm(agents, { force: true });
+      else await writeFileAtomic(agents, instructions);
+      const skills = join(directory, "skills");
+      const existing = await lstat(skills).catch(() => null);
+      if (existing && !existing.isSymbolicLink()) {
+        log("warn", "Engine skills folder is not a link; left as it is", { path: skills });
+        return;
+      }
+      if (existing) await rm(skills, { force: true });
+      // A junction needs no rights on Windows; elsewhere this is a symlink.
+      if (skillsDirectory) await symlink(skillsDirectory, skills, "junction");
+    },
   };
   try {
     await start(host);

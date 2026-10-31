@@ -50,6 +50,8 @@ export type Capabilities = {
   notifications: boolean;
   /** Skills and commands for every project can be edited (not only read). */
   globalConfig: boolean;
+  /** Brains: projects that are shared git repositories, and the personal brain (§7.5). */
+  brains: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -337,10 +339,98 @@ export type Routine = {
   lastRun: RoutineRun | null;
   createdAt: number;
   updatedAt: number;
+  /** Shared brains (project ids) this routine reads without asking (brains plan §5.2). */
+  brains: string[];
 };
 
-export type RoutineInput = Pick<Routine, "projectId" | "name" | "prompt" | "model" | "schedule">;
+export type RoutineInput = Pick<Routine, "projectId" | "name" | "prompt" | "model" | "schedule" | "brains">;
 export type RoutinePatch = Partial<RoutineInput> & { state?: Exclude<RoutineState, "needs_attention"> };
+
+// ---------------------------------------------------------------------------
+// Brains (docs/bonzaiwork/project-breinen-plan.md §8; frontend-contract §7.5)
+// ---------------------------------------------------------------------------
+
+export type BrainKind = "project" | "personal";
+export type BrainMode = "auto" | "manual" | "read_only" | "proposal";
+/** "Via voorstel": the open merge or pull request; `manual` when the user still has to open it from `url`. */
+export type BrainProposal = { branch: string; url: string | null; manual: boolean };
+export type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict" | "read_only" | "local_only" | "needs_trust" | "error";
+
+/** Something a shared brain brings that can run code; it stays out of the folder until trusted (§7.1). */
+export type TrustItem = { path: string; kind: "config" | "plugin" | "agent" | "command" | "script" | "link"; mcpServers: string[] };
+
+export type BrainStatus = {
+  kind: BrainKind;
+  state: BrainState;
+  mode: BrainMode;
+  /** SSH form; null for a personal brain with history only. */
+  remote: string | null;
+  branch: string;
+  ahead: number;
+  behind: number;
+  lastSyncAt: number | null;
+  conflictFiles: string[];
+  conflictBy: string | null;
+  /** Both versions stand in the conflicting notes, for a chat to merge. */
+  merging: boolean;
+  /** Dutch, from the server. */
+  error: string | null;
+  pendingTrust: TrustItem[];
+  unshared: { path: string; reason: "not_markdown" | "too_large" }[];
+  warnings: string[];
+  excluded: string[];
+  proposal: BrainProposal | null;
+};
+
+export type Brain = { projectId: string; path: string; status: BrainStatus };
+
+export type BrainHistoryEntry = { commit: string; author: string; at: number; title: string; chatId: string | null; files: string[] };
+
+export type RemoteProblem =
+  | "host_unknown" | "host_changed" | "no_access" | "key_locked" | "not_found" | "read_only"
+  | "rejected" | "unreachable" | "offline" | "ssh_missing" | "unknown";
+
+export type RemoteCheck =
+  | { ok: true; sshUrl: string; name: string; empty: boolean }
+  | { ok: false; sshUrl: string | null; name: string | null; problem: RemoteProblem | "link"; message: string; host: { name: string; fingerprints: string[] } | null };
+
+export type WorkflowStageState = "waiting" | "ready" | "check" | "done" | "failed";
+export type WorkflowStage = {
+  id: string;
+  task: string;
+  outputs: string[];
+  check: { kind: "person" | "model" | "script"; text: string };
+  state: WorkflowStageState;
+  failure: string | null;
+  missing: string[];
+};
+/** An ICM workflow in the project folder; its status is what is on disk (plan §6.5). */
+export type Workflow = { name: string; title: string; task: string; stages: WorkflowStage[]; runs: string[] };
+export type ChatStart = { title: string; prompt: string };
+
+export type BrainCandidate = { repository: { remote: string | null; branch: string | null; ssh: boolean } | null };
+
+export type CloneJob = { state: "running" | "done" | "failed"; error: string | null; status: BrainStatus | null };
+
+export type TrustTier = "unverified" | "machine" | "human" | "human_before_change";
+
+/** A knowledge concept as the sidebar shows it (OKF trust, status, staleness). */
+export type ConceptView = {
+  type: string;
+  title: string | null;
+  description: string | null;
+  tags: string[];
+  status: "draft" | "stable" | "deprecated";
+  stale: boolean;
+  generated: { by: string; at: string | null } | null;
+  verified: { by: string; at: string | null }[];
+  tier: TrustTier;
+  sources: { id: string | null; title: string | null; resource: string | null }[];
+};
+
+export type PreferenceProposal = { id: string; preference: string; reason: string | null; at: number };
+
+export type HistoryAuthor = { name: string; email: string };
 
 // ---------------------------------------------------------------------------
 // App settings
@@ -475,6 +565,62 @@ export interface Backend {
     remove(routineId: string): Promise<void>;
     run(routineId: string): Promise<RoutineRun>;
     runs(routineId: string): Promise<RoutineRun[]>;
+  };
+
+  brains: {
+    list(): Promise<Brain[]>;
+    /** Checks the link and access before cloning ("Verbinding testen"). */
+    checkRemote(url: string): Promise<RemoteCheck>;
+    /** Stores an unknown host after the user compared its fingerprint. */
+    trustHost(url: string, fingerprints: string[]): Promise<void>;
+    /** Clones into `folderPath`, or into a new folder named after the project in the default folder. */
+    clone(url: string, target: { folderPath: string | null; name: string }): Promise<{ jobId: string; folderPath: string }>;
+    /** Waits for the clone; `signal` stops the waiting (the dialog was closed), not the clone. */
+    job(jobId: string, signal?: AbortSignal): Promise<CloneJob>;
+    /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
+    register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
+    unregister(projectId: string): Promise<void>;
+    /** Other brains this project consults without asking (plan §5.2); the server answers for them. */
+    reads(projectId: string): Promise<string[]>;
+    setReads(projectId: string, brains: string[]): Promise<string[]>;
+    workflows(projectId: string): Promise<Workflow[]>;
+    /** Throws with the missing inputs when the stage cannot start; otherwise the chat to start. */
+    startStage(projectId: string, workflow: string, stage: string): Promise<ChatStart>;
+    checkStage(projectId: string, workflow: string, stage: string, verdict: "pass" | "fail", reason: string | null): Promise<void>;
+    modelCheck(projectId: string, workflow: string, stage: string): Promise<ChatStart>;
+    newRun(projectId: string, workflow: string, subject: string): Promise<void>;
+    /** What a project that is not a brain yet can become: its git repository, if it is one. */
+    candidate(projectId: string): Promise<BrainCandidate>;
+    /** "Als brein synchroniseren": a repository with an SSH link becomes a brain as it is. */
+    adopt(projectId: string): Promise<BrainStatus>;
+    /** "Deel als nieuw brein": the folder goes into an empty repository. */
+    publish(projectId: string, url: string, name: string): Promise<BrainStatus>;
+    /** Puts the brain template in an empty shared brain and shares it (plan §6.1). */
+    setUp(projectId: string, input: { name: string; description: string }): Promise<BrainStatus>;
+    /** Before a turn: updates the project brain and the personal brain (at most ~5 s). */
+    /**
+     * `waited`: "updated", or "fetched" (another chat runs: only looked), or "timeout" (it goes on in
+     * the background). `status` says whether it worked (offline, conflict, …).
+     */
+    prepare(projectId: string, chatId: string): Promise<{ waited: "updated" | "fetched" | "timeout"; status: BrainStatus | null }>;
+    share(projectId: string): Promise<BrainStatus>;
+    setMode(projectId: string, mode: BrainMode): Promise<BrainStatus>;
+    history(projectId: string): Promise<BrainHistoryEntry[]>;
+    keepMineApart(projectId: string): Promise<BrainStatus>;
+    /** "Laat de AI het samenvoegen": both versions go into the notes; `prompt` starts the chat that merges them. */
+    mergeWithAi(projectId: string): Promise<{ prompt: string | null; status: BrainStatus }>;
+    trust(projectId: string, paths: string[]): Promise<BrainStatus>;
+    repair(projectId: string): Promise<BrainStatus>;
+    setExcluded(projectId: string, folders: string[]): Promise<BrainStatus>;
+    attachRemote(projectId: string, url: string): Promise<BrainStatus>;
+    /** With a path: "Zet deze notitie terug"; without: "Draai deze beurt terug". */
+    restore(projectId: string, commit: string, path: string | null): Promise<BrainStatus>;
+    concept(projectId: string, path: string): Promise<ConceptView | null>;
+    verify(projectId: string, path: string): Promise<ConceptView | null>;
+    author(): Promise<{ author: HistoryAuthor | null; suggested: HistoryAuthor | null }>;
+    setAuthor(author: HistoryAuthor): Promise<void>;
+    proposals(): Promise<PreferenceProposal[]>;
+    decide(proposalId: string, decision: "accept" | "reject", text: string | null): Promise<void>;
   };
 
   settings: {

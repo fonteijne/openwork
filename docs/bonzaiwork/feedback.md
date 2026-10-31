@@ -75,8 +75,8 @@ Lokale OpenWork-server (in-process in Electron) → server-hook-routes (packages
 
 - **Waarom via de server-hook.** De server draait in het Electron-hoofdproces en kan dus bij het venster, de
   logbestanden en de Downloads-map. De upstream-preload heeft geen commando voor een screenshot of logs.
-- **Compositie.** `apps/bonzaiwork/desktop-main/server-hooks.ts` voegt de feedbackroutes toe aan de bestaande
-  LiteLLM-hooks; de build bundelt dat bestand als `server-hooks.js`.
+- **Compositie.** `createCombinedHooks` in `packages/bonzaiwork-server-hooks` voegt de feedbackroutes toe aan de
+  LiteLLM-, breinen- en routine-hooks; de build bundelt dat pakket als `server-hooks.js`.
 - **Formulieren.** Twee eigen issue-formulieren in `.github/ISSUE_TEMPLATE/`: `bonzaiwork-bug.yml` (labels `bug`,
   `feedback`) en `bonzaiwork-idee.yml` (labels `feature`, `feedback`), in het Nederlands en met velden die Susan
   begrijpt. GitHub vult velden voor via de URL (`?template=…&title=…&<veld-id>=…`). Het zijn nieuwe bestanden in een
@@ -119,7 +119,7 @@ opgeschoonde tekst. De screenshot wordt niet opgeschoond: de gebruiker ziet een 
 |---|---|---|
 | Opschoning en routes | `pnpm --filter @bonzaiwork/feedback test` | 6 groen: keys, tokens, mails, thuispaden weg; gewone logregels en paden blijven; opslaan overschrijft nooit |
 | GitHub-URL | `pnpm --filter @bonzaiwork/app test` (`issue-url.test.ts`) | juiste template, titel uit de eerste regel, URL blijft kort |
-| Gebundelde hooks in de echte server | `openwork-server` (bun) met de gebundelde `desktop-main/server-hooks.ts` + Vite-UI in headless Chrome | dialoog → `logs.txt` in `~/Downloads/BonzaiWork-feedback-…/`, GitHub opent `issues/new?template=bonzaiwork-bug.yml&…`; in de logs staan `Bearer [redacted]`, `~/Documents` en `[email]` |
+| Gebundelde hooks in de echte server | `openwork-server` (bun) met de gebundelde `packages/bonzaiwork-server-hooks` + Vite-UI in headless Chrome | dialoog → `logs.txt` in `~/Downloads/BonzaiWork-feedback-…/`, GitHub opent `issues/new?template=bonzaiwork-bug.yml&…`; in de logs staan `Bearer [redacted]`, `~/Documents` en `[email]` |
 | UI | headless Chrome, 1280×800 en 390×844, live en demo | screenshots `screenshots/feedback-*.png`; geen horizontale scroll |
 
 Niet getest: de screenshot via Electron (`capturePage`) en het openen van de map in Finder/Verkenner, want daarvoor

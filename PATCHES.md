@@ -17,13 +17,13 @@ is regenerated with `pnpm install`, never merged by hand.
 |---|---|---|---|---|
 | `apps/server/src/server.ts` | Laadt `OPENWORK_SERVER_HOOKS`, registreert hun routes, start ze na het binden van de poort (3 regels + import) | hook | – (kandidaat) | 20ddd4b (dev na v0.18.63) |
 | `apps/server/src/organization-provider-gate.ts` | Provider-allowlist van de hooks gaat vóór het Den-beleid, ook zonder Den-sessie (2 regels + import) | hook | – (kandidaat) | 20ddd4b |
-| `apps/server/src/managed-opencode-v2.ts` | Zet de allowlist als `experimental.policies` (`provider.use`) in de engine-config, zodat ook providers uit een project-`opencode.json` geblokkeerd zijn (1 regel + import) | hook | – (kandidaat; dicht ook een gat in hun eigen "Only models you provide") | 20ddd4b |
+| `apps/server/src/managed-opencode-v2.ts` | Zet de allowlist als `experimental.policies` (`provider.use`) in de engine-config, zodat ook providers uit een project-`opencode.json` geblokkeerd zijn; zet de `ask`/`allow`/`deny`-regels van de hooks vooraan in de engine-`permissions` (breinen: eerst vragen bij een ander brein) (2 regels + import) | hook | – (kandidaat; dicht ook een gat in hun eigen "Only models you provide") | 20ddd4b |
 
 ## New files in upstream folders
 
 | Bestand | Reden | Soort | Upstream-PR | Sinds |
 |---|---|---|---|---|
-| `apps/server/src/downstream-hooks.ts` | Het aanhaakpunt zelf: types, loader, routes, gate en engine-policies. Bevat geen BonzaiWork-logica | nieuw | – (kandidaat, samen met de drie hooks hierboven) | 20ddd4b |
+| `apps/server/src/downstream-hooks.ts` | Het aanhaakpunt zelf: types, loader, routes, gate en engine-policies, plus host-methodes voor sessie-activiteit, MCP-entries en de globale instructies/skills van de engine, en engine-toestemmingsregels van de hooks, `engineRequest` (een chat starten of een vraag beantwoorden via de eigen `/workspace/:id/opencode2`-proxy) de config-map van de engine, en `reloadEngineFolders` (geladen mappen herbouwen en de MCP's opnieuw registreren). Bevat geen BonzaiWork-logica | nieuw | – (kandidaat, samen met de drie hooks hierboven) | 20ddd4b |
 | `apps/server/test/downstream-hooks.test.ts` | Tests van het aanhaakpunt | nieuw | – | 20ddd4b |
 | `.github/ISSUE_TEMPLATE/bonzaiwork-bug.yml` | Issue-formulier voor "Feedback sturen" (fout), velden die de app via de URL invult (#9) | nieuw | – (alleen BonzaiWork) | 2aa4481 |
 | `.github/ISSUE_TEMPLATE/bonzaiwork-idee.yml` | Issue-formulier voor "Feedback sturen" (idee) (#9) | nieuw | – (alleen BonzaiWork) | 2aa4481 |
