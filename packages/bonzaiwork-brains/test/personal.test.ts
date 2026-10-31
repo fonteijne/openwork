@@ -197,6 +197,10 @@ describe("het persoonlijke brein in de server", () => {
     expect(first).not.toContain("Dagboek");
     expect(first).not.toContain("plaatje.png");
     expect(first).not.toContain(".obsidian");
+    // "." is the whole brain: never a folder to exclude (review #5).
+    const excluded = await call("PUT", "/bonzaiwork/brains/:workspaceId/excluded", { workspaceId: "ws_mijn" }, { folders: [".", " . ", "a/./b", "Dagboek"] });
+    expect(excluded.body.status ?? excluded.body).toMatchObject({ excluded: ["Dagboek"] });
+    expect(await history()).not.toContain("Mappen uitgesloten");
 
     // A chat in another project writes in the personal brain; the quiet moment records it under that chat.
     await callBrainTool(hooks.personalAccess, "persoonlijk_brein_schrijven", { pad: "knowledge/klantmail.md", inhoud: "---\ntype: Analysis\ntitle: Klantmail\n---\n# Klantmail\n" });

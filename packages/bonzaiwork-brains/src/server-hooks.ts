@@ -84,6 +84,8 @@ export type BrainsHooksOptions = {
   folderReloadEveryMs?: number;
   /** How often quiet brains look for the team's changes, so the pill can say so (fase 2). */
   fetchEveryMs?: number;
+  /** How often workspaces and running chats are checked against the host (default 10 s). */
+  reconcileEveryMs?: number;
   /** Tests only. */
   allowFileProtocol?: boolean;
   ssh?: Partial<SshOptions>;
@@ -429,6 +431,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       const path = workspaces.get(record.id);
       if (path && !syncs.has(record.id)) await activate(record, path);
     }
+    for (const workspaceId of running.keys()) await pruneRunning(workspaceId).catch(() => undefined);
     await refreshPolicies();
   }
 
@@ -458,13 +461,28 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       quietSoon(activity.workspaceId);
       return;
     }
-    // An idle event can be missed (the engine restarted, the feed reconnects without replay): ask
-    // the engine which chats really run, so a project never stays "running" for good (review #5).
-    void host?.runningSessions(activity.workspaceId).then((live) => {
-      if (!live) return;
-      for (const id of [...set]) if (!live.includes(id)) set.delete(id);
-      if (set.size === 0 && !quietTimers.has(activity.workspaceId)) quietSoon(activity.workspaceId);
-    }).catch(() => undefined);
+    void pruneRunning(activity.workspaceId).catch(() => undefined);
+  }
+
+  /**
+   * An idle event can be missed (the engine restarted, the feed reconnects without replay): ask the
+   * engine which chats really run, so a project never stays "running" for good (review #5). Runs on
+   * every idle event and every reconcile. Only ids known before the question can go: a chat that
+   * starts while it is asked stays.
+   */
+  async function pruneRunning(workspaceId: string): Promise<void> {
+    const set = running.get(workspaceId);
+    if (!set?.size) return;
+    const asked = [...set];
+    const live = await host?.runningSessions(workspaceId);
+    if (!live) return;
+    const gone = asked.filter((id) => !live.includes(id));
+    if (!gone.length) return;
+    for (const id of gone) set.delete(id);
+    // Its turn ended unheard: record it like any other.
+    const latest = gone.at(-1);
+    if (latest) lastChat.set(workspaceId, latest);
+    if (set.size === 0 && !quietTimers.has(workspaceId)) quietSoon(workspaceId);
   }
 
   function quietSoon(workspaceId: string): void {
@@ -560,6 +578,13 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         job.problem = error instanceof BrainCloneError ? error.problem : "unknown";
         job.error = error instanceof BrainCloneError ? error.message : remoteProblemMessage("unknown", platform);
       }
+      // A clone nobody registers (the dialog was closed) is let go after an hour; the folder stays.
+      const forget = setTimeout(() => {
+        if (jobs.get(id) !== job) return;
+        job.sync?.dispose();
+        jobs.delete(id);
+      }, 60 * 60_000);
+      forget.unref?.();
     })();
     return json({ jobId: id, sshUrl: remote }, 202);
   }
@@ -948,7 +973,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
           breinen: { type: "remote", url: `http://127.0.0.1:${next.port}/bonzaiwork/brains/mcp`, headers: { authorization: `Bearer ${mcpToken}` }, codemode: false },
         });
         stopActivity = next.onSessionActivity(onActivity);
-        reconcileTimer = setInterval(() => { void reconcile().catch(() => undefined); }, 10_000);
+        reconcileTimer = setInterval(() => { void reconcile().catch(() => undefined); }, options.reconcileEveryMs ?? 10_000);
         reconcileTimer.unref?.();
         readsTimer = setInterval(() => { void answerProjectReads(); }, options.readsEveryMs ?? 1_500);
         readsTimer.unref?.();

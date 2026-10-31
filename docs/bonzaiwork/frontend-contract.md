@@ -92,8 +92,10 @@ Lokale OpenWork-server (http://127.0.0.1:<poort>)
 **Twee soorten rechten.** Gewone acties gebruiken het client-token. Beheeracties (project aanmaken, hernoemen,
 verwijderen; keys koppelen) vragen het **host-token**. In de desktop-app heeft de UI beide; voor het ontwerp
 betekent dit alleen dat die acties bij een alleen-lezen-installatie uitgegrijsd kunnen zijn (`read_only`).
-Bij breinen en routines vraagt elke route die iets verandert (alles behalve `GET` en de schemavoorbeelden)
-het host-token, en geeft een alleen-lezen-installatie daar `403 read_only`.
+Bij breinen en routines vraagt elke route die iets verandert het host-token, en geeft een
+alleen-lezen-installatie daar `403 read_only`. Alleen de lees-routes en de schemavoorbeelden mogen met
+het client-token; `GET jobs/:jobId` en `GET candidate` vragen ook het host-token (zie de tabel). Ook
+`/pull` verandert de map: op een alleen-lezen-installatie wordt een brein dus niet bijgewerkt.
 
 **Foutmeldingen.** Een fout is `{ code, message }`; `message` is Engelse uitleg voor de log, de app toont
 een eigen zin per `code` (`apps/bonzaiwork/src/backend/live/http.ts`). BonzaiWork-routes sturen soms ook
@@ -480,7 +482,7 @@ type BrainStatus = {
 | `GET /bonzaiwork/brains` | client | alle breinen: `{ brains: [{ workspaceId, path, status }] }` |
 | `POST /bonzaiwork/brains/check-remote` | host | `{ url }` → `{ ok, sshUrl, name, defaultBranch, empty }` of `{ ok: false, problem, message, host? }` ("Verbinding testen") |
 | `POST /bonzaiwork/brains/trust-host` | host | `{ url, fingerprints }`: onbekende host na bevestiging opslaan; `409` als de sleutel intussen anders is |
-| `POST /bonzaiwork/brains/clone` | host | `{ url, folderPath }` → `202 { jobId }`; de map moet leeg zijn of niet bestaan |
+| `POST /bonzaiwork/brains/clone` | host | `{ url, folderPath }` → `202 { jobId }`; de map moet leeg zijn of niet bestaan. Sluit de app het venster, dan gaat de clone door: de map blijft staan en kan later als bestaande map een project worden (een nieuwe clone in dezelfde map geeft `not_empty`) |
 | `GET /bonzaiwork/brains/jobs/:jobId` | host | `{ state: "running" \| "done" \| "failed", error, problem, status }` |
 | `PUT /bonzaiwork/brains/:workspaceId` | host | registreren `{ jobId?, kind, mode?, trusted?, excluded? }` (persoonlijk zonder `jobId`: geschiedenis buiten de map plus sjabloon), of `{ mode }` wijzigen |
 | `DELETE /bonzaiwork/brains/:workspaceId` | host | synchronisatie uitzetten; de map blijft |

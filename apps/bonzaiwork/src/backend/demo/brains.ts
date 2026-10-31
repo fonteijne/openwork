@@ -273,7 +273,7 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
       await later(150);
       const current = state.brains[projectId];
       if (current?.state === "behind") set(projectId, settled(projectId));
-      return "updated";
+      return { waited: "updated", status: current ? view(projectId) : null };
     },
     async share(projectId) {
       await later(900);

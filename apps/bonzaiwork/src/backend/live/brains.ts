@@ -223,8 +223,9 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     publish: async (projectId, url, name) => requireStatus(await req(`${brain(projectId)}/publish`, { method: "POST", body: { url, name }, ...host, timeoutMs: 120_000 })),
     setUp: async (projectId, input) => requireStatus(await req(`${brain(projectId)}/setup`, { method: "POST", body: input, ...host, timeoutMs: 120_000 })),
     async prepare(projectId, chatId) {
-      const waited = str(await req(`${brain(projectId)}/pull`, { method: "POST", body: { sessionId: chatId }, timeoutMs: 15_000, ...host }), "waited");
-      return waited === "fetched" || waited === "timeout" ? waited : "updated";
+      const payload = await req(`${brain(projectId)}/pull`, { method: "POST", body: { sessionId: chatId }, timeoutMs: 15_000, ...host });
+      const waited = str(payload, "waited");
+      return { waited: waited === "fetched" || waited === "timeout" ? waited : "updated", status: readBrainStatus(field(payload, "status")) };
     },
     share: async (projectId) => requireStatus(await req(`${brain(projectId)}/sync`, { method: "POST", timeoutMs: 120_000, ...host })),
     setMode: async (projectId, mode) => requireStatus(await req(brain(projectId), { method: "PUT", body: { mode }, ...host })),

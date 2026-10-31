@@ -78,6 +78,11 @@ describe("brains client", () => {
     expect(await brains.job("job_1")).toEqual({ state: "failed", error: "Geen toegang", status: null });
   });
 
+  it("keeps the status of a pull, so a failed update is not called updated", async () => {
+    const { brains } = client({ "/bonzaiwork/brains/w1/pull": { waited: "updated", status: { state: "offline", error: "Je bent offline." }, personal: null } });
+    expect(await brains.prepare("w1", "")).toMatchObject({ waited: "updated", status: { state: "offline", error: "Je bent offline." } });
+  });
+
   it("reads a concept and the author settings", async () => {
     const { brains } = client({
       "/bonzaiwork/brains/w1/concept": { concept: { type: "Concept", title: "Korting", status: "stable", stale: true, tier: "human", verified: [{ by: "Sanne", at: "2026-10-01" }], sources: [{ title: "Prijslijst" }] } },

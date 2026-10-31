@@ -26,7 +26,8 @@ export function useBrainAction(projectId: string) {
       // (DESIGN.md C2, review #5).
       const failed = statusProblem(result);
       if (failed) toast(failed, { tone: "error" });
-      else if (result === "timeout") toast(copy.brain.updateSlow);
+      else if (waitedOf(result) === "timeout") toast(copy.brain.updateSlow);
+      else if (waitedOf(result) === "fetched") toast(copy.brain.updateLater);
       else if (done) toast(done);
       return result;
     } catch (failure) {
@@ -41,6 +42,11 @@ export function useBrainAction(projectId: string) {
     }
   };
   return { busy, run, brains: backend.brains };
+}
+
+/** "Nu bijwerken" says what happened: only looked (another chat runs), or still busy (review #5). */
+function waitedOf(value: unknown): string | null {
+  return typeof value === "object" && value !== null && "waited" in value && typeof value.waited === "string" ? value.waited : null;
 }
 
 function isStatus(value: unknown): value is BrainStatus {

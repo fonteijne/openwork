@@ -309,8 +309,10 @@ export class BrainSync {
   /** Excluded folders of a personal brain; their files leave the history from now on, not the folder. */
   setExcluded(folders: readonly string[]): Promise<BrainStatus> {
     return this.lock(async () => {
-      // Plain folder names only: no glob, no `:` magic, no `..` (review #5); and git reads them literally.
-      const excluded = [...new Set(folders.map((folder) => folder.trim().replace(/^\/+|\/+$/g, "")).filter((folder) => folder && !folder.split("/").includes("..") && !/[*?[\]:\\]/.test(folder) && !unsafePath(folder)))].sort();
+      // Plain folder names only: no glob, no `:` magic, no `.` or `..` part (that is the whole brain,
+      // review #5); and git reads them literally.
+      const plain = (folder: string) => folder.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+      const excluded = [...new Set(folders.map((folder) => folder.trim().replace(/^\/+|\/+$/g, "")).filter((folder) => folder && plain(folder) && !/[*?[\]:\\]/.test(folder) && !unsafePath(folder)))].sort();
       await this.persist({ excluded });
       await this.writeLocalExcludes();
       for (const folder of excluded) await this.run(["--literal-pathspecs", "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", folder]);

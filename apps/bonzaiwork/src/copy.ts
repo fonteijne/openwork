@@ -590,6 +590,7 @@ export const copy = {
     repair: "Herstellen",
     updated: "Bijgewerkt",
     updateSlow: "Bijwerken duurt even; het gaat op de achtergrond door.",
+    updateLater: "Nieuwe wijzigingen opgehaald. De map wordt bijgewerkt als de andere chat klaar is.",
     shared: "Gedeeld",
     repaired: "Hersteld",
     history: "Geschiedenis",

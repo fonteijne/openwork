@@ -118,6 +118,8 @@ test("host: session activity, running sessions, MCP entries and the global conte
   await mkdir(workspace, { recursive: true });
   await mkdir(skills, { recursive: true });
   const events: string[] = [];
+  let reloadedFolders = 0;
+  const mcpSynced: string[] = [];
   let sseClient: ServerResponse | undefined;
   const engine = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://engine");
@@ -126,6 +128,11 @@ test("host: session activity, running sessions, MCP entries and the global conte
       assert.equal(url.searchParams.get("location[directory]"), workspace);
       response.writeHead(200, { "content-type": "text/event-stream" });
       sseClient = response;
+      return;
+    }
+    if (url.pathname === "/api/location/reload" && request.method === "POST") {
+      reloadedFolders += 1;
+      response.end("{}");
       return;
     }
     if (url.pathname === "/api/session/active") {
@@ -154,7 +161,10 @@ test("host: session activity, running sessions, MCP entries and the global conte
   try {
     await startDownstreamServerHooks({
       config, port: 0, markReloadPending: () => {},
-      engine: { connection: () => ({ url: `http://127.0.0.1:${address.port}`, password: "pw" }), refreshProviders: async () => undefined },
+      engine: {
+        connection: () => ({ url: `http://127.0.0.1:${address.port}`, password: "pw" }), refreshProviders: async () => undefined,
+        syncWorkspaceMcp: async (id, path) => { mcpSynced.push(`${id}:${path}`); },
+      },
       logger: { log: () => {} },
     });
     assert.ok(host);
@@ -172,6 +182,10 @@ test("host: session activity, running sessions, MCP entries and the global conte
     stop();
 
     assert.deepEqual(await host.runningSessions("ws_1"), ["ses_a"]);
+    // Rebuilding the folders drops OpenWork's MCP registrations: each local workspace gets them back.
+    await host.reloadEngineFolders();
+    assert.equal(reloadedFolders, 1);
+    assert.deepEqual(mcpSynced, [`ws_1:${workspace}`]);
     assert.equal(await host.runningSessions("ws_unknown"), null);
     assert.deepEqual(await host.sessionInfo("ses_a"), { id: "ses_a", title: "Offerte", parentId: null });
 

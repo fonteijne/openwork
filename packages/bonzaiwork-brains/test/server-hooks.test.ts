@@ -134,6 +134,31 @@ test("clone, registreren, een beurt en delen na de stille periode", async () => 
   expect(host.reloads).toBeGreaterThan(reloads);
 });
 
+test("een gemist einde van een chat blokkeert het brein niet: de engine wordt elke ronde gevraagd", async () => {
+  world = await createWorld();
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, quietMs: 50, reconcileEveryMs: 60, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+  const host = fakeHost();
+  await hooks.start(host);
+  await call("/bonzaiwork/brains/settings", { method: "PUT", body: { name: "Anna", email: "anna@example.invalid" } });
+  const folder = join(world.root, "Sales");
+  const cloned = await call("/bonzaiwork/brains/clone", { method: "POST", body: { url: world.url, folderPath: folder } });
+  const jobId = String(cloned.body.jobId);
+  await until(async () => (await call(`/bonzaiwork/brains/jobs/${jobId}`)).body.state === "done", "clone");
+  host.workspaceList = [{ id: "ws", path: folder }];
+  await call("/bonzaiwork/brains/ws", { method: "PUT", body: { jobId, mode: "auto" } });
+
+  host.running = ["ses_1"];
+  host.emit({ workspaceId: "ws", sessionId: "ses_1", state: "running" });
+  await mkdir(join(folder, "knowledge"), { recursive: true });
+  await writeFile(join(folder, "knowledge/verloren.md"), "Verloren einde\n");
+  await Bun.sleep(200);
+  expect((await world.git.run(["show", "main:knowledge/verloren.md"], { cwd: world.bare })).exitCode).not.toBe(0);
+  // The engine restarted: no idle event ever comes, but it no longer lists the chat.
+  host.running = [];
+  await until(async () => (await world.git.run(["show", "main:knowledge/verloren.md"], { cwd: world.bare })).exitCode === 0, "shared after pruning");
+  expect((await world.git.ok(["log", "-1", "--format=%(trailers:key=BonzaiWork-Chat,valueonly)", "main"], { cwd: world.bare })).trim()).toBe("ses_1");
+});
+
 test("bijwerken wacht niet op een andere lopende chat, en een onbekend project is geen brein", async () => {
   world = await createWorld();
   hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });

@@ -98,7 +98,13 @@ het team. Geweigerde pushes op een beschermde branch bieden in de statuspil "Als
   pull request daar te openen. Een `gh` op een andere plek wijs je aan met `BONZAIWORK_GH`.
 
 Wie alleen mag meelezen, geef je leesrechten, of zet je in BonzaiWork op **"Nooit (alleen lezen)"**
-(Projectinstellingen → Brein → Delen).
+(Projectinstellingen → Brein → Delen). Past zo iemand toch een gedeeld bestand aan (zelf, of via de AI),
+dan wordt het brein niet meer bijgewerkt totdat die wijziging terug is gezet of ergens anders bewaard. De
+melding noemt de bestanden. BonzaiWork zet de wijziging niet stilletjes opzij, zodat er niets verloren gaat.
+
+Een installatie die als geheel **alleen-lezen** draait (de server staat geen wijzigingen toe), werkt een
+brein niet bij, ook niet vóór een beurt: bijwerken schrijft in de map. Chatten gaat door op de versie die
+er staat.
 
 Wordt de geschiedenis van de branch toch herschreven (een force push), dan stopt BonzaiWork bij iedereen
 met bijwerken en delen, met de melding dat de gedeelde geschiedenis is herschreven. Er gaat niets

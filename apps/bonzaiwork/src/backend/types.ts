@@ -598,8 +598,11 @@ export interface Backend {
     /** Puts the brain template in an empty shared brain and shares it (plan §6.1). */
     setUp(projectId: string, input: { name: string; description: string }): Promise<BrainStatus>;
     /** Before a turn: updates the project brain and the personal brain (at most ~5 s). */
-    /** "updated", or "fetched" (another chat runs), or "timeout" (it goes on in the background). */
-    prepare(projectId: string, chatId: string): Promise<"updated" | "fetched" | "timeout">;
+    /**
+     * `waited`: "updated", or "fetched" (another chat runs: only looked), or "timeout" (it goes on in
+     * the background). `status` says whether it worked (offline, conflict, …).
+     */
+    prepare(projectId: string, chatId: string): Promise<{ waited: "updated" | "fetched" | "timeout"; status: BrainStatus | null }>;
     share(projectId: string): Promise<BrainStatus>;
     setMode(projectId: string, mode: BrainMode): Promise<BrainStatus>;
     history(projectId: string): Promise<BrainHistoryEntry[]>;
