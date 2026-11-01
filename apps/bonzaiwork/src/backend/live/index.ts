@@ -874,17 +874,18 @@ export async function createLiveBackend(): Promise<Backend> {
     feedback: {
       async collect(notes) {
         try {
-          const report = await req("/bonzaiwork/feedback/collect", { method: "POST", body: { notes } });
+          const report = await req("/bonzaiwork/feedback/collect", { method: "POST", body: { notes }, ...host });
           const id = str(report, "id");
           return id ? { id, system: str(report, "system") ?? null, logs: str(report, "logs") ?? "", screenshot: str(report, "screenshot") ?? null } : null;
         } catch (failure) {
-          // A server without the feedback routes: GitHub still opens, without files.
-          if (failure instanceof BackendError && (failure.status === 404 || failure.status === 405)) return null;
+          // A server without the feedback routes, or no host token (a browser or read-only device):
+          // GitHub still opens, without files.
+          if (failure instanceof BackendError && (failure.status === 403 || failure.status === 404 || failure.status === 405)) return null;
           throw failure;
         }
       },
       async save(reportId, input) {
-        const saved = await req(`/bonzaiwork/feedback/${enc(reportId)}/save`, { method: "POST", body: { screenshot: input.screenshot } });
+        const saved = await req(`/bonzaiwork/feedback/${enc(reportId)}/save`, { method: "POST", body: { screenshot: input.screenshot }, ...host });
         const folder = str(saved, "folder");
         if (!folder) throw new BackendError("invalid_response", "De bestanden zijn niet opgeslagen.");
         return folder;

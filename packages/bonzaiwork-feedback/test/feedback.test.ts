@@ -68,6 +68,13 @@ describe("tailFile", () => {
 });
 
 describe("feedback routes", () => {
+  test("need the host token: the window and logs are the host's", () => {
+    expect(createFeedbackRoutes({ source: source([]) }).map((route) => `${route.path} ${route.auth}`)).toEqual([
+      "/bonzaiwork/feedback/collect host-token",
+      "/bonzaiwork/feedback/:id/save host-token",
+    ]);
+  });
+
   test("collect returns a redacted report and save writes it with the screenshot", async () => {
     const log = join(root, "openwork-server.log");
     writeFileSync(log, `started\nupstream rejected sk-user-virtual-key-0001\ntoken ${SERVER_TOKEN}\n`);

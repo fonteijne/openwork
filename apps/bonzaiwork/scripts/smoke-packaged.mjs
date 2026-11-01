@@ -179,15 +179,18 @@ try {
   await page.keyboard.press("Escape");
   const feedback = await page.evaluate(async (key) => {
     const info = await window.__OPENWORK_ELECTRON__.invokeDesktop("openworkServerInfo");
-    const post = async (path, body) => (await fetch(`${info.baseUrl}${path}`, {
+    const post = async (path, body, hostToken) => fetch(`${info.baseUrl}${path}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${info.ownerToken}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${info.ownerToken}`, ...(hostToken ? { "X-OpenWork-Host-Token": hostToken } : {}), "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    })).json();
-    const report = await post("/bonzaiwork/feedback/collect", { notes: `smoke ${key}` });
-    const saved = await post(`/bonzaiwork/feedback/${report.id}/save`, { screenshot: true });
-    return { screenshot: typeof report.screenshot === "string" && report.screenshot.startsWith("data:image/png;base64,"), logs: report.logs ?? "", folder: saved.folder ?? "", files: saved.files ?? [] };
+    });
+    // The window and logs are the host's: a client token alone is refused.
+    const refused = (await post("/bonzaiwork/feedback/collect", { notes: "client token" })).status;
+    const report = await (await post("/bonzaiwork/feedback/collect", { notes: `smoke ${key}` }, info.hostToken)).json();
+    const saved = await (await post(`/bonzaiwork/feedback/${report.id}/save`, { screenshot: true }, info.hostToken)).json();
+    return { refused, screenshot: typeof report.screenshot === "string" && report.screenshot.startsWith("data:image/png;base64,"), logs: report.logs ?? "", folder: saved.folder ?? "", files: saved.files ?? [] };
   }, KEY);
+  check("feedback needs the host token", feedback.refused === 401 || feedback.refused === 403, String(feedback.refused));
   check("feedback report carries the window as PNG", feedback.screenshot);
   check("feedback report reads the server log", feedback.logs.includes("openwork-server.log"));
   check("feedback report has no LiteLLM key", !feedback.logs.includes(KEY) && !feedback.logs.includes("sk-smoke"));
