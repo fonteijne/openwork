@@ -27,6 +27,7 @@ packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, i
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
 docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest is, en regels daarvoor
+docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
 packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
 packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm, brains en routines
 scripts/bonzaiwork/fetch-git.mjs   meegeleverde git ophalen en uitdunnen (→ apps/bonzaiwork/resources/git)
