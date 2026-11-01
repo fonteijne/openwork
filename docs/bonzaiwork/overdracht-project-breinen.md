@@ -144,8 +144,8 @@ Wat er nog moet gebeuren voor CI en de verpakte app:
 ## 5. Open buiten deze PR
 
 - [fonteijne/openwork#12](https://github.com/fonteijne/openwork/pull/12): de feedback-routes vragen het
-  host-token. Hij is gebaseerd op `main` van vóór #5 en raakt ook `smoke-packaged.mjs`. Na de merge van #5
-  dus `main` erin mergen en het feedbackdeel van de smoketest samenvoegen.
+  host-token. `main` met #5 zit erin. Na de merge daarvan staan alle BonzaiWork-routes die iets veranderen of
+  van de host lezen op het host-token.
 - Beslissingen die vastliggen:
   - GitHub-voorstellen via de `gh` van de gebruiker; BonzaiWork bewaart geen token (B2);
   - routines lezen zonder klik in de breinen die bij de routine zijn aangevinkt;

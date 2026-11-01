@@ -75,6 +75,9 @@ Lokale OpenWork-server (in-process in Electron) → server-hook-routes (packages
 
 - **Waarom via de server-hook.** De server draait in het Electron-hoofdproces en kan dus bij het venster, de
   logbestanden en de Downloads-map. De upstream-preload heeft geen commando voor een screenshot of logs.
+- **Rechten.** Beide routes vragen het **host-token**: `collect` maakt een screenshot van het venster op de host
+  en leest de logs daar. Met alleen een client- of viewer-token geeft de server `401`/`403`; de app opent dan
+  GitHub zonder bestanden. De smoketest controleert dat een client-token geweigerd wordt.
 - **Compositie.** `createCombinedHooks` in `packages/bonzaiwork-server-hooks` voegt de feedbackroutes toe aan de
   LiteLLM-, breinen- en routine-hooks; de build bundelt dat pakket als `server-hooks.js`.
 - **Formulieren.** Twee eigen issue-formulieren in `.github/ISSUE_TEMPLATE/`: `bonzaiwork-bug.yml` (labels `bug`,

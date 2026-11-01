@@ -11,13 +11,15 @@ import { environmentSecrets, redactReport } from "./redact.ts";
  * openwork-server hook routes for issue #9 (docs/bonzaiwork/feedback.md): the
  * UI collects a report before its dialog opens, shows it, and saves it to a
  * folder the person drags into the GitHub form. Nothing leaves the machine
- * from here; the person submits the issue themselves.
+ * from here; the person submits the issue themselves. Both routes need the
+ * host token: `collect` captures the host's window and reads its logs, which
+ * a client or viewer token must never reach.
  */
 
 export type FeedbackRoute = {
   method: string;
   path: string;
-  auth: "client";
+  auth: "host-token";
   handle(request: Request, params: Record<string, string>): Promise<Response>;
 };
 
@@ -165,7 +167,7 @@ export function createFeedbackRoutes(options: FeedbackRoutesOptions = {}): Feedb
   }
 
   return [
-    { method: "POST", path: "/bonzaiwork/feedback/collect", auth: "client", handle: (request) => collect(request) },
-    { method: "POST", path: "/bonzaiwork/feedback/:id/save", auth: "client", handle: (request, params) => save(request, params.id ?? "") },
+    { method: "POST", path: "/bonzaiwork/feedback/collect", auth: "host-token", handle: (request) => collect(request) },
+    { method: "POST", path: "/bonzaiwork/feedback/:id/save", auth: "host-token", handle: (request, params) => save(request, params.id ?? "") },
   ];
 }
