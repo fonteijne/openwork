@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Download, Ellipsis, FileText, FolderOpen, LogOut, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, modelName, projectHasKey, useProject, useStatus, useUsage } from "~/backend/queries";
+import { keys, modelName, projectHasKey, usePersonalBrain, useProject, useStatus, useUsage } from "~/backend/queries";
 import { PROJECT_COLORS, PROJECT_ICONS, type Command, type Connection, type NewConnectionInput, type Project, type RunMode, type Skill } from "~/backend/types";
 import { PromptDialog } from "~/components/prompt-dialog";
 import { PROJECT_ICON_COMPONENTS, ProjectIcon } from "~/components/project-icon";
@@ -20,6 +20,7 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatBytes, formatDateTime, formatMoney, relativeTime } from "~/lib/format";
+import { BrainSettingsSection } from "~/features/brain/brain-settings";
 import { href, navigate, SETTINGS_SECTIONS, type SettingsSection } from "~/lib/router";
 
 import { FilePreview } from "../chat/sidecar";
@@ -45,6 +46,7 @@ function GeneralSection(props: { project: Project }) {
   const client = useQueryClient();
   const status = useStatus();
   const { project } = props;
+  const personal = usePersonalBrain()?.projectId === project.id;
   const [editing, setEditing] = useState<"name" | "description" | null>(null);
   const [removing, setRemoving] = useState(false);
   const readOnly = status.data?.readOnly ?? false;
@@ -140,14 +142,16 @@ function GeneralSection(props: { project: Project }) {
             </Button>
           }
         />
-        <Row
-          label={project.archivedAt ? copy.projects.unarchive : copy.projects.archive}
-          action={
-            <Button variant="secondary" size="sm" onClick={() => void update({ archived: !project.archivedAt }, project.archivedAt ? copy.projects.restored : copy.projects.archived)}>
-              {project.archivedAt ? copy.projects.unarchive : copy.projects.archive}
-            </Button>
-          }
-        />
+        {personal ? null : (
+          <Row
+            label={project.archivedAt ? copy.projects.unarchive : copy.projects.archive}
+            action={
+              <Button variant="secondary" size="sm" onClick={() => void update({ archived: !project.archivedAt }, project.archivedAt ? copy.projects.restored : copy.projects.archived)}>
+                {project.archivedAt ? copy.projects.unarchive : copy.projects.archive}
+              </Button>
+            }
+          />
+        )}
         <Row
           label={copy.settings.remove}
           hint={copy.projects.removeBody}
@@ -923,6 +927,10 @@ function PermissionsSection(props: { project: Project }) {
   const mode = useQuery({ queryKey: keys.runMode(props.project.id), queryFn: () => backend.config.runMode(props.project.id) });
   const folders = useQuery({ queryKey: keys.folders(props.project.id), queryFn: () => backend.config.folders(props.project.id) });
   const [adding, setAdding] = useState(false);
+  // The engine that cannot take a run mode (OpenCode v2) never receives this list either: the server keeps
+  // it as `permission.external_directory`, which the v2 config does not render, and v2 already lets the
+  // agent read and write outside the project folder.
+  const foldersApply = mode.data?.supported !== false;
   const setFolders = (next: string[]) =>
     attempt(async () => {
       const saved = await backend.config.setFolders(props.project.id, next);
@@ -971,13 +979,19 @@ function PermissionsSection(props: { project: Project }) {
       <Section
         title={copy.settings.folders}
         action={
-          <Button variant="quiet" size="sm" onClick={() => void addFolder()}>
-            <Plus />
-            {copy.settings.folderAdd}
-          </Button>
+          foldersApply && (
+            <Button variant="quiet" size="sm" onClick={() => void addFolder()}>
+              <Plus />
+              {copy.settings.folderAdd}
+            </Button>
+          )
         }
       >
-        {folders.data?.length ? (
+        {!foldersApply ? (
+          <div className="py-3">
+            <Locked>{copy.settings.foldersUnsupported}</Locked>
+          </div>
+        ) : folders.data?.length ? (
           folders.data.map((folder) => (
             <Row
               key={folder}
@@ -992,7 +1006,7 @@ function PermissionsSection(props: { project: Project }) {
         ) : (
           <p className="py-3 text-sm text-muted-foreground">{copy.settings.foldersEmpty}</p>
         )}
-        <p className="pt-2 text-xs text-muted-foreground">{copy.settings.foldersHint}</p>
+        {foldersApply && <p className="pt-2 text-xs text-muted-foreground">{copy.settings.foldersHint}</p>}
       </Section>
       <PromptDialog open={adding} onOpenChange={setAdding} title={copy.settings.folderAdd} label={copy.newProject.folderPathLabel} placeholder="/Users/jij/Documenten" submitLabel={copy.settings.add} onSubmit={async (path) => void (await setFolders([...(folders.data ?? []), path]))} />
     </div>
@@ -1074,6 +1088,8 @@ function SectionContent(props: { project: Project; section: SettingsSection }): 
       return <GeneralSection project={props.project} />;
     case "key":
       return <KeySection project={props.project} />;
+    case "brain":
+      return <BrainSettingsSection project={props.project} />;
     case "instructions":
       return <InstructionsSection project={props.project} />;
     case "skills":
