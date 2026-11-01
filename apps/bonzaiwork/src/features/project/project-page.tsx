@@ -9,6 +9,7 @@ import { navigate } from "~/lib/router";
 import { useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { ChatView } from "../chat/chat-view";
+import { ProjectFileLinks } from "../chat/file-link";
 import { ProjectHome } from "../chat/project-home";
 import { Sidecar } from "../chat/sidecar";
 import { useUi } from "../shell/ui-store";
@@ -59,7 +60,15 @@ export function ProjectPage(props: { projectId: string; chatId: string | null })
 
   return (
     <div className="flex h-full min-h-0" data-sidecar-pinned={wide && sidecarPinned ? "" : undefined}>
-      <div className="flex min-w-0 flex-1 flex-col">{props.chatId ? <ChatView key={props.chatId} project={project} chatId={props.chatId} /> : <ProjectHome project={project} />}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {props.chatId ? (
+          <ProjectFileLinks project={project} chatId={props.chatId}>
+            <ChatView key={props.chatId} project={project} chatId={props.chatId} />
+          </ProjectFileLinks>
+        ) : (
+          <ProjectHome project={project} />
+        )}
+      </div>
       {wide && sidecarPinned ? (
         <aside className={cn("hidden shrink-0 border-s border-border bg-background xl:flex xl:flex-col", reading ? "w-[clamp(20rem,36vw,40rem)]" : "w-80")} aria-label={copy.sidecar.title}>
           <Sidecar project={project} chatId={props.chatId} />

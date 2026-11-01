@@ -16,6 +16,9 @@ import { relativeTime } from "~/lib/format";
 import { href, navigate } from "~/lib/router";
 import { useMediaQuery, WIDE } from "~/lib/use-media";
 
+import { BrainCards } from "../brain/cards";
+import { BrainPill } from "../brain/status-pill";
+import { WorkflowsPanel } from "../brain/workflows";
 import { useProjectState, useRuntime } from "../project/runtime";
 import { FOCUS_COMPOSER_EVENT } from "../shell/sidebar";
 import { useUi } from "../shell/ui-store";
@@ -102,11 +105,14 @@ export function ProjectHome(props: { project: Project }) {
     <div className="flex h-full min-h-0 flex-col">
       <TopBar
         actions={
-          <Tooltip label={wide && sidecarPinned ? copy.chat.sidecarHide : copy.chat.sidecarShow}>
-            <Button variant="quiet" size="icon" aria-label={wide && sidecarPinned ? copy.chat.sidecarHide : copy.chat.sidecarShow} onClick={() => (wide ? toggleSidecar() : setSidecarSheet(true))}>
-              <PanelRight />
-            </Button>
-          </Tooltip>
+          <>
+            <BrainPill projectId={project.id} />
+            <Tooltip label={wide && sidecarPinned ? copy.chat.sidecarHide : copy.chat.sidecarShow}>
+              <Button variant="quiet" size="icon" aria-label={wide && sidecarPinned ? copy.chat.sidecarHide : copy.chat.sidecarShow} onClick={() => (wide ? toggleSidecar() : setSidecarSheet(true))}>
+                <PanelRight />
+              </Button>
+            </Tooltip>
+          </>
         }
       >
         <ProjectIcon icon={project.icon} color={project.color} size="sm" className="lg:hidden" />
@@ -114,6 +120,8 @@ export function ProjectHome(props: { project: Project }) {
       </TopBar>
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-4 pt-[12vh] pb-10 sm:px-6">
+          {/* A decision the brain waits on sits above where the user starts (DESIGN.md T4). */}
+          <div className="mb-6 empty:hidden"><BrainCards projectId={project.id} /></div>
           <h2 className="mb-6 text-center text-2xl font-medium tracking-tight text-foreground sm:text-[1.75rem] sm:leading-tight">{copy.chat.emptyTitle(project.name)}</h2>
           <Composer
             ref={composer}
@@ -153,6 +161,7 @@ export function ProjectHome(props: { project: Project }) {
             </div>
           ) : null}
 
+          {hasKey ? <WorkflowsPanel projectId={project.id} /> : null}
           {recent.length ? (
             <section className="mt-10 lg:hidden" aria-label={copy.chatList.recent}>
               <h3 className="mb-1 text-xs font-medium text-subtle-foreground">{copy.chatList.recent}</h3>

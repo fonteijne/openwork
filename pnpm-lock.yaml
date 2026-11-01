@@ -1591,6 +1591,25 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/bonzaiwork-brains:
+    dependencies:
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+    devDependencies:
+      '@bonzaiwork/policy':
+        specifier: workspace:*
+        version: link:../bonzaiwork-policy
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.7
+      bun-types:
+        specifier: ^1.3.13
+        version: 1.3.14
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/bonzaiwork-feedback:
     devDependencies:
       '@types/node':
@@ -1620,6 +1639,47 @@ importers:
         version: 5.9.3
 
   packages/bonzaiwork-policy:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.7
+      bun-types:
+        specifier: ^1.3.13
+        version: 1.3.14
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/bonzaiwork-routines:
+    dependencies:
+      '@openwork/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.7
+      bun-types:
+        specifier: ^1.3.13
+        version: 1.3.14
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/bonzaiwork-server-hooks:
+    dependencies:
+      '@bonzaiwork/brains':
+        specifier: workspace:*
+        version: link:../bonzaiwork-brains
+      '@bonzaiwork/feedback':
+        specifier: workspace:*
+        version: link:../bonzaiwork-feedback
+      '@bonzaiwork/litellm':
+        specifier: workspace:*
+        version: link:../bonzaiwork-litellm
+      '@bonzaiwork/routines':
+        specifier: workspace:*
+        version: link:../bonzaiwork-routines
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

@@ -20,6 +20,7 @@ import {
   type EngineState,
 } from "../types";
 
+import { createBrainsClient } from "./brains";
 import { hasDesktopBridge, openExternal, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
 import { engine, createTranslator, followEvents, PROVIDER_ID, type EngineTarget, type NativeSession } from "./engine";
 import { enc, probe, request, type Connection } from "./http";
@@ -159,6 +160,7 @@ function readRoutine(value: unknown): Routine | null {
     lastRun: readRun(field(value, "lastRun")),
     createdAt: num(value, "createdAt") ?? 0,
     updatedAt: num(value, "updatedAt") ?? 0,
+    brains: strings(field(value, "brains")),
   };
 }
 
@@ -170,7 +172,9 @@ const AGENT_NAMES: Record<string, { name: string; description: string }> = {
 export async function createLiveBackend(): Promise<Backend> {
   // whenStarting: a request that meets "engine not running" waits for engineReady() (below).
   const connection: Connection = { ...(await resolveConnection()), whenStarting: () => engineReady() };
-  const [metaOnServer, routinesOnServer] = await Promise.all([probe(connection, "/bonzaiwork/projects"), probe(connection, "/bonzaiwork/routines")]);
+  const [metaOnServer, routinesOnServer, brainsOnServer] = await Promise.all([
+    probe(connection, "/bonzaiwork/projects"), probe(connection, "/bonzaiwork/routines"), probe(connection, "/bonzaiwork/brains"),
+  ]);
   const meta: MetaStore = metaOnServer ? serverMetaStore(connection) : deviceMetaStore(new URL(connection.baseUrl).host);
   const desktop = hasDesktopBridge();
   const capabilities: Capabilities = {
@@ -182,6 +186,7 @@ export async function createLiveBackend(): Promise<Backend> {
     revealPath: desktop,
     notifications: false,
     globalConfig: false,
+    brains: brainsOnServer,
   };
 
   const workspaces = new Map<string, Workspace>();
@@ -193,6 +198,7 @@ export async function createLiveBackend(): Promise<Backend> {
   const host = { host: true };
   const req = (path: string, options: Parameters<typeof request>[2] = {}) => request(connection, path, options);
   const unsupported = (what: string) => new BackendError("unsupported", `${what} is in deze versie van de app nog niet beschikbaar.`, 501);
+  const brains = createBrainsClient(req, async (target) => target.folderPath?.trim() || `${await defaultFolder()}/${safeFolderName(target.name)}`);
 
   // -------------------------------------------------------------------------
   // Engine readiness
@@ -581,6 +587,9 @@ export async function createLiveBackend(): Promise<Backend> {
           const workspacePath = `.opencode/openwork/inbox/${inboxPath}`;
           attachments.push({ filename: attachment.name, workspacePath, url: `file://${engineTarget.directory.replace(/\\/g, "/")}/${workspacePath}`, bytes: attachment.size });
         }
+        // UserPromptSubmit (brains plan §2): the brains are brought up to date first. The server
+        // waits at most ~5 s and never blocks the turn; a failure only shows in the brain's status.
+        if (capabilities.brains) await brains.prepare(projectId, chatId).catch(() => undefined);
         await engine.setModel(engineTarget, chatId, input.model);
         if (input.agent) await engine.setAgent(engineTarget, chatId, input.agent);
         const text = encodePrompt(input.text, attachments);
@@ -822,24 +831,24 @@ export async function createLiveBackend(): Promise<Backend> {
       list: (projectId) => routinesList(projectId),
       async create(input) {
         if (!routinesOnServer) throw unsupported("Routines");
-        const routine = readRoutine(await req("/bonzaiwork/routines", { method: "POST", body: { workspaceId: input.projectId, name: input.name, prompt: input.prompt, model: input.model, schedule: input.schedule } }));
+        const routine = readRoutine(await req("/bonzaiwork/routines", { method: "POST", body: { workspaceId: input.projectId, name: input.name, prompt: input.prompt, model: input.model, schedule: input.schedule, brains: input.brains }, ...host }));
         if (!routine) throw new BackendError("invalid_response", "De routine is opgeslagen, maar niet teruggekomen. Ververs de lijst.");
         return routine;
       },
       async update(routineId, patch) {
         if (!routinesOnServer) throw unsupported("Routines");
         const { projectId, ...rest } = patch;
-        const routine = readRoutine(await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "PATCH", body: { ...rest, ...(projectId ? { workspaceId: projectId } : {}) } }));
+        const routine = readRoutine(await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "PATCH", body: { ...rest, ...(projectId ? { workspaceId: projectId } : {}) }, ...host }));
         if (!routine) throw new BackendError("invalid_response", "De routine is opgeslagen, maar niet teruggekomen. Ververs de lijst.");
         return routine;
       },
       async remove(routineId) {
         if (!routinesOnServer) throw unsupported("Routines");
-        await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "DELETE" });
+        await req(`/bonzaiwork/routines/${enc(routineId)}`, { method: "DELETE", ...host });
       },
       async run(routineId) {
         if (!routinesOnServer) throw unsupported("Routines");
-        const run = readRun(data(await req(`/bonzaiwork/routines/${enc(routineId)}/run`, { method: "POST" })));
+        const run = readRun(data(await req(`/bonzaiwork/routines/${enc(routineId)}/run`, { method: "POST", ...host })));
         if (!run) throw new BackendError("invalid_response", "De routine is gestart.");
         return run;
       },
@@ -848,6 +857,8 @@ export async function createLiveBackend(): Promise<Backend> {
         return items(await req(`/bonzaiwork/routines/${enc(routineId)}/runs`)).flatMap((entry) => readRun(entry) ?? []);
       },
     },
+
+    brains,
 
     settings: {
       async env() {

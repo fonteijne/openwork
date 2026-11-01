@@ -20,9 +20,12 @@ import { useProjectState, useRuntime } from "../project/runtime";
 import { isOptimistic } from "../project/store";
 import { useUi } from "../shell/ui-store";
 import { ChatActions } from "./chat-actions";
-import { FileLinkProvider, useMarkdownLinkOpener } from "./file-link";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
+import { BrainPermissionCard, isBrainRead } from "~/features/brain/brain-permission";
+import { BrainCards } from "~/features/brain/cards";
+import { BrainPill } from "~/features/brain/status-pill";
+import { BrainTurnLine } from "~/features/brain/turn-line";
 import { AssistantTurn, UserMessage, type TurnActions } from "./message-view";
 import { KeyBlocked } from "./project-home";
 
@@ -66,7 +69,6 @@ export function ChatView(props: { project: Project; chatId: string }) {
   const [agent, setAgent] = useState<string | null>(null);
   const [modelOverride, setModelOverride] = useState<string | null>(null);
   const { project } = props;
-  const openLink = useMarkdownLinkOpener(project, props.chatId);
 
   useEffect(() => {
     stick.current = true;
@@ -219,6 +221,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
         }
         actions={
           <>
+            <BrainPill projectId={project.id} className="max-sm:hidden" />
             <ChatActions chat={chat} trigger={<Button variant="quiet" size="icon" aria-label={copy.chat.actions}><Ellipsis /></Button>} />
             <Tooltip label={wide && sidecarPinned ? copy.chat.sidecarHide : copy.chat.sidecarShow}>
               <Button
@@ -255,136 +258,152 @@ export function ChatView(props: { project: Project; chatId: string }) {
         </div>
       ) : null}
 
-      <FileLinkProvider value={openLink}>
-        <main className="flex min-h-0 flex-1 flex-col">
-          <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="chat-scroller">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-6 pb-8 sm:px-6" data-testid="chat-messages">
-              {entry?.state === "loading" && !messages.length ? (
-                <div className="flex flex-col gap-6" aria-busy="true">
-                  <Skeleton className="ms-auto h-14 w-2/3 rounded-2xl" />
-                  <div className="flex flex-col gap-2">
-                    <Skeleton className="h-4 w-11/12" />
-                    <Skeleton className="h-4 w-10/12" />
-                    <Skeleton className="h-4 w-7/12" />
-                  </div>
+      <main className="flex min-h-0 flex-1 flex-col">
+        <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="chat-scroller">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-6 pb-8 sm:px-6" data-testid="chat-messages">
+            {entry?.state === "loading" && !messages.length ? (
+              <div className="flex flex-col gap-6" aria-busy="true">
+                <Skeleton className="ms-auto h-14 w-2/3 rounded-2xl" />
+                <div className="flex flex-col gap-2">
+                  <Skeleton className="h-4 w-11/12" />
+                  <Skeleton className="h-4 w-10/12" />
+                  <Skeleton className="h-4 w-7/12" />
                 </div>
-              ) : entry?.state === "error" ? (
-                <EmptyState
-                  title={copy.chat.loadFailed}
-                  action={
-                    <Button variant="secondary" onClick={() => void runtime.ensureMessages(props.chatId, true)}>
-                      {copy.chat.retry}
-                    </Button>
-                  }
-                />
-              ) : (
-                items.map((item) =>
-                  item.kind === "user" ? (
-                    <UserMessage
-                      key={item.message.id}
-                      message={item.message}
-                      pending={item.message.id.startsWith("local-")}
-                      optimistic={isOptimistic(item.message)}
-                      onFork={() => void fork(item.message)}
-                      onRevert={running ? undefined : () => void revert(item.message)}
-                    />
-                  ) : (
-                    <AssistantTurn key={item.key} messages={item.messages} live={item.key === liveTurn} projectId={project.id} actions={turnActions} />
-                  ),
-                )
-              )}
-              {awaitingFirstStep ? (
-                <div className="flex min-h-7 items-center gap-2.5 text-sm">
-                  <span className="flex size-4 items-center justify-center">
-                    <span className="bw-pulse size-1.5 rounded-full bg-subtle-foreground" />
-                  </span>
-                  <span className="bw-shimmer">{copy.chat.thinking}</span>
-                </div>
-              ) : null}
-              {revertAt >= 0 ? (
-                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-                  <RotateCcw className="size-4 shrink-0" />
-                  <span className="min-w-0 flex-1">{copy.chat.revertedBanner}</span>
-                  <Button variant="secondary" size="sm" onClick={() => void unrevert()}>
-                    {copy.chat.restore}
+              </div>
+            ) : entry?.state === "error" ? (
+              <EmptyState
+                title={copy.chat.loadFailed}
+                action={
+                  <Button variant="secondary" onClick={() => void runtime.ensureMessages(props.chatId, true)}>
+                    {copy.chat.retry}
                   </Button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-  
-          <div className="relative shrink-0 px-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:px-6">
-            {showJump ? (
-              <div className="pointer-events-none absolute inset-x-0 -top-12 flex justify-center">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="pointer-events-auto rounded-full shadow-card"
-                  onClick={() => {
-                    stick.current = true;
-                    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
-                  }}
-                >
-                  <ArrowDown />
-                  {copy.chat.jumpToLatest}
+                }
+              />
+            ) : (
+              items.map((item) =>
+                item.kind === "user" ? (
+                  <UserMessage
+                    key={item.message.id}
+                    message={item.message}
+                    pending={item.message.id.startsWith("local-")}
+                    optimistic={isOptimistic(item.message)}
+                    onFork={() => void fork(item.message)}
+                    onRevert={running ? undefined : () => void revert(item.message)}
+                  />
+                ) : (
+                  <AssistantTurn key={item.key} messages={item.messages} live={item.key === liveTurn} projectId={project.id} actions={turnActions} />
+                ),
+              )
+            )}
+            {awaitingFirstStep ? (
+              <div className="flex min-h-7 items-center gap-2.5 text-sm">
+                <span className="flex size-4 items-center justify-center">
+                  <span className="bw-pulse size-1.5 rounded-full bg-subtle-foreground" />
+                </span>
+                <span className="bw-shimmer">{copy.chat.thinking}</span>
+              </div>
+            ) : null}
+            {!running && items.length ? <BrainTurnLine projectId={project.id} chatId={props.chatId} /> : null}
+            {revertAt >= 0 ? (
+              <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                <RotateCcw className="size-4 shrink-0" />
+                <span className="min-w-0 flex-1">{copy.chat.revertedBanner}</span>
+                <Button variant="secondary" size="sm" onClick={() => void unrevert()}>
+                  {copy.chat.restore}
                 </Button>
               </div>
             ) : null}
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
-              {permission ? (
-                <PermissionCard
-                  key={permission.id}
-                  request={permission}
-                  onReply={async (reply) => {
-                    try {
-                      await backend.interactions.replyPermission(project.id, props.chatId, permission.id, reply);
-                      runtime.dropPermission(props.chatId, permission.id);
-                    } catch (failure) {
-                      toast(errorText(failure), { tone: "error" });
-                    }
-                  }}
-                />
-              ) : question ? (
-                <QuestionCard
-                  key={question.id}
-                  request={question}
-                  onAnswer={async (answers) => {
-                    try {
-                      await backend.interactions.replyQuestion(project.id, props.chatId, question.id, answers);
-                      runtime.dropQuestion(props.chatId, question.id);
-                    } catch (failure) {
-                      toast(errorText(failure), { tone: "error" });
-                    }
-                  }}
-                  onSkip={async () => {
-                    try {
-                      await backend.interactions.rejectQuestion(project.id, props.chatId, question.id);
-                      runtime.dropQuestion(props.chatId, question.id);
-                    } catch (failure) {
-                      toast(errorText(failure), { tone: "error" });
-                    }
-                  }}
-                />
-              ) : null}
-              <Composer
-                ref={composer}
-                project={project}
-                chatId={props.chatId}
-                running={running}
-                model={model}
-                onModelChange={setModelOverride}
-                agent={agent}
-                onAgentChange={setAgent}
-                onSubmit={send}
-                onStop={stop}
-                blocked={hasKey ? undefined : <KeyBlocked projectId={project.id} />}
-                decisionPending={Boolean(permission ?? question)}
-                autoFocus
-              />
-            </div>
           </div>
-        </main>
-      </FileLinkProvider>
+        </div>
+
+        <div className="relative shrink-0 px-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:px-6">
+          {showJump ? (
+            <div className="pointer-events-none absolute inset-x-0 -top-12 flex justify-center">
+              <Button
+                variant="secondary"
+                size="sm"
+                className="pointer-events-auto rounded-full shadow-card"
+                onClick={() => {
+                  stick.current = true;
+                  scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+                }}
+              >
+                <ArrowDown />
+                {copy.chat.jumpToLatest}
+              </Button>
+            </div>
+          ) : null}
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+            {permission && isBrainRead(permission) ? (
+              <BrainPermissionCard
+                key={permission.id}
+                projectId={project.id}
+                request={permission}
+                messages={messages}
+                onReply={async (reply) => {
+                  try {
+                    await backend.interactions.replyPermission(project.id, props.chatId, permission.id, reply);
+                    runtime.dropPermission(props.chatId, permission.id);
+                  } catch (failure) {
+                    toast(errorText(failure), { tone: "error" });
+                  }
+                }}
+              />
+            ) : permission ? (
+              <PermissionCard
+                key={permission.id}
+                request={permission}
+                onReply={async (reply) => {
+                  try {
+                    await backend.interactions.replyPermission(project.id, props.chatId, permission.id, reply);
+                    runtime.dropPermission(props.chatId, permission.id);
+                  } catch (failure) {
+                    toast(errorText(failure), { tone: "error" });
+                  }
+                }}
+              />
+            ) : question ? (
+              <QuestionCard
+                key={question.id}
+                request={question}
+                onAnswer={async (answers) => {
+                  try {
+                    await backend.interactions.replyQuestion(project.id, props.chatId, question.id, answers);
+                    runtime.dropQuestion(props.chatId, question.id);
+                  } catch (failure) {
+                    toast(errorText(failure), { tone: "error" });
+                  }
+                }}
+                onSkip={async () => {
+                  try {
+                    await backend.interactions.rejectQuestion(project.id, props.chatId, question.id);
+                    runtime.dropQuestion(props.chatId, question.id);
+                  } catch (failure) {
+                    toast(errorText(failure), { tone: "error" });
+                  }
+                }}
+              />
+            ) : (
+              <BrainCards projectId={project.id} />
+            )}
+            <Composer
+              ref={composer}
+              project={project}
+              chatId={props.chatId}
+              running={running}
+              model={model}
+              onModelChange={setModelOverride}
+              agent={agent}
+              onAgentChange={setAgent}
+              onSubmit={send}
+              onStop={stop}
+              blocked={hasKey ? undefined : <KeyBlocked projectId={project.id} />}
+              decisionPending={Boolean(permission ?? question)}
+              autoFocus
+            />
+          </div>
+        </div>
+      </main>
 
       {dragging ? (
         <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-window border-2 border-dashed border-ring bg-background/85 text-sm font-medium text-foreground">

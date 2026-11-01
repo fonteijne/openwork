@@ -22,6 +22,7 @@ import { href } from "~/lib/router";
 import { touchedFiles, usedCapabilities } from "~/lib/tools";
 import { useMediaQuery, WIDE } from "~/lib/use-media";
 
+import { ConceptFacts } from "../brain/concept-facts";
 import { useProjectState, useRuntime } from "../project/runtime";
 import { useUi, type SidecarFile } from "../shell/ui-store";
 import { catchFileLink, useMarkdownLinkOpener, type OpenLink } from "./file-link";
@@ -77,7 +78,12 @@ function FileBody(props: { projectId: string; chatId: string | null; path: strin
   if (content === null || content === undefined) return <p className="text-sm text-muted-foreground">{copy.sidecar.noPreview(file.data ? formatBytes(file.data.bytes) : null)}</p>;
   if (MARKDOWN.test(props.path)) {
     // Sanitized in renderMarkdown (DOMPurify): file contents are untrusted.
-    return <div className="bw-prose" onClick={(event) => catchFileLink(event, props.onLink ?? null)} dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />;
+    return (
+      <>
+        <ConceptFacts projectId={props.projectId} path={props.path} />
+        <div className="bw-prose" onClick={(event) => catchFileLink(event, props.onLink ?? null)} dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+      </>
+    );
   }
   return <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">{content}</pre>;
 }

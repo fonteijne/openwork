@@ -103,6 +103,22 @@ export function describeTool(part: ToolPart): ToolLabel {
   const builtIn = BUILT_IN[part.tool];
   if (builtIn) return { kind: builtIn.kind, verb: done ? builtIn.past : builtIn.present, object: null, code: false, service: builtIn.service ?? null };
   if (part.tool.startsWith("computer_")) return { kind: "other", verb: pick("Werkte op je computer", "Werkt op je computer"), object: null, code: false, service: null };
+  // The brains MCP (plan §5.2): "Las offerteproces.md in het brein Sales", in words, not tool names.
+  if (part.tool.startsWith("breinen_")) {
+    const brain = str(input, "brein");
+    const where = brain ? ` in het brein ${brain}` : " in je persoonlijke brein";
+    const note = str(input, "pad");
+    switch (part.tool.slice("breinen_".length)) {
+      case "breinen_lijst": return { kind: "read", verb: pick("Bekeek de gedeelde breinen", "Bekijkt de gedeelde breinen"), object: null, code: false, service: null };
+      case "brein_zoeken":
+      case "persoonlijk_brein_zoeken": return { kind: "search", verb: pick(`Zocht${where} naar`, `Zoekt${where} naar`), object: `"${truncate(str(input, "vraag") ?? "", 40)}"`, code: false, service: null };
+      case "brein_lezen":
+      case "persoonlijk_brein_lezen": return { kind: "read", verb: pick("Las", "Leest"), object: `${note ? fileName(note) : "een notitie"}${where}`, code: false, service: null };
+      case "persoonlijk_brein_schrijven":
+      case "persoonlijk_brein_bewerken": return { kind: "write", verb: pick("Schreef in je persoonlijke brein:", "Schrijft in je persoonlijke brein:"), object: note ? fileName(note) : "een notitie", code: Boolean(note), service: null };
+      case "voorkeur_voorstellen": return { kind: "other", verb: pick("Stelde een voorkeur voor", "Stelt een voorkeur voor"), object: null, code: false, service: null };
+    }
+  }
   if (part.tool.startsWith("drive_")) return { kind: "connection", verb: pick("Werkte met bestanden in Drive", "Werkt met bestanden in Drive"), object: null, code: false, service: "Drive" };
   switch (part.tool) {
     case "read":

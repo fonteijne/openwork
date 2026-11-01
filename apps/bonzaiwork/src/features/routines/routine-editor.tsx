@@ -3,7 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
 import { keys, projectModels, useProjects, useStatus } from "~/backend/queries";
-import type { Routine, RoutineSchedule } from "~/backend/types";
+import { BrainPicker } from "~/features/brain/brain-picker";
+import type { Routine, RoutineInput, RoutineSchedule } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Field, Input, Textarea } from "~/components/ui/field";
 import { Dialog } from "~/components/ui/overlay";
@@ -87,7 +88,7 @@ export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value
             onClick={() => setKind(kind)}
             className={cn(
               "h-8 rounded-full px-3 text-sm text-muted-foreground transition-colors duration-100 hover:text-foreground pointer-coarse:h-10",
-              value.kind === kind && "bg-background font-medium text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]",
+              value.kind === kind && "bg-background font-medium text-foreground shadow-card",
             )}
           >
             {copy.routines.kinds[kind]}
@@ -213,7 +214,7 @@ function defaultSchedule(): RoutineSchedule {
   return { kind: "weekly", timezone: localTimezone(), daysOfWeek: WEEKDAYS, hour: 9, minute: 0 };
 }
 
-export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boolean) => void; routine: Routine | null; projectId: string | null; onSaved?: (routine: Routine) => void }) {
+export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boolean) => void; routine: Routine | null; projectId: string | null; onSaved?: (routine: Routine) => void; template?: Partial<RoutineInput> }) {
   const backend = useBackend();
   const client = useQueryClient();
   const status = useStatus();
@@ -224,19 +225,22 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState<string>("__default");
   const [schedule, setSchedule] = useState<RoutineSchedule>(defaultSchedule);
+  const [brains, setBrains] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!props.open) return;
     const routine = props.routine;
-    setName(routine?.name ?? "");
+    const template = routine ? undefined : props.template;
+    setName(routine?.name ?? template?.name ?? "");
     setProjectId(routine?.projectId ?? props.projectId ?? projects.data?.find((project) => !project.archivedAt)?.id ?? null);
-    setPrompt(routine?.prompt ?? "");
+    setPrompt(routine?.prompt ?? template?.prompt ?? "");
     setModel(routine?.model ?? "__default");
-    setSchedule(routine?.schedule ?? defaultSchedule());
+    setSchedule(routine?.schedule ?? template?.schedule ?? defaultSchedule());
+    setBrains(routine?.brains ?? template?.brains ?? []);
     setError(null);
-  }, [props.open, props.routine, props.projectId, projects.data]);
+  }, [props.open, props.routine, props.projectId, projects.data, props.template]);
 
   const project = projects.data?.find((entry) => entry.id === projectId) ?? null;
   const models = projectModels(status.data, project);
@@ -249,7 +253,7 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
     if (!projectId) return;
     setBusy(true);
     setError(null);
-    const input = { projectId, name: name.trim(), prompt: prompt.trim(), model: model === "__default" ? null : model, schedule };
+    const input = { projectId, name: name.trim(), prompt: prompt.trim(), model: model === "__default" ? null : model, schedule, brains: brains.filter((id) => id !== projectId) };
     try {
       const saved = props.routine ? await backend.routines.update(props.routine.id, input) : await backend.routines.create(input);
       await client.invalidateQueries({ queryKey: keys.allRoutines });
@@ -315,6 +319,7 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
             />
           )}
         </Field>
+        {backend.capabilities.brains ? <BrainPicker label={copy.routines.brains} hint={copy.routines.brainsHint} exclude={projectId} value={brains} onChange={setBrains} /> : null}
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium">{copy.routines.schedule}</span>
           <ScheduleEditor value={schedule} onChange={setSchedule} />

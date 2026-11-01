@@ -6,9 +6,10 @@
  *      recording proxy that refuses to forward anything;
  *   3. links a key in onboarding, adds a workspace, and runs one chat turn;
  *   4. opens Feedback sturen and saves a report (window capture, redacted logs);
- *   5. fails when any request went to *.openworklabs.com (workstream C).
+ *   5. fails when any request went to *.openworklabs.com (workstream C);
+ *   6. checks the git for brains is in the app and runs (brains plan §3.1).
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -85,6 +86,11 @@ const workspace = join(profile, "workspace");
 mkdirSync(workspace, { recursive: true });
 writeFileSync(join(workspace, "notities.md"), "# Notities\n");
 const cdpPort = 9300 + Math.floor(Math.random() * 500);
+// The shipped git, as the brains server hooks start it (packages/bonzaiwork-brains/src/git.ts).
+const shippedGit = resolve(binary, "../resources/git");
+const gitVersion = spawnSync(join(shippedGit, "bin/git"), ["--version"], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", GIT_EXEC_PATH: join(shippedGit, "libexec/git-core") } });
+check("git for brains ships with the app", gitVersion.status === 0, gitVersion.stdout.trim() || gitVersion.stderr.trim());
+
 const environment = { ...process.env };
 for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]) delete environment[name];
 // Upstream main.mjs owns the CDP switch; it takes the port from this variable.

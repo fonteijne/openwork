@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, type MouseEvent } from "react";
+import { createContext, useCallback, useContext, type MouseEvent, type ReactNode } from "react";
 
 import type { Project } from "~/backend/types";
 import { markdownLinkTarget } from "~/lib/file-links";
@@ -11,7 +11,11 @@ export type OpenLink = (href: string | null) => boolean;
 
 const FileLinkContext = createContext<OpenLink | null>(null);
 
-export const FileLinkProvider = FileLinkContext.Provider;
+/** Links to Markdown files in this project's chat open in the side panel. */
+export function ProjectFileLinks(props: { project: Project; chatId: string | null; children: ReactNode }) {
+  const openLink = useMarkdownLinkOpener(props.project, props.chatId);
+  return <FileLinkContext.Provider value={openLink}>{props.children}</FileLinkContext.Provider>;
+}
 
 export function useOpenLink(): OpenLink | null {
   return useContext(FileLinkContext);

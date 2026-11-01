@@ -36,6 +36,8 @@ export function headers(connection: Connection, options: { host?: boolean; json?
 /**
  * The server's own sentences are English and technical; the codes a person can
  * run into get ours (DESIGN.md C6). The server's sentence stays on `detail`.
+ * BonzaiWork's own routes may send `userMessage`: a sentence already written for
+ * the user (a clone that cannot go ahead), which then wins.
  */
 const SERVER_MESSAGES: Record<string, string> = {
   unauthorized: "De lokale server herkent deze app niet. Start BonzaiWork opnieuw.",
@@ -78,6 +80,33 @@ const SERVER_MESSAGES: Record<string, string> = {
   mcp_tools_not_ready: "De connectie is opgeslagen, maar de tools zijn nog niet klaar. Probeer het zo opnieuw.",
   request_aborted: "Het verzoek is afgebroken.",
   internal_error: "De lokale server liep vast. Probeer het opnieuw.",
+  // Brains and routines (packages/bonzaiwork-brains, -routines).
+  invalid_body: "Deze gegevens kloppen niet. Controleer wat je invulde.",
+  invalid_folder: "Kies een map.",
+  invalid_author: "Vul een naam en een e-mailadres in.",
+  link_invalid: "Dit is geen link naar een repository. Kopieer de SSH-link uit GitLab of GitHub.",
+  link_empty: "Plak de link naar de repository.",
+  link_unsupported: "Deze link werkt niet. Kopieer de SSH-link uit GitLab of GitHub.",
+  link_credentials: "Deze link bevat een wachtwoord of token. Gebruik de SSH-link zonder inloggegevens.",
+  host_key_mismatch: "De server toont nu een andere sleutel dan die je bevestigde. Test de verbinding opnieuw.",
+  clone_not_ready: "Het brein is nog niet opgehaald. Wacht even en probeer het opnieuw.",
+  folder_mismatch: "Dit project hoort niet bij de opgehaalde map.",
+  personal_exists: "Je hebt al een persoonlijk brein.",
+  already_brain: "Dit project is al een brein.",
+  cloud_folder: "Deze map wordt al door een clouddienst gesynchroniseerd. Kies een map buiten iCloud, OneDrive of Dropbox.",
+  brain_not_found: "Dit project is geen brein.",
+  job_not_found: "Dit ophalen bestaat niet meer. Probeer het opnieuw.",
+  proposal_not_found: "Dit voorstel bestaat niet meer. Ververs de lijst.",
+  stage_not_found: "Deze stap bestaat niet meer.",
+  invalid_verdict: "Kies goedgekeurd of afgekeurd.",
+  invalid_decision: "Kies overnemen of afwijzen.",
+  unsupported_strategy: "Deze manier van samenvoegen bestaat niet.",
+  missing_input: "Een eerdere stap is nog niet klaar.",
+  not_ready: "Deze stap kan nog niet starten.",
+  invalid_workspace: "Kies een project.",
+  invalid_schedule: "Dit schema klopt niet. Kies een ander tijdstip.",
+  invalid_routine: "Een routine heeft een naam en een opdracht nodig.",
+  routine_not_found: "Deze routine bestaat niet meer.",
 };
 
 /**
@@ -141,7 +170,8 @@ async function attemptRequest(connection: Connection, path: string, options: Req
     const bare = str(payload, "error");
     const code = str(payload, "code") ?? str(payload, "name") ?? (bare && /^[a-z0-9_]+$/.test(bare) ? bare : null) ?? (response.status === 404 ? "not_found" : "request_failed");
     const detail = str(payload, "message") ?? str(payload, "error");
-    throw new BackendError(code, SERVER_MESSAGES[code] ?? `De lokale server weigerde dit verzoek (fout ${response.status}).`, response.status, detail);
+    const message = str(payload, "userMessage") ?? SERVER_MESSAGES[code] ?? `De lokale server weigerde dit verzoek (fout ${response.status}).`;
+    throw new BackendError(code, message, response.status, detail);
   }
   return payload;
 }

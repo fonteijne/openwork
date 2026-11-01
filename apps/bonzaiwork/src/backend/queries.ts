@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "./context";
-import type { AppStatus, Project } from "./types";
+import type { AppStatus, Brain, Project } from "./types";
 
 /** Query keys: one place, so mutations invalidate exactly what they change. */
 export const keys = {
@@ -23,6 +23,15 @@ export const keys = {
   audit: (projectId: string) => ["config", projectId, "audit"] as const,
   agents: (projectId: string) => ["composer", projectId, "agents"] as const,
   entries: (projectId: string) => ["composer", projectId, "entries"] as const,
+  brains: ["brains"] as const,
+  brainHistory: (projectId: string) => ["brains", projectId, "history"] as const,
+  // Under "brains": every brain action refreshes it (adopt, publish).
+  brainCandidate: (projectId: string) => ["brains", projectId, "candidate"] as const,
+  concept: (projectId: string, path: string) => ["brains", projectId, "concept", path] as const,
+  proposals: ["brain-proposals"] as const,
+  brainAuthor: ["brain-author"] as const,
+  workflows: (projectId: string) => ["workflows", projectId] as const,
+  reads: (projectId: string) => ["brain-reads", projectId] as const,
   env: ["env"] as const,
   versions: ["versions"] as const,
 };
@@ -121,4 +130,56 @@ export function projectHasKey(status: AppStatus | undefined, project: Project | 
 export function useRefresh() {
   const client = useQueryClient();
   return (...queryKeys: readonly (readonly unknown[])[]) => Promise.all(queryKeys.map((queryKey) => client.invalidateQueries({ queryKey })));
+}
+
+/** Every brain with its status; polled, because sharing happens on the server after a turn. */
+export function useBrains() {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.brains, queryFn: () => backend.brains.list(), enabled: backend.capabilities.brains, refetchInterval: 10_000, staleTime: 5_000 });
+}
+
+export function useBrain(projectId: string): Brain | null {
+  return useBrains().data?.find((brain) => brain.projectId === projectId) ?? null;
+}
+
+export function usePersonalBrain(): Brain | null {
+  return useBrains().data?.find((brain) => brain.status.kind === "personal") ?? null;
+}
+
+export function useBrainHistory(projectId: string, enabled = true) {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.brainHistory(projectId), queryFn: () => backend.brains.history(projectId), enabled: enabled && backend.capabilities.brains, staleTime: 10_000 });
+}
+
+export function useConcept(projectId: string, path: string | null) {
+  const backend = useBackend();
+  return useQuery({
+    queryKey: keys.concept(projectId, path ?? ""),
+    queryFn: () => backend.brains.concept(projectId, path ?? ""),
+    enabled: Boolean(path?.startsWith("knowledge/") && path.endsWith(".md")) && backend.capabilities.brains,
+    staleTime: 10_000,
+  });
+}
+
+/** Preferences the AI proposed; the card asks the user (brains plan §7.3). */
+export function useProposals() {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.proposals, queryFn: () => backend.brains.proposals(), enabled: backend.capabilities.brains, refetchInterval: 5_000 });
+}
+
+export function useBrainAuthor() {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.brainAuthor, queryFn: () => backend.brains.author(), enabled: backend.capabilities.brains });
+}
+
+/** The project's ICM workflows with their status from disk (plan §6.5); polled, a chat changes it. */
+export function useWorkflows(projectId: string) {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.workflows(projectId), queryFn: () => backend.brains.workflows(projectId), enabled: backend.capabilities.brains, refetchInterval: 10_000, staleTime: 5_000 });
+}
+
+/** Other brains this project consults without asking. */
+export function useReads(projectId: string) {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.reads(projectId), queryFn: () => backend.brains.reads(projectId), enabled: backend.capabilities.brains, staleTime: 10_000 });
 }
