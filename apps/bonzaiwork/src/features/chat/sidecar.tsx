@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { BookOpen, ChevronLeft, FilePen, FileText, FolderOpen, GitBranch, Plug, Repeat, X } from "lucide-react";
+import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BookOpen, ChevronLeft, FilePen, FileText, FolderOpen, GitBranch, Plug, Repeat, RotateCw, X } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { modelName, projectHasKey, useRoutines, useStatus, useSummary, useUsage } from "~/backend/queries";
@@ -51,11 +51,15 @@ const EMPTY: Message[] = [];
 
 const MARKDOWN = /\.(md|markdown|mdx)$/i;
 
+function fileQueryKey(projectId: string, chatId: string | null, path: string) {
+  return ["file", projectId, chatId, path];
+}
+
 /** A project file's contents: Markdown rendered, other text as is. */
 function FileBody(props: { projectId: string; chatId: string | null; path: string; onLink?: OpenLink }) {
   const backend = useBackend();
   const file = useQuery({
-    queryKey: ["file", props.projectId, props.chatId, props.path],
+    queryKey: fileQueryKey(props.projectId, props.chatId, props.path),
     queryFn: () => backend.config.readFile(props.projectId, props.path, props.chatId),
   });
   if (file.isLoading) {
@@ -95,6 +99,9 @@ function FileView(props: { project: Project; file: SidecarFile; onClose?: () => 
   const scroller = useRef<HTMLDivElement>(null);
   const name = file.path.split("/").at(-1) ?? file.path;
   const separator = project.path.includes("\\") ? "\\" : "/";
+  const queryClient = useQueryClient();
+  const queryKey = fileQueryKey(project.id, file.chatId, file.path);
+  const reloading = useIsFetching({ queryKey, exact: true }) > 0;
 
   // A new file starts at the top.
   useEffect(() => {
@@ -112,6 +119,19 @@ function FileView(props: { project: Project; file: SidecarFile; onClose?: () => 
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={file.path}>
           {name}
         </h2>
+        <Tooltip label={copy.sidecar.fileReload}>
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label={copy.sidecar.fileReload}
+            aria-busy={reloading}
+            onClick={() => {
+              if (!reloading) void queryClient.refetchQueries({ queryKey, exact: true });
+            }}
+          >
+            <RotateCw className={cn(reloading && "animate-spin")} />
+          </Button>
+        </Tooltip>
         {backend.capabilities.revealPath ? (
           <Tooltip label={copy.sidecar.reveal}>
             <Button

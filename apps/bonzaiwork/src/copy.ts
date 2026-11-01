@@ -294,6 +294,7 @@ export const copy = {
     folder: "Map",
     reveal: "Tonen in map",
     fileBack: "Terug naar details",
+    fileReload: "Bestand opnieuw laden",
     noPreview: (size: string | null) => `Voor dit bestand is geen voorbeeld beschikbaar${size ? ` (${size})` : ""}.`,
     key: "Key",
     defaultModel: "Standaardmodel",
