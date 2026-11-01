@@ -3,7 +3,7 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArchiveRestore, ChevronDown, Ellipsis, FolderPlus, Pencil, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, projectHasKey, useProjects, useStatus, useUsage } from "~/backend/queries";
+import { keys, projectHasKey, usePersonalBrain, useProjects, useStatus, useUsage } from "~/backend/queries";
 import type { Project, ProjectSummary } from "~/backend/types";
 import { PromptDialog } from "~/components/prompt-dialog";
 import { ProjectIcon } from "~/components/project-icon";
@@ -34,6 +34,8 @@ function ProjectActions(props: { project: Project }) {
   const [busy, setBusy] = useState(false);
   const { project } = props;
   const readOnly = status.data?.readOnly ?? false;
+  // "Mijn brein" counts in every project; it stays on top and is never archived (brains plan §5.1).
+  const personal = usePersonalBrain()?.projectId === project.id;
 
   const update = async (patch: Parameters<typeof backend.projects.update>[1], message?: string, undo?: Parameters<typeof backend.projects.update>[1]) => {
     try {
@@ -72,13 +74,15 @@ function ProjectActions(props: { project: Project }) {
         <MenuItem icon={<Pencil />} onClick={() => setRenaming(true)} disabled={readOnly}>
           {copy.projects.rename}
         </MenuItem>
-        <MenuItem icon={project.pinned ? <PinOff /> : <Pin />} onClick={() => void update({ pinned: !project.pinned })}>
-          {project.pinned ? copy.projects.unpin : copy.projects.pin}
-        </MenuItem>
+        {personal ? null : (
+          <MenuItem icon={project.pinned ? <PinOff /> : <Pin />} onClick={() => void update({ pinned: !project.pinned })}>
+            {project.pinned ? copy.projects.unpin : copy.projects.pin}
+          </MenuItem>
+        )}
         <MenuItem icon={<SlidersHorizontal />} onClick={() => navigate({ name: "project-settings", projectId: project.id, section: "general" })}>
           {copy.projects.settings}
         </MenuItem>
-        {project.archivedAt ? (
+        {personal ? null : project.archivedAt ? (
           <MenuItem icon={<ArchiveRestore />} onClick={() => void update({ archived: false }, copy.projects.restored)}>
             {copy.projects.unarchive}
           </MenuItem>
@@ -207,6 +211,7 @@ export function ProjectsPage() {
   const backend = useBackend();
   const status = useStatus();
   const projects = useProjects();
+  const personalId = usePersonalBrain()?.projectId ?? null;
   const setNewProject = useUi((state) => state.setNewProject);
   // Status and spend sit in a column phones have no room for; there it is not rendered (or fetched) at all.
   const wide = useMediaQuery(SMALL_UP);
@@ -245,8 +250,14 @@ export function ProjectsPage() {
     const matching = list.filter((project) => !needle || project.name.toLowerCase().includes(needle) || (project.description ?? "").toLowerCase().includes(needle));
     const activity = (project: Project) => summaryById.get(project.id)?.lastActivityAt ?? 0;
     const sorted = [...matching].sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name, "nl") : activity(b) - activity(a) || a.name.localeCompare(b.name, "nl")));
-    const active = sorted.filter((project) => !project.archivedAt);
-    return { pinned: active.filter((project) => project.pinned), others: active.filter((project) => !project.pinned), archived: sorted.filter((project) => project.archivedAt) };
+    const active = sorted.filter((project) => !project.archivedAt || project.id === personalId);
+    const personal = active.filter((project) => project.id === personalId);
+    const rest = active.filter((project) => project.id !== personalId);
+    return {
+      pinned: [...personal, ...rest.filter((project) => project.pinned)],
+      others: rest.filter((project) => !project.pinned),
+      archived: sorted.filter((project) => project.archivedAt && project.id !== personalId),
+    };
   })();
 
   const readOnly = status.data?.readOnly ?? false;

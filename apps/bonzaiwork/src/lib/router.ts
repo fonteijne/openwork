@@ -5,8 +5,8 @@ import { useSyncExternalStore } from "react";
  * where history routes would break a reload.
  */
 
-export type SettingsSection = "general" | "key" | "instructions" | "skills" | "commands" | "connections" | "permissions" | "files" | "activity";
-export const SETTINGS_SECTIONS: SettingsSection[] = ["general", "key", "instructions", "skills", "commands", "connections", "permissions", "files", "activity"];
+export type SettingsSection = "general" | "key" | "brain" | "instructions" | "skills" | "commands" | "connections" | "permissions" | "files" | "activity";
+export const SETTINGS_SECTIONS: SettingsSection[] = ["general", "key", "brain", "instructions", "skills", "commands", "connections", "permissions", "files", "activity"];
 
 export type Route =
   | { name: "projects" }

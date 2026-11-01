@@ -3,7 +3,7 @@
 // in app-dist or drop its GitHub publish target. This file reads upstream's
 // config as-is (later upstream changes still apply) and swaps only what is
 // BonzaiWork's: the UI, the Electron entry, identity, and update feed.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
@@ -49,7 +49,12 @@ const config = {
   directories: { ...upstream.directories, output: "dist-electron/bonzaiwork" },
   extraMetadata: { main: "bonzaiwork/main.mjs", name: "bonzaiwork", productName, desktopName: "nl.bonzaiwork.desktop" },
   files: [...upstream.files, { from: "../bonzaiwork/dist-electron", to: "bonzaiwork" }],
-  extraResources: withOurUi(upstream.extraResources),
+  // The git brains use (scripts/bonzaiwork/fetch-git.mjs, docs/bonzaiwork/project-breinen-plan.md §3.1);
+  // main.ts points BONZAIWORK_GIT_DIRECTORY at it. Without it, brains use git from PATH.
+  extraResources: [
+    ...withOurUi(upstream.extraResources),
+    ...(existsSync(join(here, "../bonzaiwork/resources/git")) ? [{ from: "../bonzaiwork/resources/git", to: "git" }] : []),
+  ],
   // No update feed until O4 names one; never OpenWork's GitHub releases.
   publish: publishUrl ? [{ provider: "generic", url: publishUrl }] : null,
   artifactName: "bonzaiwork-${os}-${arch}-${version}.${ext}",

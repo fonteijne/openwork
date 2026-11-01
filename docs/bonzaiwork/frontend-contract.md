@@ -92,6 +92,15 @@ Lokale OpenWork-server (http://127.0.0.1:<poort>)
 **Twee soorten rechten.** Gewone acties gebruiken het client-token. Beheeracties (project aanmaken, hernoemen,
 verwijderen; keys koppelen) vragen het **host-token**. In de desktop-app heeft de UI beide; voor het ontwerp
 betekent dit alleen dat die acties bij een alleen-lezen-installatie uitgegrijsd kunnen zijn (`read_only`).
+Bij breinen en routines vraagt elke route die iets verandert het host-token, en geeft een
+alleen-lezen-installatie daar `403 read_only`. Alleen de lees-routes en de schemavoorbeelden mogen met
+het client-token; `GET jobs/:jobId` en `GET candidate` vragen ook het host-token (zie de tabel). Ook
+`/pull` verandert de map: op een alleen-lezen-installatie wordt een brein dus niet bijgewerkt.
+
+**Foutmeldingen.** Een fout is `{ code, message }`; `message` is Engelse uitleg voor de log, de app toont
+een eigen zin per `code` (`apps/bonzaiwork/src/backend/live/http.ts`). BonzaiWork-routes sturen soms ook
+`userMessage`: een zin die al voor de gebruiker geschreven is (een brein dat niet opgehaald kan worden, een
+ontbrekende invoer van een werkwijze); die gaat dan voor.
 
 **Live bijwerken.** De engine levert een live eventstream (`GET /workspace/:id/opencode2/api/event`, SSE) voor streaming
 tekst, toolactiviteit, toestemmingsvragen en status. De huidige spike pollt nog; de nieuwe UI gebruikt de stream.
@@ -399,6 +408,7 @@ type Routine = {
   lastRun: RoutineRun | null;
   createdAt: number;
   updatedAt: number;
+  brains: string[];                     // breinen (workspace-id's) die de routine zonder vragen mag lezen
 };
 
 type RoutineRun = {
@@ -424,8 +434,89 @@ type RoutineRun = {
 | `GET /bonzaiwork/routines/:id/runs` | Runhistorie |
 | `POST /bonzaiwork/routines/preview` | Volgende N runs voor een schema (voor de editor) |
 
+Aanmaken, wijzigen, verwijderen en "Nu uitvoeren" vragen het host-token.
+
+Gebouwd in `packages/bonzaiwork-routines` (opslag in `<userData>/bonzaiwork/routines.json`). Een run gaat via
+de eigen `/workspace/:id/opencode2`-proxy van de server, dus precies als een chat uit de app. Leest de AI in
+een routine een brein dat bij de routine staat, dan beantwoordt de planner de vraag "Mag BonzaiWork in het
+brein … kijken?" zelf (één keer per vraag); andere breinen wachten op de gebruiker. Een run die viel terwijl de
+app dicht was, staat als "gemist" (`skipped`, `app_closed`) en wordt niet ingehaald (R1).
+
 Uitvoering: de planner draait in het serverproces (het draait zolang de app open is), maakt een chat aan in het
 project en stuurt de prompt, precies zoals de UI dat doet. Runs zijn dus gewone chats en verschijnen in de chatlijst.
+
+### 7.5 Breinen
+
+Gebouwd in fase 1 van [`project-breinen-plan.md`](./project-breinen-plan.md) (§8). Server:
+`packages/bonzaiwork-brains/src/server-hooks.ts`; UI-client: `apps/bonzaiwork/src/backend/live/brains.ts`.
+`Capabilities.brains` gaat aan als `GET /bonzaiwork/brains` antwoordt; zonder staat alles zichtbaar maar
+vergrendeld met de reden (DESIGN.md P4).
+
+```ts
+type BrainKind = "project" | "personal";
+type BrainState = "synced" | "syncing" | "behind" | "ahead" | "offline" | "conflict"
+  | "read_only" | "local_only" | "needs_trust" | "error";
+type BrainStatus = {
+  kind: BrainKind;
+  state: BrainState;              // local_only: persoonlijk brein zonder eigen repo
+  mode: "auto" | "manual" | "read_only" | "proposal";
+  remote: string | null;          // SSH-vorm, bijv. git@gitlab.com:team/brein.git
+  branch: string;
+  ahead: number;
+  behind: number;
+  lastSyncAt: number | null;
+  conflictFiles: string[];
+  conflictBy: string | null;      // naam van wie de andere wijziging deed
+  merging: boolean;               // beide versies staan in de notities; een chat voegt samen
+  error: string | null;           // Nederlands; Engelse git/ssh-tekst alleen in de log
+  pendingTrust: { path: string; kind: "config" | "plugin" | "agent" | "command" | "script"; mcpServers: string[] }[];
+  unshared: { path: string; reason: "not_markdown" | "too_large" }[];
+  warnings: string[];             // OKF/ICM-structuur (Nederlands)
+  excluded: string[];             // persoonlijk brein: mappen die de AI niet opent
+  proposal: { branch: string; url: string | null; manual: boolean } | null; // "via voorstel"
+};
+```
+
+| Route | Auth | Doel |
+|---|---|---|
+| `GET /bonzaiwork/brains` | client | alle breinen: `{ brains: [{ workspaceId, path, status }] }` |
+| `POST /bonzaiwork/brains/check-remote` | host | `{ url }` → `{ ok, sshUrl, name, defaultBranch, empty }` of `{ ok: false, problem, message, host? }` ("Verbinding testen") |
+| `POST /bonzaiwork/brains/trust-host` | host | `{ url, fingerprints }`: onbekende host na bevestiging opslaan; `409` als de sleutel intussen anders is |
+| `POST /bonzaiwork/brains/clone` | host | `{ url, folderPath }` → `202 { jobId }`; de map moet leeg zijn of niet bestaan. Sluit de app het venster, dan gaat de clone door: de map blijft staan en kan later als bestaande map een project worden (een nieuwe clone in dezelfde map geeft `not_empty`) |
+| `GET /bonzaiwork/brains/jobs/:jobId` | host | `{ state: "running" \| "done" \| "failed", error, problem, status }` |
+| `PUT /bonzaiwork/brains/:workspaceId` | host | registreren `{ jobId?, kind, mode?, trusted?, excluded? }` (persoonlijk zonder `jobId`: geschiedenis buiten de map plus sjabloon), of `{ mode }` wijzigen |
+| `DELETE /bonzaiwork/brains/:workspaceId` | host | synchronisatie uitzetten; de map blijft |
+| `GET /bonzaiwork/brains/:workspaceId/status` | client | `BrainStatus` |
+| `POST /bonzaiwork/brains/:workspaceId/pull` | host | vóór een beurt: projectbrein en persoonlijk brein bijwerken (max. ~5 s), dan de globale instructies |
+| `POST /bonzaiwork/brains/:workspaceId/sync` | host | "Wijzigingen delen" / "Opnieuw proberen" |
+| `GET /bonzaiwork/brains/:workspaceId/history` | client | `{ entries: [{ commit, author, at, title, chatId, files }] }` |
+| `POST /bonzaiwork/brains/:workspaceId/resolve` | host | `{ strategy: "keep-mine-apart" }`, of `{ strategy: "ai" }` → `{ files, by, prompt, status }`: de app start een chat met `prompt` |
+| `POST /bonzaiwork/brains/:workspaceId/trust` | host | `{ paths }`: onderdelen die iets kunnen uitvoeren toestaan |
+| `POST /bonzaiwork/brains/:workspaceId/repair` | host | "Herstellen" na een fout (config, remote, herschreven geschiedenis) |
+| `PUT /bonzaiwork/brains/:workspaceId/excluded` | host | `{ folders }`: uitgesloten mappen (persoonlijk brein) |
+| `POST /bonzaiwork/brains/:workspaceId/remote` | host | `{ url }`: privérepo aan het persoonlijke brein koppelen |
+| `POST /bonzaiwork/brains/:workspaceId/restore` | host | `{ commit, path? }`: notitie terugzetten, of zonder `path` de beurt terugdraaien |
+| `GET` / `PUT /bonzaiwork/brains/:workspaceId/reads` | client / host | `{ brains }`: andere breinen die dit project zonder vragen mag raadplegen; de server beantwoordt die vragen |
+| `GET /bonzaiwork/brains/:workspaceId/workflows` | client | `{ workflows: [{ name, title, task, runs, stages: [{ id, task, outputs, check: { kind, text }, state, failure, missing }] }] }`; `state`: `waiting` / `ready` / `check` / `done` / `failed` |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/start` | host | `{ title, prompt }` voor een nieuwe chat; `409 { code: "missing_input", missing }` |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/stages/:stage/check` | host | `{ verdict: "pass" \| "fail", reason? }` van een persoon, of `{ model: true }` → `{ title, prompt }` |
+| `POST /bonzaiwork/brains/:workspaceId/workflows/:name/runs` | host | `{ subject }`: nieuwe run, de vorige naar `_runs/` |
+| `GET /bonzaiwork/brains/:workspaceId/candidate` | host | `{ repository: { remote, branch, ssh } \| null }`: is de projectmap al een git-repo? |
+| `POST /bonzaiwork/brains/:workspaceId/adopt` | host | "Als brein synchroniseren": repo met SSH-link wordt een brein zoals hij is |
+| `POST /bonzaiwork/brains/:workspaceId/publish` | host | `{ url, name }`: "Deel als nieuw brein" in een lege repo; `409 remote_not_empty` / `already_repository` |
+| `POST /bonzaiwork/brains/:workspaceId/setup` | host | `{ name, description }`: breinsjabloon in een lege repo, daarna delen |
+| `GET /bonzaiwork/brains/:workspaceId/concept?path=` | client | `{ concept }`: OKF-type, status, verlopen, schrijver, nakijkers, vertrouwensniveau, bronnen |
+| `POST /bonzaiwork/brains/:workspaceId/verify` | host | `{ path }`: "Klopt" vastleggen in de notitie |
+| `GET` / `PUT /bonzaiwork/brains/settings` | client / host | naam en e-mail voor de geschiedenis (`{ author, suggested }`) |
+| `GET /bonzaiwork/brains/proposals` | client | voorkeuren die de AI voorstelde |
+| `POST /bonzaiwork/brains/proposals/:id` | host | `{ decision: "accept" \| "reject", text? }` |
+| `* /bonzaiwork/brains/mcp` | lokaal token | de breinen-MCP, alleen voor de engine |
+
+Schermen: statuspil in de projectkop, kaarten boven de composer (conflict, vertrouwen, voorkeur), één
+regel onder de beurt, "Uit een gedeeld brein" in Nieuw project, onboardingstap "Je persoonlijke brein",
+Projectinstellingen → Brein, Instellingen → Breinen, en de OKF-gegevens boven een kennisnotitie.
+Schermafbeeldingen: `screenshots/brein-*.png`. Beheer van een gedeeld brein:
+[`brein-beheer.md`](./brein-beheer.md).
 
 ---
 
