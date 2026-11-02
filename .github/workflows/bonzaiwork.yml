@@ -1,14 +1,15 @@
 name: BonzaiWork
 
-# BonzaiWork's own CI (docs/bonzaiwork/README.md, "CI"). Runs on every push and
-# PR, including upstream-sync/<tag> merge branches: typecheck of what we build
-# on, our unit tests, the engine end-to-end check of the LiteLLM-only policy,
-# and a packaged Linux build that starts and answers one chat turn.
+# BonzaiWork's own CI (docs/bonzaiwork/README.md, "CI"). Runs on every PR and on
+# pushes to main, nightly and upstream-sync/<tag> merge branches: typecheck of
+# what we build on, our unit tests, the engine end-to-end check of the
+# LiteLLM-only policy, and a packaged Linux build that starts and answers one
+# chat turn.
 
 on:
   push:
     # Feature branches run through pull_request; pushing them too ran every commit twice.
-    branches: [main, "upstream-sync/**"]
+    branches: [main, nightly, "upstream-sync/**"]
   pull_request:
   workflow_dispatch:
 

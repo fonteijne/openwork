@@ -189,15 +189,61 @@ eerst aan `ENABLED` toe, anders zet de volgende sync hem weer uit.
 
 | Branch | Rol |
 |---|---|
-| `main` | BonzaiWork-productiebranch en default branch. Alleen via PR's, met de BonzaiWork-CI groen. |
 | `dev` | Pure spiegel van upstream `different-ai/openwork` `dev`. Nooit zelf committen; de workflow **Upstream sync** spoelt hem dagelijks door (alleen fast-forward). |
-| `upstream-sync/<tag>` | Tijdelijk: één upstream-release gemerged in `main`, met een PR naar `main`. Maakt **Upstream sync** aan; met de hand kan ook (procedure hieronder). |
-| feature-branches | Werk, met een PR naar `main`. |
+| `nightly` | Integratiebranch en default branch. Alle werk en alle upstream-releases komen hier samen en worden hier getest. Alleen via PR's, met de BonzaiWork-CI groen. |
+| `main` | BonzaiWork-releasebranch voor distributie. Krijgt alleen geteste stand van `nightly` (zie "Promoveren naar `main`"). |
+| `upstream-sync/<tag>` | Tijdelijk: één upstream-release gemerged in `nightly`, met een PR naar `nightly`. Maakt **Upstream sync** aan; met de hand kan ook (procedure hieronder). |
+| feature-branches | Werk, met een PR naar `nightly`. |
 
-In `main` mergen we upstream-releases, niet `dev` (referentie §5.2): upstream `dev` krijgt tientallen commits
-per dag, een release komt ongeveer om de twee à drie dagen en is door upstream gebouwd en uitgebracht. `dev`
-dient als referentie voor "zo ziet upstream er nu uit". Tags komen niet mee naar `dev`: haal ze met
-`git fetch upstream --tags`.
+De stroom is altijd upstream-release → `upstream-sync/<tag>` → `nightly` → `main`, en werk → `nightly` → `main`. Drie
+regels houden dat simpel:
+
+1. **Niets direct naar `main`.** Alles gaat via `nightly`, zodat `main` altijd een eerdere stand van
+   `nightly` is en ze nooit uit elkaar lopen. Moet een hotfix toch direct op `main`, merge `main` dan meteen
+   terug in `nightly`.
+2. **Promoveer de commit die je getest hebt**, niet "de branch": wat na je test in `nightly` kwam, is niet
+   getest.
+3. **Test vanuit een schone checkout**, zodat oude `node_modules` of lokale instellingen de test niet
+   kleuren.
+
+In `nightly` mergen we upstream-releases, niet `dev` (referentie §5.2): upstream `dev` krijgt tientallen
+commits per dag, een release komt ongeveer om de twee à drie dagen en is door upstream gebouwd en
+uitgebracht. `dev` dient als referentie voor "zo ziet upstream er nu uit". Tags komen niet mee naar `dev`:
+haal ze met `git fetch upstream --tags`.
+
+### Testen op `nightly`
+
+```bash
+git fetch origin
+git switch --detach origin/nightly
+git rev-parse HEAD                      # noteer: dit is de commit die je test
+git clean -xfd                          # schone checkout: verwijdert ALLE ongetrackte bestanden, ook node_modules, builds en .env
+pnpm install --frozen-lockfile
+BONZAIWORK_LITELLM_BASE_URL=<litellm-url> node apps/bonzaiwork/scripts/package.mjs --dir --mac
+```
+
+### Promoveren naar `main`
+
+Zijn de CI en je test op `nightly` akkoord, zet `main` dan op precies die commit:
+
+```bash
+git fetch origin
+git push origin <geteste-sha>:main      # alleen een fast-forward; geweigerd als main eigen commits heeft
+```
+
+Wordt de push geweigerd, dan staat er iets op `main` wat niet in `nightly` zit (regel 1): merge `main` eerst
+in `nightly`, test opnieuw en promoveer dan. Liever een PR, bijvoorbeeld omdat `main` beschermd is: maak een
+branch op de geteste commit (`git push origin <geteste-sha>:refs/heads/release/<datum>`) en open de PR van
+die branch naar `main`. Een PR vanaf `nightly` zelf volgt de branch en neemt dus ook latere, ongeteste commits
+mee.
+
+### Eenmalig instellen
+
+- Maak `nightly` aan vanaf `main` (`git push origin origin/main:refs/heads/nightly`). Zonder `nightly`
+  faalt **Upstream sync** bij de checkout.
+- Settings → General → Default branch: `nightly`, zodat nieuwe PR's daar vanzelf heen gaan.
+- Settings → Rules: bescherm `nightly` (PR verplicht, BonzaiWork-CI groen) en `main` (geen force-push en
+  niet verwijderen; alleen wie promoveert mag pushen).
 
 ## Upstream automatisch syncen
 
@@ -209,10 +255,12 @@ dient als referentie voor "zo ziet upstream er nu uit". Tags komen niet mee naar
    workflows die met de push binnenkwamen; runs die de push startte worden geannuleerd.
 3. **Sync-PR voor de nieuwste release.** De nieuwste GitHub-release van upstream (geen draft of pre-release;
    een kale tag niet, want upstream tagt vóór de releasebuild geslaagd is). Een branch `upstream-sync/<tag>`
-   vanaf `main`, met de release erin gemerged, `bonzaiwork.upstream.json` vastgezet op tag en commit en
-   `pnpm-lock.yaml` geregenereerd. Releases die al in `main` zitten worden overgeslagen. Een conflict alleen in de
-   lockfile lost de run zelf op. Bij andere conflicten wijst de branch naar de release zelf en is de PR
-   een draft, zodat GitHub de conflicten toont. Oplossen: branch uitchecken, `git merge origin/main`.
+   vanaf `nightly`, met de release erin gemerged, `bonzaiwork.upstream.json` vastgezet op tag en commit en
+   `pnpm-lock.yaml` geregenereerd, en een PR naar `nightly`. Releases die al in `nightly` zitten worden
+   overgeslagen. Een conflict alleen in de lockfile lost de run zelf op. Bij andere conflicten wijst de branch
+   naar de release zelf en is de PR een draft, zodat GitHub de conflicten toont. Oplossen: branch uitchecken,
+   `git merge origin/nightly`. Na de merge gaat de release samen met de rest van `nightly` naar `main`
+   (zie "Promoveren naar `main`").
 4. **Beoordeling.** De PR-beschrijving (`upstream-sync-report.mjs`) zet op een rij wat er moet gebeuren:
    gepatchte bestanden die upstream wijzigde, raakvlakken uit de watchlist in dat script (updater,
    `main.mjs`, builder-config, modelcatalogus, engineversie), gewijzigde manifests en workflows en de
@@ -243,7 +291,7 @@ aan staan als je zonder PAT test.
 ```bash
 git remote add upstream https://github.com/different-ai/openwork.git   # eenmalig
 git fetch upstream --tags
-git switch -c upstream-sync/v0.18.64 main
+git switch -c upstream-sync/v0.18.64 origin/nightly
 git merge v0.18.64
 git checkout --theirs pnpm-lock.yaml && pnpm install                    # bij een lockfile-conflict
 # bonzaiwork.upstream.json → commit van v0.18.64

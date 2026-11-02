@@ -1,7 +1,7 @@
 /**
  * Writes the body of an upstream-sync PR (docs/bonzaiwork/README.md, "Upstream
  * automatisch syncen"): what upstream changed since the last sync and what has
- * to happen before the merge into main. Plain git, no network.
+ * to happen before the merge into nightly. Plain git, no network.
  *
  *   node scripts/bonzaiwork/upstream-sync-report.mjs --base <sha> --head <sha> [--tag <release>]
  *     [--conflicts <file>] [--patches <file> --patches-exit <code>] [--disabled <file>]
@@ -90,7 +90,7 @@ push(
   "|---|---|",
   `| Upstream-commits | ${commits.length} |`,
   `| Gewijzigde bestanden | ${changed.size} |`,
-  `| Merge in \`main\` | ${conflicts.length ? `**${conflicts.length} conflict(en)**, niet gemerged` : "schoon"} |`,
+  `| Merge in \`nightly\` | ${conflicts.length ? `**${conflicts.length} conflict(en)**, niet gemerged` : "schoon"} |`,
   `| PATCHES-check | ${conflicts.length ? "niet gedraaid (eerst conflicten oplossen)" : patchesOk ? "groen" : "**faalt**"} |`,
   `| Gepatchte upstream-bestanden die upstream wijzigde | ${patchedChanged.length} |`,
   `| Raakvlakken (watchlist) gewijzigd | ${watchChanged.length} |`,
@@ -102,7 +102,7 @@ push("## Wat moet er gebeuren om te mergen", "");
 const todo = [];
 if (conflicts.length) {
   todo.push(
-    `Conflicten oplossen in ${conflicts.map((path) => `\`${path}\``).join(", ")}: check deze branch uit, \`git merge origin/main\`, los op, werk \`bonzaiwork.upstream.json\` bij naar \`${args.tag ?? short(args.head)}\` en draai \`node scripts/bonzaiwork/check-patches.mjs\`.`,
+    `Conflicten oplossen in ${conflicts.map((path) => `\`${path}\``).join(", ")}: check deze branch uit, \`git merge origin/nightly\`, los op, werk \`bonzaiwork.upstream.json\` bij naar \`${args.tag ?? short(args.head)}\` en draai \`node scripts/bonzaiwork/check-patches.mjs\`.`,
   );
 }
 for (const path of patchedChanged) todo.push(`Onze patch in \`${path}\` naast de upstream-wijziging leggen (zie hieronder) en \`PATCHES.md\` bijwerken als de hook verschoof.`);
