@@ -1,6 +1,7 @@
 # Agenda-manager: haalbaarheidsonderzoek
 
-Status: onderzoek, nog niets gebouwd. Datum: 2026-11-02.
+Status: onderzoek, nog niets gebouwd. Datum: 2026-11-02. Het implementatieplan met de genomen
+beslissingen staat in [`agenda-manager-plan.md`](./agenda-manager-plan.md).
 
 ## Wat we willen
 
@@ -237,6 +238,9 @@ Tests zoals bij routines: `bun test` in het pakket met een nep-host (gesimuleerd
 "Verify changes headless").
 
 ## 7. Open vragen
+
+Beslist op 2026-11-02 (zie het plan, §0): A1 per kwartier; A2/A3 een kwartier zonder activiteit is
+"Away from BonzaiWork"; A4 Bridge-code nu al vastleggen; A7 geen breinen of skills, alleen een prompt.
 
 | # | Vraag | Gevolg |
 |---|---|---|
