@@ -211,3 +211,69 @@ test("host: session activity, running sessions, MCP entries and the global conte
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("host: a workspace made a moment ago is followed before its first turn, not at the next reconcile", async () => {
+  const root = await mkdtemp(join(tmpdir(), "downstream-follow-"));
+  const first = join(root, "eerste");
+  const fresh = join(root, "nieuw");
+  await mkdir(first, { recursive: true });
+  await mkdir(fresh, { recursive: true });
+  const clients = new Map<string, ServerResponse>();
+  const engine = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://engine");
+    if (url.pathname === "/api/event") {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.flushHeaders();
+      clients.set(url.searchParams.get("location[directory]") ?? "", response);
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise<void>((resolve) => engine.listen(0, "127.0.0.1", resolve));
+  const address = engine.address();
+  assert.ok(address && typeof address === "object");
+  const previousState = process.env.OPENWORK_SERVER_STATE_PATH;
+  delete process.env.OPENWORK_SERVER_STATE_PATH;
+  const config: ServerConfig = {
+    host: "127.0.0.1", port: 0, token: "test", hostToken: "host-test", configPath: join(root, "server.json"),
+    approval: { mode: "auto", timeoutMs: 1000 }, corsOrigins: [], authorizedRoots: [], readOnly: false,
+    workspaces: [{ id: "ws_1", name: "Eerste", path: first, preset: "starter", workspaceType: "local" }],
+    startedAt: Date.now(), tokenSource: "generated", hostTokenSource: "generated", logFormat: "json", logRequests: false,
+  };
+  let host: DownstreamServerHost | undefined;
+  setDownstreamServerHooks({ start: async (next) => { host = next; } });
+  const events: string[] = [];
+  try {
+    await startDownstreamServerHooks({
+      config, port: 0, markReloadPending: () => {},
+      engine: { connection: () => ({ url: `http://127.0.0.1:${address.port}`, password: "pw" }), refreshProviders: async () => undefined, syncWorkspaceMcp: async () => {} },
+      logger: { log: () => {} },
+    });
+    assert.ok(host);
+    // Nobody listens: nothing to follow.
+    assert.equal(await host.followSessions("ws_1"), false);
+    const stop = host.onSessionActivity((activity) => events.push(`${activity.workspaceId}:${activity.sessionId}:${activity.state}`));
+    assert.equal(await host.followSessions("ws_1"), true);
+
+    // A project made after the feed started, and its first turn right away (the e2e on a fast runner).
+    config.workspaces.push({ id: "ws_2", name: "Nieuw", path: fresh, preset: "starter", workspaceType: "local" });
+    const startedAt = Date.now();
+    assert.equal(await host.followSessions("ws_2"), true);
+    assert.ok(Date.now() - startedAt < 2_000, "followed now, not at the 5 s reconcile");
+    const client = clients.get(fresh);
+    assert.ok(client);
+    client.write(`data: ${JSON.stringify({ type: "session.execution.started", data: { sessionID: "ses_new" } })}\n\n`);
+    client.write(`data: ${JSON.stringify({ type: "session.execution.succeeded", data: { sessionID: "ses_new" } })}\n\n`);
+    for (let attempt = 0; attempt < 50 && events.length < 2; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(events, ["ws_2:ses_new:running", "ws_2:ses_new:idle"]);
+    assert.equal(await host.followSessions("ws_unknown"), false);
+    stop();
+  } finally {
+    for (const client of clients.values()) client.end();
+    engine.closeAllConnections();
+    engine.close();
+    if (previousState === undefined) delete process.env.OPENWORK_SERVER_STATE_PATH;
+    else process.env.OPENWORK_SERVER_STATE_PATH = previousState;
+    await rm(root, { recursive: true, force: true });
+  }
+});

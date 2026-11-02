@@ -26,7 +26,7 @@ Waar het zit:
 - `packages/bonzaiwork-server-hooks`: combineert de hooks van litellm, brains, routines en feedback. Dit is
   wat de app bundelt.
 - `apps/server/src/downstream-hooks.ts`: het enige aanhaakpunt in upstream (nieuw bestand). Daar zitten
-  sessie-activiteit (SSE), `runningSessions`, `engineRequest`, `reloadEngineFolders` en de MCP-entry.
+  sessie-activiteit (SSE), `followSessions`, `runningSessions`, `engineRequest`, `reloadEngineFolders` en de MCP-entry.
 - `apps/bonzaiwork/src/features/brain/`: de UI (statuspil, kaarten, instellingen, werkwijzen, toestemming).
 - Docs:
   - [`frontend-contract.md`](./frontend-contract.md) §7.4: routes en types, leidend voor de UI;
