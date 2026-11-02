@@ -83,11 +83,55 @@ function serviceName(id: string): string {
     sentry: "Sentry",
     supabase: "Supabase",
     microsoft: "Microsoft 365",
+    ms365: "Microsoft 365",
+    m365: "Microsoft 365",
     outlook: "Outlook",
     teams: "Teams",
     sharepoint: "SharePoint",
   };
   return known[id.toLowerCase()] ?? id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+/** A call like `tools.ms365.list_events(` or `tools["ms365"]["list-calendar-events"](`. */
+const TOOL_CALL = /\btools\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*(["'`])([^"'`]+)\2\s*\])\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*(["'`])([^"'`]+)\5\s*\])\s*\(/g;
+/** Discovery: `search({ query: "...", namespace: "ms365" })`. */
+const SEARCH_CALL = /\bsearch\s*\(\s*\{([^}]*)\}/;
+
+function literal(source: string, key: string): string | null {
+  const match = new RegExp(String.raw`\b${key}\s*:\s*(["'\`])((?:\\.|(?!\1).)*)\1`).exec(source);
+  return match?.[2]?.trim() || null;
+}
+
+function humanAction(action: string): string {
+  return action.replace(/[_-]+/g, " ").trim();
+}
+
+/**
+ * What a Code Mode script did with the connections, so the collapsed row says
+ * which connection and action ran (C4) instead of a generic sentence.
+ */
+function describeConnectionCode(code: string, pick: (past: string, present: string) => string): ToolLabel | null {
+  const calls: { service: string; action: string }[] = [];
+  for (const match of code.matchAll(TOOL_CALL)) {
+    const namespace = match[1] ?? match[3];
+    const action = match[4] ?? match[6];
+    if (!namespace || !action) continue;
+    const call = { service: serviceName(namespace), action: humanAction(action) };
+    if (!calls.some((seen) => seen.service === call.service && seen.action === call.action)) calls.push(call);
+  }
+  const first = calls[0];
+  if (first) {
+    const others = calls.length - 1;
+    const more = others === 0 ? "" : others === 1 ? " en 1 andere actie" : ` en ${others} andere acties`;
+    return { kind: "connection", verb: pick(`Gebruikte ${first.service}:`, `Gebruikt ${first.service}:`), object: `${truncate(first.action, 48)}${more}`, code: false, service: first.service };
+  }
+  // Looking up what a connection can do is not using it: no service for usedCapabilities.
+  const search = SEARCH_CALL.exec(code)?.[1];
+  if (search === undefined) return null;
+  const namespace = literal(search, "namespace");
+  const query = literal(search, "query");
+  const where = namespace ? `in ${serviceName(namespace)}` : "in je connecties";
+  return { kind: "connection", verb: pick(`Zocht ${where} naar`, `Zoekt ${where} naar`), object: query ? `"${truncate(query, 40)}"` : "mogelijkheden", code: false, service: null };
 }
 
 /** Visible in the transcript at all? Bookkeeping steps are not (T2). */
@@ -101,6 +145,11 @@ export function describeTool(part: ToolPart): ToolLabel {
   const input = part.input;
   const path = str(input, "filePath", "file_path", "path", "filename");
   const builtIn = BUILT_IN[part.tool];
+  if (builtIn?.kind === "connection" && !builtIn.service) {
+    const code = str(input, "code");
+    const fromCode = code ? describeConnectionCode(code, pick) : null;
+    if (fromCode) return fromCode;
+  }
   if (builtIn) return { kind: builtIn.kind, verb: done ? builtIn.past : builtIn.present, object: null, code: false, service: builtIn.service ?? null };
   if (part.tool.startsWith("computer_")) return { kind: "other", verb: pick("Werkte op je computer", "Werkt op je computer"), object: null, code: false, service: null };
   // The brains MCP (plan §5.2): "Las offerteproces.md in het brein Sales", in words, not tool names.
