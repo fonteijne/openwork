@@ -241,6 +241,8 @@ Tests zoals bij routines: `bun test` in het pakket met een nep-host (gesimuleerd
 
 Beslist op 2026-11-02 (zie het plan, §0): A1 per kwartier; A2/A3 een kwartier zonder activiteit is
 "Away from BonzaiWork"; A4 Bridge-code nu al vastleggen; A7 geen breinen of skills, alleen een prompt.
+Aangevuld: de MVP stopt na fase 2 en levert een boekdocument op dat een gewone chat met de Bridge CLI
+kan verwerken (plan, A8 en A9); de kwartiersamenvatting en de agenda-chat komen daarna.
 
 | # | Vraag | Gevolg |
 |---|---|---|
