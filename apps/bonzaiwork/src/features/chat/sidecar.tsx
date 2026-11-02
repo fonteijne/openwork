@@ -5,6 +5,7 @@ import { FileText, FilePen, FolderOpen, GitBranch, Plug, BookOpen, Repeat, X } f
 import { useBackend } from "~/backend/context";
 import { modelName, projectHasKey, useRoutines, useStatus, useSummary, useUsage } from "~/backend/queries";
 import type { Chat, Message, Project } from "~/backend/types";
+import { ProseHtml } from "~/components/prose-html";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/field";
 import { Locked, Skeleton, StatusDot } from "~/components/ui/misc";
@@ -68,7 +69,7 @@ export function FilePreview(props: { projectId: string; chatId: string | null; p
       ) : markdown ? (
         <>
           <ConceptFacts projectId={props.projectId} path={props.path} />
-          <div className="bw-prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(file.data.content) }} />
+          <ProseHtml html={renderMarkdown(file.data.content)} />
         </>
       ) : (
         <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs leading-relaxed">{file.data.content}</pre>

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import type { ChatError, Message, MessagePart, ReasoningPart, ToolPart } from "~/backend/types";
+import { ProseHtml } from "~/components/prose-html";
 import { Button } from "~/components/ui/button";
 import { Tooltip } from "~/components/ui/tooltip";
 import { copy } from "~/copy";
@@ -72,9 +73,8 @@ function CopyButton(props: { text: string; label?: string }) {
 }
 
 export const Prose = memo(function Prose(props: { text: string; streaming?: boolean }) {
-  // Sanitized in renderMarkdown (DOMPurify): model output is untrusted.
   const html = renderMarkdown(props.streaming ? closeOpenMarkdown(props.text) : props.text);
-  return <div className="bw-prose text-foreground" dangerouslySetInnerHTML={{ __html: html }} />;
+  return <ProseHtml className="text-foreground" html={html} />;
 });
 
 function StepRow(props: { step: Step; projectId: string; live: boolean }) {
