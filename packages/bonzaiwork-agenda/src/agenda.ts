@@ -1,13 +1,18 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
-import { dateOf } from "./clock.ts";
+import { headlessDiagnosticsSource, registeredDiagnosticsSource } from "@bonzaiwork/feedback";
+
+import { dateOf, timeZoneName } from "./clock.ts";
 import { createMeter, mergeMeasured } from "./meter.ts";
+import { dayView } from "./overview.ts";
+import { dayQuarters } from "./quarters.ts";
+import { createAgendaRoutes } from "./routes.ts";
 import { defaultSettings } from "./parse.ts";
 import { createPresence, type PresenceReport, type PresenceSource } from "./presence.ts";
 import { createAgendaStore, type AgendaStore } from "./store.ts";
 import { createTracker, type Tracker } from "./tracker.ts";
-import type { AgendaDay, AgendaHost, AgendaRoute, AgendaSettings, Measured } from "./types.ts";
+import type { AgendaDay, AgendaHost, AgendaSettings, DayView, Measured } from "./types.ts";
 
 export type AgendaOptions = {
   stateDirectory?: string;
@@ -21,6 +26,10 @@ export type AgendaOptions = {
   presenceSource?: () => PresenceSource | null;
   /** Chats a routine started (from the routines hooks): their turns never count. */
   isRoutineChat?: (sessionId: string) => boolean;
+  /** Where "Opslaan in Downloads" writes; by default the Downloads folder Electron registered. */
+  saveDirectory?: () => string;
+  /** Tests: the zone named in the booking document. */
+  timeZone?: () => string;
 };
 
 /**
@@ -99,7 +108,50 @@ export function createAgendaHooks(options: AgendaOptions = {}) {
     return ticking;
   }
 
-  const routes: AgendaRoute[] = [];
+  /** The name to show: the one the UI last sent, else the folder name. */
+  function projectName(workspaceId: string): string {
+    const path = host?.workspaces().find((workspace) => workspace.id === workspaceId)?.path;
+    return settings.projects[workspaceId]?.name ?? (path ? basename(path) : null) ?? workspaceId;
+  }
+
+  /** A day as shown: stored quarters plus what is still in memory, within the day window. */
+  async function viewDay(date: string): Promise<DayView> {
+    const day = await requireStore().readDay(date);
+    for (const entry of meter.pending()) {
+      if (dateOf(entry.start) !== date) continue;
+      const existing = day.quarters[entry.key];
+      day.quarters[entry.key] = existing
+        ? { ...existing, measured: mergeMeasured(existing.measured, entry.measured) }
+        : { key: entry.key, start: entry.start, measured: entry.measured, correction: null, note: null, reference: null };
+    }
+    return dayView(date, dayQuarters(date, day, { projects: settings.projects, name: projectName, now: now() }));
+  }
+
+  let settingsQueue: Promise<unknown> = Promise.resolve();
+  function saveSettings(change: (next: AgendaSettings) => void): Promise<AgendaSettings> {
+    const next = settingsQueue.then(async () => {
+      const updated = structuredClone(settings);
+      change(updated);
+      await requireStore().writeSettings(updated);
+      settings = updated;
+      return settings;
+    });
+    settingsQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  const routes = createAgendaRoutes({
+    host: () => host,
+    now,
+    timeZone: options.timeZone ?? timeZoneName,
+    settings: () => settings,
+    saveSettings,
+    projectName,
+    dayView: viewDay,
+    changeDay,
+    reportPresence: (input) => presence.report(input),
+    saveDirectory: options.saveDirectory ?? (() => (registeredDiagnosticsSource() ?? headlessDiagnosticsSource).saveDirectory()),
+  });
 
   return {
     routes,
@@ -109,6 +161,7 @@ export function createAgendaHooks(options: AgendaOptions = {}) {
     reportPresence: (input: PresenceReport) => presence.report(input),
     settled: () => tracker?.settled() ?? Promise.resolve(),
     readDay: (date: string) => requireStore().readDay(date),
+    dayView: viewDay,
     async start(next: AgendaHost) {
       host = next;
       store = createAgendaStore({ directory: join(stateDirectory, "agenda"), log, now });

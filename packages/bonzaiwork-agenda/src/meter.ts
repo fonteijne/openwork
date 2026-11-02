@@ -87,10 +87,9 @@ export function createMeter() {
       entry.chats[workspaceId] = mergeChats(entry.chats[workspaceId] ?? [], [chat]);
       touch(entry, workspaceId, at);
     },
-    /** The live measurement of the quarter of `at`, for the day view; not removed. */
-    peek(at: number): { key: string; start: number; measured: Measured } | null {
-      const found = counters.get(quarterKey(at));
-      return found ? { key: found.key, start: found.start, measured: toMeasured(found) } : null;
+    /** Measurements not on disk yet (this quarter, and one that just ended), for the day view; not removed. */
+    pending(): Array<{ key: string; start: number; measured: Measured }> {
+      return [...counters.values()].map((entry) => ({ key: entry.key, start: entry.start, measured: toMeasured(entry) }));
     },
     /** Takes the quarters that ended at `now` (all of them with `all`), oldest first. */
     take(now: number, all = false): Array<{ key: string; start: number; measured: Measured }> {
