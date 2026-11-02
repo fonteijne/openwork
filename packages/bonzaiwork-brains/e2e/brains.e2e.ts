@@ -120,8 +120,8 @@ async function main() {
   const logPath = join(root, "server.log");
   const port = 19000 + Math.floor(Math.random() * 1000);
   let server: ChildProcess | undefined;
+  const log = Bun.file(logPath).writer();
   try {
-    const log = Bun.file(logPath).writer();
     server = spawn("bun", ["--conditions=development", "src/cli.ts", "--workspace", plain, "--port", String(port)], {
       cwd: join(repoRoot, "apps/server"),
       env: {
@@ -314,12 +314,21 @@ async function main() {
     const readByProject = await waitFor("project read", async () => (toolResults.filter((result) => result.includes("Uit het brein Sales")).length > readsBeforeProject ? true : null), 30_000).catch(() => null);
     check("… and a chat there reads it without a click", readByProject !== null);
     await log.flush();
+  } catch (error) {
+    // A timeout is a failure too: keep the folder and show the server's side of it (CI keeps nothing).
+    failures += 1;
+    console.log(`FAIL ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     server?.kill("SIGTERM");
     litellm.server.close();
     await new Promise((done) => setTimeout(done, 1000));
+    await log.flush();
     if (failures === 0) await rm(root, { recursive: true, force: true });
-    else console.log(`kept ${root} for inspection (server log: ${logPath})`);
+    else {
+      console.log(`kept ${root} for inspection (server log: ${logPath})`);
+      const lines = (await Bun.file(logPath).text().catch(() => "")).trimEnd().split("\n");
+      console.log(`--- last ${Math.min(lines.length, 80)} lines of the server log ---\n${lines.slice(-80).join("\n")}`);
+    }
   }
   console.log(failures === 0 ? "e2e passed" : `e2e failed: ${failures} check(s)`);
   process.exit(failures === 0 ? 0 : 1);

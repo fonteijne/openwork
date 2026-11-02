@@ -143,6 +143,16 @@ GitHub en GitLab (ook een eigen GitLab-server). Iedereen heeft al een SSH-sleute
 Een UI-terugval is daardoor niet nodig. `POST /bonzaiwork/brains/:id/sync` blijft voor de knop
 "Wijzigingen delen" (modus handmatig).
 
+De engine speelt events niet opnieuw af: een beurt die loopt voordat de stream van die map open is,
+hoort de server niet. Daarom:
+
+- opent de pull vóór elke beurt de stream van dat project met `followSessions(workspaceId)` en wacht
+  tot hij verbonden is (max. ~3 s). Anders krijgt een project van net pas bij de volgende ronde (elke
+  5 s) een stream;
+- telt de beurt vanaf de pull als lopend. Mist de server de events toch, dan legt de periodieke
+  controle (`runningSessions`, elke 10 s) de beurt alsnog vast, na een korte wachttijd waarin de
+  engine de chat nog moet starten.
+
 Bijwerken vóór de beurt gaat via de UI: `chats.send` wacht op `POST /bonzaiwork/brains/:id/pull` (max.
 ~5 s) voordat de prompt naar de engine gaat. Niet gekozen: een eigen OpenCode v2-plugin met
 `context.session.hook("prompt", …)`; dat vraagt een patch in `managed-opencode-v2.ts`.

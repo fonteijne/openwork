@@ -64,6 +64,12 @@ export type DownstreamServerHost = {
   externalFetch(input: string, init?: RequestInit): Promise<Response>;
   /** Follows turns in every local workspace; returns an unsubscribe. */
   onSessionActivity(listener: (activity: DownstreamSessionActivity) => void): () => void;
+  /**
+   * Makes sure turns in this workspace are heard: opens its event stream now (a new workspace
+   * otherwise waits up to 5 s) and resolves true once the engine accepted it, false after ~3 s.
+   * The engine does not replay events, so call this before a turn starts.
+   */
+  followSessions(workspaceId: string): Promise<boolean>;
   /** Conversations running in a workspace now, or null when the engine cannot say. */
   runningSessions(workspaceId: string): Promise<string[] | null>;
   /** Title and parent of an engine conversation, or null when unknown. */
@@ -235,9 +241,20 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type FollowedStream = {
+  abort: AbortController;
+  /** The engine accepted the stream: from here on, every turn in the folder is heard. */
+  connected: boolean;
+  waiters: Set<() => void>;
+  /** Ends the pause before the next connection attempt. */
+  wake: (() => void) | null;
+};
+
 /**
  * One event stream per local workspace (`/api/event`), reconnecting after an
- * engine restart and following workspaces as they come and go.
+ * engine restart and following workspaces as they come and go. The engine does
+ * not replay events, so a turn that runs before its folder's stream is
+ * connected goes unheard: `follow` opens it now and waits for it.
  */
 function createSessionActivityFeed(
   workspaces: () => Array<{ id: string; path: string }>,
@@ -245,7 +262,7 @@ function createSessionActivityFeed(
   log: DownstreamServerHost["log"],
 ) {
   const listeners = new Set<(activity: DownstreamSessionActivity) => void>();
-  const streams = new Map<string, AbortController>();
+  const streams = new Map<string, FollowedStream>();
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const emit = (activity: DownstreamSessionActivity) => {
@@ -256,7 +273,15 @@ function createSessionActivityFeed(
     }
   };
 
-  async function follow(workspace: { id: string; path: string }, abort: AbortController): Promise<void> {
+  function markConnected(stream: FollowedStream, connected: boolean): void {
+    stream.connected = connected;
+    if (!connected) return;
+    for (const waiter of stream.waiters) waiter();
+    stream.waiters.clear();
+  }
+
+  async function follow(workspace: { id: string; path: string }, stream: FollowedStream): Promise<void> {
+    const { abort } = stream;
     while (!abort.signal.aborted) {
       const engine = connection();
       if (engine) {
@@ -265,6 +290,7 @@ function createSessionActivityFeed(
           url.searchParams.set("location[directory]", workspace.path);
           const response = await loopbackFetch(url.toString(), { headers: { authorization: engineAuthorization(engine), accept: "text/event-stream" }, signal: abort.signal });
           if (response.ok && response.body) {
+            markConnected(stream, true);
             const decoder = new TextDecoder();
             let buffer = "";
             for await (const chunk of response.body) {
@@ -288,25 +314,31 @@ function createSessionActivityFeed(
             }
           }
         } catch { /* engine restarting or stream closed */ }
+        markConnected(stream, false);
       }
-      if (!abort.signal.aborted) await new Promise((resolve) => setTimeout(resolve, 2_000));
+      if (!abort.signal.aborted) {
+        await new Promise<void>((resolve) => {
+          const pause = setTimeout(() => { stream.wake = null; resolve(); }, 2_000);
+          stream.wake = () => { clearTimeout(pause); stream.wake = null; resolve(); };
+        });
+      }
     }
   }
 
   function reconcile(): void {
     const wanted = new Map(workspaces().map((workspace) => [workspace.id, workspace]));
-    for (const [id, abort] of streams) {
-      if (!wanted.has(id)) { abort.abort(); streams.delete(id); }
+    for (const [id, stream] of streams) {
+      if (!wanted.has(id)) { stream.abort.abort(); stream.wake?.(); streams.delete(id); }
     }
     for (const [id, workspace] of wanted) {
       if (streams.has(id)) continue;
-      const abort = new AbortController();
-      streams.set(id, abort);
-      void follow(workspace, abort);
+      const stream: FollowedStream = { abort: new AbortController(), connected: false, waiters: new Set(), wake: null };
+      streams.set(id, stream);
+      void follow(workspace, stream);
     }
   }
 
-  return (listener: (activity: DownstreamSessionActivity) => void) => {
+  function subscribe(listener: (activity: DownstreamSessionActivity) => void): () => void {
     listeners.add(listener);
     if (!timer) {
       reconcile();
@@ -318,11 +350,28 @@ function createSessionActivityFeed(
       if (listeners.size === 0 && timer) {
         clearInterval(timer);
         timer = undefined;
-        for (const abort of streams.values()) abort.abort();
+        for (const stream of streams.values()) { stream.abort.abort(); stream.wake?.(); }
         streams.clear();
       }
     };
-  };
+  }
+
+  /** Opens the workspace's stream now instead of at the next reconcile; true once it is connected. */
+  async function followNow(workspaceId: string, timeoutMs: number): Promise<boolean> {
+    if (listeners.size === 0) return false;
+    reconcile();
+    const stream = streams.get(workspaceId);
+    if (!stream) return false;
+    if (stream.connected) return true;
+    stream.wake?.();
+    return new Promise<boolean>((resolve) => {
+      const waiter = () => { clearTimeout(deadline); resolve(true); };
+      const deadline = setTimeout(() => { stream.waiters.delete(waiter); resolve(false); }, timeoutMs);
+      stream.waiters.add(waiter);
+    });
+  }
+
+  return { subscribe, follow: followNow };
 }
 
 async function writeFileAtomic(path: string, content: string): Promise<void> {
@@ -340,6 +389,7 @@ export async function startDownstreamServerHooks(input: DownstreamStartInput): P
   const localWorkspaces = () => config.workspaces
     .filter((workspace) => workspace.workspaceType === "local")
     .map((workspace) => ({ id: workspace.id, path: workspace.path }));
+  const activity = createSessionActivityFeed(localWorkspaces, () => engine.connection(), log);
   const readEngine = async (path: string): Promise<unknown> => {
     const connection = engine.connection();
     if (!connection) throw new Error("The engine is not running");
@@ -392,7 +442,8 @@ export async function startDownstreamServerHooks(input: DownstreamStartInput): P
     },
     externalFetch,
     log,
-    onSessionActivity: createSessionActivityFeed(localWorkspaces, () => engine.connection(), log),
+    onSessionActivity: activity.subscribe,
+    followSessions: (workspaceId) => activity.follow(workspaceId, 3_000),
     runningSessions: async (workspaceId) => {
       const workspace = localWorkspaces().find((candidate) => candidate.id === workspaceId);
       if (!workspace) return null;
