@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { dateOf } from "./clock.ts";
 import { createMeter, mergeMeasured } from "./meter.ts";
 import { defaultSettings } from "./parse.ts";
+import { createPresence, type PresenceReport, type PresenceSource } from "./presence.ts";
 import { createAgendaStore, type AgendaStore } from "./store.ts";
 import { createTracker, type Tracker } from "./tracker.ts";
 import type { AgendaDay, AgendaHost, AgendaRoute, AgendaSettings, Measured } from "./types.ts";
@@ -14,6 +15,10 @@ export type AgendaOptions = {
   now?: () => number;
   /** How often finished quarters go to disk (plan §5.5). */
   tickMs?: number;
+  /** How often presence is measured (plan §5.3). */
+  sampleMs?: number;
+  /** Tests: the desktop presence source; by default the one Electron registered. */
+  presenceSource?: () => PresenceSource | null;
   /** Chats a routine started (from the routines hooks): their turns never count. */
   isRoutineChat?: (sessionId: string) => boolean;
 };
@@ -32,11 +37,13 @@ export function createAgendaHooks(options: AgendaOptions = {}) {
   let tracker: Tracker | null = null;
   let settings: AgendaSettings = defaultSettings();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let sampleTimer: ReturnType<typeof setInterval> | null = null;
   let stopActivity: (() => void) | null = null;
   let ticking: Promise<void> | null = null;
   /** Day changes take turns: a flush and a correction never read the same file at once. */
   let dayQueue: Promise<unknown> = Promise.resolve();
 
+  const presence = createPresence({ now, enabled: () => settings.enabled, source: options.presenceSource, addPresence: meter.addPresence });
   const log: AgendaHost["log"] = (level, message, fields) => host?.log(level, message, fields);
 
   function requireStore(): AgendaStore {
@@ -98,6 +105,8 @@ export function createAgendaHooks(options: AgendaOptions = {}) {
     routes,
     /** Tests: one turn of the clock, and wait for turns being looked up. */
     tick,
+    sample: () => presence.sample(),
+    reportPresence: (input: PresenceReport) => presence.report(input),
     settled: () => tracker?.settled() ?? Promise.resolve(),
     readDay: (date: string) => requireStore().readDay(date),
     async start(next: AgendaHost) {
@@ -108,6 +117,8 @@ export function createAgendaHooks(options: AgendaOptions = {}) {
       stopActivity = next.onSessionActivity((activity) => tracker?.onActivity(activity));
       timer = setInterval(() => { void tick(); }, options.tickMs ?? 30_000);
       timer.unref?.();
+      sampleTimer = setInterval(() => { presence.sample(); }, options.sampleMs ?? 60_000);
+      sampleTimer.unref?.();
       await tick();
     },
     /** Stops the clock and saves the quarter so far, so a restart within it keeps what was measured. */
@@ -115,7 +126,9 @@ export function createAgendaHooks(options: AgendaOptions = {}) {
       stopActivity?.();
       stopActivity = null;
       if (timer) clearInterval(timer);
+      if (sampleTimer) clearInterval(sampleTimer);
       timer = null;
+      sampleTimer = null;
       await ticking;
       if (store) await flush(true);
       host = null;
