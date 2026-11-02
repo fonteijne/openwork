@@ -8,6 +8,8 @@
  * the browser for previews and design review. Screens never know which one.
  */
 
+import type { AgendaSettingsView, BridgePost, Correction, DayView } from "@bonzaiwork/agenda/model";
+
 // ---------------------------------------------------------------------------
 // App, keys and models
 // ---------------------------------------------------------------------------
@@ -54,6 +56,8 @@ export type Capabilities = {
   globalConfig: boolean;
   /** Brains: projects that are shared git repositories, and the personal brain (§7.5). */
   brains: boolean;
+  /** The agenda: quarter hours per project, Bridge posts and the booking document (§7.6). */
+  agenda: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -640,6 +644,8 @@ export interface Backend {
     openUrl(url: string): Promise<void>;
   };
 
+  agenda: AgendaBackend;
+
   feedback: {
     /** Screenshot and redacted logs, taken before the dialog opens; null when this backend has neither. */
     collect(notes: string): Promise<FeedbackReport | null>;
@@ -647,6 +653,40 @@ export interface Backend {
     save(reportId: string, input: { screenshot: boolean }): Promise<string>;
   };
 }
+
+// ---------------------------------------------------------------------------
+// Agenda (contract §7.6, docs/bonzaiwork/agenda-manager-plan.md §7.1)
+// ---------------------------------------------------------------------------
+
+export type { AgendaSettingsView, Block, BridgePost, Correction, DayView, QuarterKind, QuarterView } from "@bonzaiwork/agenda/model";
+
+export type AgendaQuartersInput = {
+  date: string;
+  /** Quarter keys of that day; `to` is the last quarter (inclusive). */
+  from: string;
+  to: string;
+  /** Null: back to the measurement. */
+  correction: Correction | null;
+  /** Left out: unchanged; null: cleared. */
+  note?: string | null;
+  reference?: string | null;
+};
+
+export type AgendaBackend = {
+  settings(): Promise<AgendaSettingsView>;
+  setEnabled(enabled: boolean): Promise<void>;
+  setProjectPost(projectId: string, post: BridgePost | null): Promise<void>;
+  /** Today when `date` is left out. */
+  day(date?: string): Promise<DayView>;
+  setQuarters(input: AgendaQuartersInput): Promise<{ undoId: string }>;
+  undo(undoId: string): Promise<void>;
+  /** The open project, on every navigation; in a plain browser also focus and the last input. */
+  reportPresence(input: { projectId: string | null; name: string | null; focused?: boolean; lastInputAt?: number }): Promise<void>;
+  /** The booking document (Markdown) for a period of at most 31 days. */
+  bookingDocument(from: string, to: string): Promise<string>;
+  /** Saves the booking document in Downloads; the demo downloads it in the browser. */
+  saveBookingDocument(from: string, to: string): Promise<{ path: string }>;
+};
 
 /** A failure the UI explains in its own words (DESIGN.md C6, T2). */
 export class BackendError extends Error {

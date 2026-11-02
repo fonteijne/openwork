@@ -34,6 +34,10 @@ export const keys = {
   brainAuthor: ["brain-author"] as const,
   workflows: (projectId: string) => ["workflows", projectId] as const,
   reads: (projectId: string) => ["brain-reads", projectId] as const,
+  agendaSettings: ["agenda", "settings"] as const,
+  agendaDay: (date: string) => ["agenda", "day", date] as const,
+  /** Every agenda query: a change to a quarter or a post can change any day. */
+  agenda: ["agenda"] as const,
   env: ["env"] as const,
   versions: ["versions"] as const,
 };
@@ -168,4 +172,26 @@ export function useWorkflows(projectId: string) {
 export function useReads(projectId: string) {
   const backend = useBackend();
   return useQuery({ queryKey: keys.reads(projectId), queryFn: () => backend.brains.reads(projectId), enabled: backend.capabilities.brains, staleTime: 10_000 });
+}
+
+/** Bridge posts per project and "Werkdag bijhouden" (plan §7.5). */
+export function useAgendaSettings(enabled = true) {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.agendaSettings, queryFn: () => backend.agenda.settings(), enabled: enabled && backend.capabilities.agenda, staleTime: 30_000 });
+}
+
+/**
+ * One day of the agenda. The pill reads today once a minute; the open panel polls the day it shows
+ * and refreshes on window focus (plan §7.2). A closed panel asks nothing.
+ */
+export function useAgendaDay(date: string, options: { enabled?: boolean; poll?: boolean } = {}) {
+  const backend = useBackend();
+  return useQuery({
+    queryKey: keys.agendaDay(date),
+    queryFn: () => backend.agenda.day(date),
+    enabled: (options.enabled ?? true) && backend.capabilities.agenda,
+    refetchInterval: options.poll === false ? false : 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 20_000,
+  });
 }

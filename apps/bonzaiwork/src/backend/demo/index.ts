@@ -22,6 +22,7 @@ import {
 import { missedOccurrence, nextOccurrence } from "~/lib/schedule";
 import { readLocalJson, writeLocalJson, writeLocal } from "~/lib/storage";
 
+import { createDemoAgenda } from "./agenda";
 import { createDemoBrains } from "./brains";
 import { planReply, titleFrom, type Step } from "./replies";
 import { createSeed, type DemoState } from "./seed";
@@ -47,6 +48,7 @@ const CAPABILITIES: Capabilities = {
   notifications: false,
   globalConfig: true,
   brains: true,
+  agenda: true,
 };
 
 const MIN = 60_000;
@@ -137,6 +139,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
   const questionWaiters = new Map<string, Waiter<string[][] | null>>();
   const alwaysAllowed = new Map<string, Set<string>>();
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  const agenda = createDemoAgenda({ storageKey, withProjects: !options.empty, projects: () => state.projects.map((project) => ({ id: project.id, name: project.name })) });
 
   // -------------------------------------------------------------------------
   // Persistence and events
@@ -542,6 +545,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       for (const controller of running.values()) controller.abort();
       writeLocal(storageKey, null);
       state = createSeed(Date.now(), options);
+      agenda.reset();
       flush();
     },
 
@@ -1215,6 +1219,8 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
         window.open(url, "_blank", "noopener,noreferrer");
       },
     },
+
+    agenda,
 
     feedback: {
       // No window to capture and no logs in the browser: the dialog only opens GitHub.
