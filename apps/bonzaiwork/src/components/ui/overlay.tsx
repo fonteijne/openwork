@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 
 import { copy } from "~/copy";
@@ -20,6 +20,10 @@ if (typeof window !== "undefined") {
   whenIdle(() => void alerts.load());
 }
 
+/**
+ * Every modal dims what is behind it, also when it opens from another dialog, the agenda panel or a
+ * sheet: Base UI skips the backdrop of a nested dialog unless `forceRender` is set.
+ */
 const BACKDROP =
   "fixed inset-0 z-50 bg-backdrop transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[ending-style]:duration-100";
 
@@ -42,7 +46,7 @@ export function Dialog(props: {
   return (
     <DialogPrimitive.Root open={props.open} onOpenChange={(open) => props.onOpenChange(open)}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className={BACKDROP} />
+        <DialogPrimitive.Backdrop forceRender className={BACKDROP} />
         <DialogPrimitive.Popup
           initialFocus={props.initialFocus}
           className={cn(
@@ -82,7 +86,7 @@ export function ConfirmDialog(props: {
   return (
     <AlertPrimitive.Root open={props.open} onOpenChange={(open) => props.onOpenChange(open)}>
       <AlertPrimitive.Portal>
-        <AlertPrimitive.Backdrop className={BACKDROP} />
+        <AlertPrimitive.Backdrop forceRender className={BACKDROP} />
         <AlertPrimitive.Popup className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-window bg-popover p-5 text-popover-foreground shadow-shell outline-none transition-[opacity,transform] duration-150 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[ending-style]:duration-100">
           <AlertPrimitive.Title className="text-base font-semibold">{props.title}</AlertPrimitive.Title>
           <AlertPrimitive.Description className="mt-2 text-sm text-muted-foreground">{props.body}</AlertPrimitive.Description>
@@ -105,7 +109,7 @@ export function Sheet(props: { open: boolean; onOpenChange: (open: boolean) => v
   return (
     <DialogPrimitive.Root open={props.open} onOpenChange={(open) => props.onOpenChange(open)}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className={BACKDROP} />
+        <DialogPrimitive.Backdrop forceRender className={BACKDROP} />
         <DialogPrimitive.Popup
           aria-label={props.label}
           className={cn(
@@ -113,6 +117,55 @@ export function Sheet(props: { open: boolean; onOpenChange: (open: boolean) => v
             props.side === "left"
               ? "left-0 pl-[env(safe-area-inset-left)] data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full"
               : "right-0 pr-[env(safe-area-inset-right)] data-[starting-style]:translate-x-full data-[ending-style]:translate-x-full",
+            props.className,
+          )}
+        >
+          {props.children}
+        </DialogPrimitive.Popup>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * A non-modal panel on the right (agenda plan §7.2): no backdrop, no focus trap, no scroll lock, so the
+ * page stays usable and the composer stays typable. Opening moves focus into the panel; Esc inside it
+ * closes it and focus returns where it was (Base UI). A press elsewhere, focus moving out, or Esc
+ * pressed elsewhere (the composer, a permission card) leave it open and reach the page as usual.
+ */
+export function Panel(props: { open: boolean; onOpenChange: (open: boolean) => void; label: string; children: ReactNode; className?: string; initialFocus?: React.RefObject<HTMLElement | null> }) {
+  const DialogPrimitive = useModule(dialogs, useOpenedOnce(props.open));
+  const popup = useRef<HTMLDivElement>(null);
+  if (!DialogPrimitive) return null;
+  return (
+    <DialogPrimitive.Root
+      open={props.open}
+      modal={false}
+      disablePointerDismissal
+      onOpenChange={(open, details) => {
+        if (!open && details.reason === "escape-key") {
+          const target = details.event.target;
+          if (!(target instanceof Node) || !popup.current?.contains(target)) {
+            details.allowPropagation();
+            details.cancel();
+            return;
+          }
+        }
+        props.onOpenChange(open);
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Popup
+          ref={popup}
+          aria-label={props.label}
+          initialFocus={props.initialFocus}
+          onKeyDown={(event) => {
+            // Window shortcuts of the page (Enter approves a permission card) are not for the panel.
+            if (event.key === "Enter") event.stopPropagation();
+          }}
+          className={cn(
+            "fixed inset-y-2 right-2 z-40 flex w-[min(calc(100vw-1rem),360px)] flex-col overflow-hidden rounded-window bg-popover text-popover-foreground shadow-shell outline-none transition-[opacity,transform] duration-180 ease-soft data-[ending-style]:duration-120",
+            "data-[starting-style]:translate-x-3 data-[starting-style]:opacity-0 data-[ending-style]:translate-x-2 data-[ending-style]:opacity-0",
             props.className,
           )}
         >

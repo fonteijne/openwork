@@ -533,8 +533,9 @@ routes: de gebruiker maakt het issue zelf aan op GitHub.
 
 ### 7.6 Agenda
 
-Fase 1 (backend) gebouwd in `packages/bonzaiwork-agenda`; het paneel komt in fase 2. Plan en regels:
-[`agenda-manager-plan.md`](./agenda-manager-plan.md). De agenda houdt per kwartier (lokale tijd) bij in welk
+Gebouwd: de backend in `packages/bonzaiwork-agenda`, het paneel in `apps/bonzaiwork` (`Backend.agenda`, pil, paneel,
+Bridge-post in de projectinstellingen, export). Plan en regels: [`agenda-manager-plan.md`](./agenda-manager-plan.md);
+bediening en testen: [`agenda.md`](./agenda.md). De UI importeert de types en pure helpers uit `@bonzaiwork/agenda/model`. De agenda houdt per kwartier (lokale tijd) bij in welk
 project je werkte, over alle projecten heen, zonder model en zonder chat in je project. Opslag in
 `<userData>/bonzaiwork/agenda/` (`settings.json`, `days/<datum>.json`), atomisch en met rechten `0600`.
 

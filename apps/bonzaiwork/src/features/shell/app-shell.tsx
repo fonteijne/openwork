@@ -6,15 +6,18 @@ import type { Backend } from "~/backend/types";
 
 import { Sheet } from "~/components/ui/overlay";
 import { copy } from "~/copy";
-import { useMediaQuery, DESKTOP } from "~/lib/use-media";
+import { useMediaQuery, DESKTOP, WIDE } from "~/lib/use-media";
 import { useOpenedOnce } from "~/lib/use-opened-once";
 import type { Route } from "~/lib/router";
 
+import { useAgendaPresence } from "../agenda/presence";
 import { Sidebar } from "./sidebar";
 import { useUi } from "./ui-store";
 
 const CommandPalette = lazy(() => import("./command-palette").then((module) => ({ default: module.CommandPalette })));
 const NewProjectDialog = lazy(() => import("../projects/new-project-dialog").then((module) => ({ default: module.NewProjectDialog })));
+// The agenda panel is its own chunk: closed means not loaded (agenda plan §7.6).
+const AgendaPanelHost = lazy(() => import("../agenda/agenda-panel").then((module) => ({ default: module.AgendaPanelHost })));
 const FeedbackDialog = lazy(() => import("../feedback/feedback-dialog").then((module) => ({ default: module.FeedbackDialog })));
 
 const NO_ENGINE: NonNullable<Backend["engine"]> = { current: () => "ready", subscribe: () => () => undefined, error: () => null, retry: () => undefined };
@@ -56,7 +59,11 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
   const feedbackOpen = useUi((state) => state.feedbackOpen);
   const setFeedback = useUi((state) => state.setFeedback);
   const feedbackOpened = useOpenedOnce(feedbackOpen);
+  const wide = useMediaQuery(WIDE);
+  const toggleAgenda = useUi((state) => state.toggleAgenda);
+  const agendaOpened = useOpenedOnce(useUi((state) => state.agendaOpen));
   const routeKey = JSON.stringify(props.route);
+  useAgendaPresence(props.projectId);
 
   // Navigating closes the drawer and the sidecar sheet.
   useEffect(() => {
@@ -70,10 +77,15 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
         event.preventDefault();
         setPalette(true);
       }
+      // ⌘J / Ctrl+J: the agenda, from anywhere, the composer included (plan §7.2).
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        toggleAgenda(wide);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setPalette]);
+  }, [setPalette, toggleAgenda, wide]);
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
@@ -90,6 +102,11 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
         <EngineBanner />
         {props.children}
       </div>
+      {agendaOpened ? (
+        <Suspense fallback={null}>
+          <AgendaPanelHost projectId={props.projectId} />
+        </Suspense>
+      ) : null}
       {paletteOpened ? (
         <Suspense fallback={null}>
           <CommandPalette route={props.route} projectId={props.projectId} />

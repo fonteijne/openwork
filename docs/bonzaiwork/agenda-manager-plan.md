@@ -1,6 +1,6 @@
 # Agenda-manager: implementatieplan
 
-Status: fase 1 (backend) gebouwd in `packages/bonzaiwork-agenda`; fase 2 (paneel) nog niet. Wat fase 1 vaststelde en waar de code afwijkt: [`overdracht-agenda-manager.md`](./overdracht-agenda-manager.md) §11. Datum: 2026-11-02. Onderzoek en onderbouwing:
+Status: MVP gebouwd: fase 1 (backend) in `packages/bonzaiwork-agenda`, fase 2 (paneel) in `apps/bonzaiwork`. Wat de fasen vaststelden en waar de code afwijkt: [`overdracht-agenda-manager.md`](./overdracht-agenda-manager.md) §11 en §13; testen: [`agenda.md`](./agenda.md). Datum: 2026-11-02. Onderzoek en onderbouwing:
 [`agenda-manager-onderzoek.md`](./agenda-manager-onderzoek.md).
 
 ## 0. Beslissingen

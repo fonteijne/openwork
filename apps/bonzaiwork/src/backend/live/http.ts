@@ -107,6 +107,18 @@ const SERVER_MESSAGES: Record<string, string> = {
   invalid_schedule: "Dit schema klopt niet. Kies een ander tijdstip.",
   invalid_routine: "Een routine heeft een naam en een opdracht nodig.",
   routine_not_found: "Deze routine bestaat niet meer.",
+  // Agenda (packages/bonzaiwork-agenda).
+  invalid_date: "Deze datum klopt niet. Kies een andere dag.",
+  invalid_period: "Deze periode klopt niet. Kies een begin- en einddatum.",
+  period_too_long: "Kies een periode van hoogstens 31 dagen.",
+  invalid_quarters: "Kies kwartieren van één dag, met het begin vóór het einde.",
+  invalid_correction: "Deze wijziging klopt niet. Kies een soort en vul een project of label in.",
+  invalid_post: "Een entity-ID heeft 1 tot 64 tekens, zonder spaties.",
+  invalid_note: "Een notitie heeft hoogstens 500 tekens.",
+  invalid_reference: "Een referentie heeft hoogstens 120 tekens.",
+  invalid_settings: "Deze instelling klopt niet. Probeer het opnieuw.",
+  project_not_found: "Dit project bestaat niet meer.",
+  undo_not_found: "Deze wijziging kan niet meer ongedaan worden gemaakt.",
 };
 
 /**

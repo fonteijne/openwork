@@ -11,6 +11,10 @@
     "./presence": {
       "types": "./src/presence.ts",
       "default": "./src/presence.ts"
+    },
+    "./model": {
+      "types": "./src/model.ts",
+      "default": "./src/model.ts"
     }
   },
   "files": [

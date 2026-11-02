@@ -18,6 +18,7 @@ import { href } from "~/lib/router";
 import { readLocal, writeLocal } from "~/lib/storage";
 import { setTheme, useTheme, type ThemePreference } from "~/lib/theme";
 
+import { AgendaAppSection } from "../agenda/agenda-settings";
 import { BrainsAppSection } from "../brain/personal-setup";
 import { DEFAULT_FOLDER_KEY, FALLBACK_FOLDER } from "../projects/new-project-dialog";
 import { CommandsList, KeyForm, SkillsList } from "./project-settings";
@@ -290,6 +291,7 @@ export function AppSettingsPage() {
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 px-4 pt-6 pb-16 sm:px-6 sm:pt-8">
           <KeysSection />
           <AppearanceSection />
+          <AgendaAppSection />
           <BrainsAppSection />
           {anchor ? (
             <>

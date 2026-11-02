@@ -2,12 +2,13 @@ import type { ReactNode } from "react";
 import { Menu as MenuIcon } from "lucide-react";
 
 import { copy } from "~/copy";
+import { AgendaPill } from "~/features/agenda/agenda-pill";
 import { useUi } from "~/features/shell/ui-store";
 import { cn } from "~/lib/cn";
 
 import { Button } from "./ui/button";
 
-/** The 48px bar on top of every page. On phones it carries the menu button. */
+/** The 48px bar on top of every page. On phones it carries the menu button; the agenda pill sits on the right of every page. */
 export function TopBar(props: { children?: ReactNode; actions?: ReactNode; className?: string; leading?: ReactNode }) {
   const setDrawer = useUi((state) => state.setDrawer);
   return (
@@ -18,7 +19,10 @@ export function TopBar(props: { children?: ReactNode; actions?: ReactNode; class
         </Button>
       )}
       <div className="flex min-w-0 flex-1 items-center gap-2">{props.children}</div>
-      {props.actions ? <div className="flex shrink-0 items-center gap-1">{props.actions}</div> : null}
+      <div className="flex shrink-0 items-center gap-1">
+        <AgendaPill />
+        {props.actions}
+      </div>
     </header>
   );
 }

@@ -25,6 +25,7 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
   desktop-main/presence-source.ts  focus en systeem-idle uit Electron voor de agenda
   scripts/package.mjs            verpakken; smoke-packaged.mjs: smoketest van de verpakte app
   src/features/brain/            breinen in de UI (statuspil, kaarten, instellingen, ophalen)
+  src/features/agenda/           agenda in de UI (pil, paneel, tijdlijn, export, Bridge-post); zie docs/bonzaiwork/agenda.md
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
@@ -32,9 +33,10 @@ docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest 
 docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
 docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per kwartier je werkdag bijhoudt
 docs/bonzaiwork/agenda-manager-plan.md         implementatieplan van die agenda-agent: regels, bestanden, routes, prompts, fasen
-docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt
+docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt en stand per fase
+docs/bonzaiwork/agenda.md                      de agenda zoals gebouwd: bediening, demo, headless testen, eerste test na de MVP
 packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
-packages/bonzaiwork-agenda/      agenda: meting per kwartier (beurten, aanwezigheid), correcties, boekdocument voor Bridge (fase 1, backend)
+packages/bonzaiwork-agenda/      agenda: meting per kwartier (beurten, aanwezigheid), correcties, boekdocument voor Bridge; ./model voor de UI
 packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm, brains, routines, agenda en feedback
 scripts/bonzaiwork/fetch-git.mjs   meegeleverde git ophalen en uitdunnen (→ apps/bonzaiwork/resources/git)
 packages/bonzaiwork-feedback/    "Feedback sturen": screenshot, opgeschoonde logs, opslaan in Downloads (feedback.md)

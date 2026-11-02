@@ -20,6 +20,7 @@ import {
   type EngineState,
 } from "../types";
 
+import { createAgendaClient } from "./agenda";
 import { createBrainsClient } from "./brains";
 import { hasDesktopBridge, openExternal, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
 import { engine, createTranslator, followEvents, PROVIDER_ID, type EngineTarget, type NativeSession } from "./engine";
@@ -173,8 +174,9 @@ const AGENT_NAMES: Record<string, { name: string; description: string }> = {
 export async function createLiveBackend(): Promise<Backend> {
   // whenStarting: a request that meets "engine not running" waits for engineReady() (below).
   const connection: Connection = { ...(await resolveConnection()), whenStarting: () => engineReady() };
-  const [metaOnServer, routinesOnServer, brainsOnServer] = await Promise.all([
+  const [metaOnServer, routinesOnServer, brainsOnServer, agendaOnServer] = await Promise.all([
     probe(connection, "/bonzaiwork/projects"), probe(connection, "/bonzaiwork/routines"), probe(connection, "/bonzaiwork/brains"),
+    probe(connection, "/bonzaiwork/agenda/settings"),
   ]);
   const meta: MetaStore = metaOnServer ? serverMetaStore(connection) : deviceMetaStore(new URL(connection.baseUrl).host);
   const desktop = hasDesktopBridge();
@@ -188,6 +190,7 @@ export async function createLiveBackend(): Promise<Backend> {
     notifications: false,
     globalConfig: false,
     brains: brainsOnServer,
+    agenda: agendaOnServer,
   };
 
   const workspaces = new Map<string, Workspace>();
@@ -882,6 +885,8 @@ export async function createLiveBackend(): Promise<Backend> {
       revealPath: (path) => revealItem(path),
       openUrl: (url) => openExternal(url),
     },
+
+    agenda: createAgendaClient(req, { available: agendaOnServer }),
 
     feedback: {
       async collect(notes) {
