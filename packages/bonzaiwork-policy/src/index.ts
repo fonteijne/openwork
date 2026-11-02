@@ -50,6 +50,20 @@ export function isAllowedProvider(providerId: string): boolean {
 
 export type KeyMode = "user" | "workspace";
 
+/**
+ * LiteLLM model ids that new projects start with and that the "turn on
+ * preferred models" button in project settings selects. A build overrides
+ * them with BONZAIWORK_PREFERRED_MODELS (comma-separated).
+ */
+export const PREFERRED_MODEL_IDS: readonly string[] = ["gpt-6-luna", "glm-5", "glm-4.7-flash", "qwen3.8-27b", "gemini-3.8-flash"];
+
+/** Splits a comma-separated id list; unset keeps the built-in list, an empty value means none. */
+export function readPreferredModels(raw: string | undefined): string[] {
+  if (raw === undefined) return [...PREFERRED_MODEL_IDS];
+  const ids = raw.split(",").map((id) => id.trim()).filter(Boolean);
+  return [...new Set(ids)];
+}
+
 export type BonzaiworkSettings = {
   /** LiteLLM origin plus optional path prefix, without `/v1`. Baked into the build (O3). */
   litellmBaseUrl: string;
@@ -57,6 +71,8 @@ export type BonzaiworkSettings = {
   defaultModel: string | null;
   /** Which virtual key a request uses (O1): one per user or one per workspace. */
   keyMode: KeyMode;
+  /** LiteLLM model ids new projects start with, in this order. */
+  preferredModels: string[];
 };
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -78,7 +94,12 @@ export function readSettings(environment: Record<string, string | undefined>): B
   const trimmed = trimTrailingSlashes(url.href);
   const litellmBaseUrl = trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
   const keyMode = environment.BONZAIWORK_KEY_MODE?.trim() === "workspace" ? "workspace" : "user";
-  return { litellmBaseUrl, defaultModel: environment.BONZAIWORK_DEFAULT_MODEL?.trim() || null, keyMode };
+  return {
+    litellmBaseUrl,
+    defaultModel: environment.BONZAIWORK_DEFAULT_MODEL?.trim() || null,
+    keyMode,
+    preferredModels: readPreferredModels(environment.BONZAIWORK_PREFERRED_MODELS),
+  };
 }
 
 export type LiteLLMModel = { id: string; name?: string };
