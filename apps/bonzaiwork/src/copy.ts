@@ -794,8 +794,6 @@ export const copy = {
     exportAction: "Exporteer voor Bridge",
     add: "Toevoegen",
     empty: "Nog niets gemeten op deze dag",
-    emptyHint: "Zodra je in een project werkt, verschijnt het hier per kwartier.",
-    loadFailed: "De agenda is niet geladen.",
     retry: "Opnieuw proberen",
     bridgePost: "Bridge-post",
     noPost: "Geen Bridge-post",

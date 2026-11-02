@@ -183,8 +183,7 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
   } else if (day.isError || !day.data) {
     body = (
       <EmptyState
-        title={copy.agenda.loadFailed}
-        body={errorText(day.error)}
+        title={errorText(day.error)}
         action={
           <Button variant="secondary" size="sm" onClick={() => void day.refetch()}>
             {copy.agenda.retry}
@@ -193,20 +192,8 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
       />
     );
   } else if (!day.data.blocks.length) {
-    body = (
-      <EmptyState
-        title={copy.agenda.empty}
-        body={copy.agenda.emptyHint}
-        action={
-          disabled ? undefined : (
-            <Button variant="secondary" size="sm" onClick={add}>
-              <Plus />
-              {copy.agenda.add}
-            </Button>
-          )
-        }
-      />
-    );
+    // Title only (P2); "Toevoegen" is right above it.
+    body = <EmptyState title={copy.agenda.empty} />;
   } else {
     body = <Timeline day={day.data} disabled={disabled} onEdit={(target) => day.data && setView({ kind: "edit", input: editInput(day.data, target) })} />;
   }
