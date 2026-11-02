@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { copy } from "~/copy";
 import { useIdleReady } from "~/lib/idle";
 import { lazyModule, useModule } from "~/lib/lazy-module";
+import { recordError } from "~/lib/recent-errors";
 
 type ToastApi = typeof import("@base-ui/react/toast").Toast;
 type ToastManager = ReturnType<ToastApi["createToastManager"]>;
@@ -23,6 +24,7 @@ const listeners = new Set<() => void>();
  * (P8: undo over confirm).
  */
 export function toast(title: string, options: { action?: { label: string; onClick: () => void }; tone?: "error" } = {}) {
+  if (options.tone === "error") recordError(`toast: ${title}`);
   const input: ToastInput = {
     title,
     type: options.tone,

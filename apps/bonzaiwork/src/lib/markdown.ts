@@ -12,6 +12,14 @@ let hooked = false;
 function ensureHooks() {
   if (hooked) return;
   hooked = true;
+  // DOMPurify drops `file:` links. Keep the path they point at, so a link to a
+  // project file can still open in the side panel (see file-links.ts); a bare
+  // path cannot load anything by itself.
+  DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+    if (data.attrName === "href" && /^\s*file:/i.test(data.attrValue)) {
+      data.attrValue = data.attrValue.trim().replace(/^file:(\/\/[^/]*)?/i, "") || "#";
+    }
+  });
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
     if (node.tagName === "A") {
       node.setAttribute("target", "_blank");
@@ -59,4 +67,20 @@ export function renderMarkdown(source: string): string {
     cache.set(source, html);
   }
   return html;
+}
+
+/**
+ * The web address a clicked link in rendered Markdown should open, or null
+ * when the app has nothing to open (an anchor, a relative path, an unknown
+ * scheme). Only http(s) and mailto leave the app.
+ */
+export function externalLinkHref(href: string | null | undefined): string | null {
+  const value = href?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }

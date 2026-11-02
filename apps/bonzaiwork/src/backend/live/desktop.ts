@@ -56,3 +56,13 @@ export async function pickDirectory(title: string): Promise<string | null> {
 export async function revealItem(path: string): Promise<void> {
   await invoker()?.("__revealItemInDir", path);
 }
+
+/** The system browser; outside the desktop shell, a new tab. */
+export async function openExternal(url: string): Promise<void> {
+  const open = rec(bridge()?.shell)?.openExternal;
+  if (typeof open === "function") {
+    await Promise.resolve(Reflect.apply(open, undefined, [url]));
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}

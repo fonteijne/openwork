@@ -43,7 +43,7 @@ De voorkeursmodellen zijn deze vijf LiteLLM-model-id's (V1, V2). Er zijn er niet
 | B3 | De server geeft de lijst door in `GET /bonzaiwork/status` als `preferredModels: string[]`, ongefilterd en in de ingestelde volgorde. | De UI leest één bron. Het filteren tegen de key gebeurt bij het lezen, net als bij `allowedModels`. |
 | B4 | `allowedModels: []` wordt een geldige toestand: "nog niets gekozen". `null` blijft "alle modellen van de key". | Nodig voor de flow "alles uitvinken, dan zelf aanvinken". |
 | B5 | Een project zonder bruikbaar model is **geblokkeerd, geen fout** (DESIGN C5/P4). Composer en routine-editor tonen dan "Geen modellen gekozen" met de actie "Modellen kiezen" naar de projectinstellingen. | Een lege lijst mag nooit tot een stille fout bij het versturen leiden. |
-| B6 | Nieuwe projecten krijgen `allowedModels = preferredModels` (de ingestelde id's). Is de lijst leeg, dan blijft het `null`. | Dit werkt ook als de key pas later gekoppeld wordt: het filteren gebeurt bij het lezen. |
+| B6 | Nieuwe projecten krijgen `allowedModels = preferredModels` (de ingestelde id's). Is de lijst leeg, dan blijft het `null`. Dat geldt ook voor een project uit een gedeeld brein en voor het persoonlijk brein (afgestemd 2026-11-02). | Dit werkt ook als de key pas later gekoppeld wordt: het filteren gebeurt bij het lezen. |
 | B7 | Bestaande projecten blijven zoals ze zijn: geen migratie (V4). Ze houden "Alle modellen van de key" (`null`). De gebruiker zet zelf de schakelaar uit en kiest "Alleen voorkeursmodellen". | Stilletjes modellen weghalen die iemand gebruikt, breekt lopende chats en routines. |
 
 ## Stappen
@@ -164,4 +164,4 @@ De drie toestanden van de lijst:
 - **Composer**: als de key wel modellen heeft maar er geen aan staat, toont de modelkeuze "Geen model aan" in plaats van "Geen modellen beschikbaar voor deze key".
 - **Standaardmodel-select**: staat het standaardmodel van het project uit, dan toont de select "Eerste beschikbare model" in plaats van het kale model-id.
 - **Demo**: de demo-opslag gaat naar versie 4, zodat de nieuwe modellen ook verschijnen voor wie de demo al eerder opende.
-
+- **Na de merge met `main` (project-breinen)**: het workflowpaneel op de projectpagina volgt dezelfde geblokkeerde staat als de composer (`!blocked` in plaats van `hasKey`).

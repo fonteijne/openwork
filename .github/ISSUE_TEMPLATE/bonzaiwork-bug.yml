@@ -1,0 +1,37 @@
+name: "BonzaiWork: er gaat iets mis"
+description: Meld een fout in BonzaiWork (meestal via Feedback sturen in de app)
+title: "[Fout]: "
+labels:
+  - bug
+  - feedback
+body:
+  - type: textarea
+    id: beschrijving
+    attributes:
+      label: Wat ging er mis?
+      description: Wat zag je, en wat had je verwacht?
+    validations:
+      required: true
+  - type: textarea
+    id: stappen
+    attributes:
+      label: Wat deed je net daarvoor? (optioneel)
+      placeholder: |
+        1. Ik opende het project …
+        2. Ik klikte op …
+    validations:
+      required: false
+  - type: textarea
+    id: bijlagen
+    attributes:
+      label: Screenshot en logs
+      description: Sleep screenshot.png en logs.txt uit de map BonzaiWork-feedback-… in je Downloads hierheen.
+    validations:
+      required: false
+  - type: textarea
+    id: omgeving
+    attributes:
+      label: Versie en systeem
+      description: Vult de app zelf in.
+    validations:
+      required: false

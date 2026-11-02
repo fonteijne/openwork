@@ -48,7 +48,7 @@ export function Dialog(props: {
           className={cn(
             "fixed z-50 flex max-h-[min(92dvh,calc(100dvh-env(safe-area-inset-top)-16px))] flex-col overflow-hidden bg-popover text-popover-foreground shadow-shell outline-none transition-[opacity,transform] duration-180 ease-soft data-[ending-style]:duration-100",
             "inset-x-0 bottom-0 rounded-t-window pb-[env(safe-area-inset-bottom)] data-[starting-style]:translate-y-6 data-[starting-style]:opacity-0 data-[ending-style]:translate-y-4 data-[ending-style]:opacity-0",
-            "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[12vh] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:rounded-window sm:pb-0 sm:data-[starting-style]:translate-y-1 sm:data-[ending-style]:translate-y-0",
+            "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[12vh] sm:max-h-[84dvh] sm:w-[calc(100%-2rem)] sm:-translate-x-1/2 sm:rounded-window sm:pb-0 sm:data-[starting-style]:translate-y-1 sm:data-[ending-style]:translate-y-0",
             props.size === "lg" ? "sm:max-w-2xl" : "sm:max-w-md",
           )}
         >

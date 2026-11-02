@@ -6,11 +6,13 @@ import { App } from "./app";
 import { BackendProvider } from "./backend/context";
 import { createBackend } from "./backend/select";
 import { ToastProvider } from "./components/ui/toast";
+import { watchErrors } from "./lib/recent-errors";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
 // Variable Manrope, split by unicode range: only the Latin file downloads.
 import "@fontsource-variable/manrope/wght.css";
 import "./styles.css";
 
+watchErrors();
 applyTheme();
 watchSystemTheme();
 

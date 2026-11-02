@@ -5,9 +5,11 @@
  *      profile, a CDP port, and every outbound request routed through a
  *      recording proxy that refuses to forward anything;
  *   3. links a key in onboarding, adds a workspace, and runs one chat turn;
- *   4. fails when any request went to *.openworklabs.com (workstream C).
+ *   4. opens Feedback sturen and saves a report (window capture, redacted logs);
+ *   5. fails when any request went to *.openworklabs.com (workstream C);
+ *   6. checks the git for brains is in the app and runs (brains plan §3.1).
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -84,6 +86,11 @@ const workspace = join(profile, "workspace");
 mkdirSync(workspace, { recursive: true });
 writeFileSync(join(workspace, "notities.md"), "# Notities\n");
 const cdpPort = 9300 + Math.floor(Math.random() * 500);
+// The shipped git, as the brains server hooks start it (packages/bonzaiwork-brains/src/git.ts).
+const shippedGit = resolve(binary, "../resources/git");
+const gitVersion = spawnSync(join(shippedGit, "bin/git"), ["--version"], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", GIT_EXEC_PATH: join(shippedGit, "libexec/git-core") } });
+check("git for brains ships with the app", gitVersion.status === 0, gitVersion.stdout.trim() || gitVersion.stderr.trim());
+
 const environment = { ...process.env };
 for (const name of ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]) delete environment[name];
 // Upstream main.mjs owns the CDP switch; it takes the port from this variable.
@@ -169,6 +176,32 @@ try {
   check("one chat turn via LiteLLM in the packaged app", answered);
   await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-chat.png") });
   check("LiteLLM received the linked key", litellmCalls.some((call) => call.url === "/v1/chat/completions" && call.authorization === `Bearer ${KEY}`));
+
+  // Feedback (#9): the dialog shows Electron's capture of this window, and saving writes it with redacted logs.
+  await page.getByRole("button", { name: "Feedback sturen" }).first().click();
+  const thumbnail = await page.waitForSelector('img[alt="Screenshot van BonzaiWork"]', { timeout: 30_000 }).then(() => true, () => false);
+  check("feedback dialog shows a screenshot of the window", thumbnail);
+  await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-feedback.png") });
+  await page.keyboard.press("Escape");
+  const feedback = await page.evaluate(async (key) => {
+    const info = await window.__OPENWORK_ELECTRON__.invokeDesktop("openworkServerInfo");
+    const post = async (path, body, hostToken) => fetch(`${info.baseUrl}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${info.ownerToken}`, ...(hostToken ? { "X-OpenWork-Host-Token": hostToken } : {}), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    // The window and logs are the host's: a client token alone is refused.
+    const refused = (await post("/bonzaiwork/feedback/collect", { notes: "client token" })).status;
+    const report = await (await post("/bonzaiwork/feedback/collect", { notes: `smoke ${key}` }, info.hostToken)).json();
+    const saved = await (await post(`/bonzaiwork/feedback/${report.id}/save`, { screenshot: true }, info.hostToken)).json();
+    return { refused, screenshot: typeof report.screenshot === "string" && report.screenshot.startsWith("data:image/png;base64,"), logs: report.logs ?? "", folder: saved.folder ?? "", files: saved.files ?? [] };
+  }, KEY);
+  check("feedback needs the host token", feedback.refused === 401 || feedback.refused === 403, String(feedback.refused));
+  check("feedback report carries the window as PNG", feedback.screenshot);
+  check("feedback report reads the server log", feedback.logs.includes("openwork-server.log"));
+  check("feedback report has no LiteLLM key", !feedback.logs.includes(KEY) && !feedback.logs.includes("sk-smoke"));
+  check("feedback is saved to Downloads", feedback.folder.startsWith(join(profile, "Downloads")) && feedback.files.join() === "screenshot.png,logs.txt", feedback.folder);
+
   const cloud = [...new Set(outbound)].filter((host) => /(^|\.)openworklabs\.com(:\d+)?$/i.test(host));
   check("no traffic to *.openworklabs.com", cloud.length === 0, cloud.join(", "));
   console.log(`outbound destinations (all refused): ${[...new Set(outbound)].filter((host) => !/^(127\.0\.0\.1|localhost)(:|$)/.test(host)).join(", ") || "none"}`);

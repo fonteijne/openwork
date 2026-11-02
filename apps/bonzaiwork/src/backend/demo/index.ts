@@ -22,6 +22,7 @@ import {
 import { missedOccurrence, nextOccurrence } from "~/lib/schedule";
 import { readLocalJson, writeLocalJson, writeLocal } from "~/lib/storage";
 
+import { createDemoBrains } from "./brains";
 import { planReply, titleFrom, type Step } from "./replies";
 import { createSeed, type DemoState } from "./seed";
 
@@ -45,6 +46,7 @@ const CAPABILITIES: Capabilities = {
   revealPath: false,
   notifications: false,
   globalConfig: true,
+  brains: true,
 };
 
 const MIN = 60_000;
@@ -105,7 +107,8 @@ function demoFileContent(name: string): string {
 
 type Waiter<T> = { resolve: (value: T) => void; reject: (error: unknown) => void };
 
-export type DemoOptions = { empty: boolean; keyMode: "user" | "workspace"; noPreferred: boolean };
+/** `engine=v2`: the desktop app's engine, which takes no run mode or extra folders. */
+export type DemoOptions = { empty: boolean; keyMode: "user" | "workspace"; engineV2: boolean; noPreferred: boolean };
 
 export function readDemoOptions(search: string): DemoOptions {
   const params = new URLSearchParams(search);
@@ -115,6 +118,7 @@ export function readDemoOptions(search: string): DemoOptions {
   return {
     empty: demo === "leeg" || demo === "empty",
     keyMode: key === "gebruiker" || key === "user" ? "user" : "workspace",
+    engineV2: params.get("engine") === "v2",
     noPreferred: preferred === "geen" || preferred === "none",
   };
 }
@@ -1085,14 +1089,14 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       },
       async runMode(projectId) {
         await latency();
-        return { mode: state.runModes[projectId] ?? "default", supported: true, reason: null };
+        return { mode: state.runModes[projectId] ?? "default", supported: !options.engineV2, reason: null };
       },
       async setRunMode(projectId, mode) {
         await latency("write");
         state.runModes[projectId] = mode;
         audit(projectId, "permissions.mode", "Werkwijze van de agent gewijzigd");
         save();
-        return { mode, supported: true, reason: null };
+        return { mode, supported: !options.engineV2, reason: null };
       },
       async folders(projectId) {
         await latency();
@@ -1171,6 +1175,14 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       },
     },
 
+    brains: createDemoBrains({
+      now: Date.now(),
+      home: state.defaultFolder,
+      storageKey,
+      search: typeof window === "undefined" ? "" : window.location.search,
+      projectPath: (projectId) => state.projects.find((entry) => entry.id === projectId)?.path ?? null,
+    }),
+
     settings: {
       async env() {
         await latency();
@@ -1198,6 +1210,19 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       },
       async revealPath() {
         // No file system in the browser.
+      },
+      async openUrl(url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      },
+    },
+
+    feedback: {
+      // No window to capture and no logs in the browser: the dialog only opens GitHub.
+      async collect() {
+        return null;
+      },
+      async save() {
+        throw new BackendError("unsupported", "In de demo worden geen bestanden opgeslagen.", 501);
       },
     },
   };

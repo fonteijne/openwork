@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { CalendarClock, ChevronLeft, FolderPlus, LayoutGrid, MessageSquarePlus, Search, Settings, SlidersHorizontal } from "lucide-react";
+import { CalendarClock, ChevronLeft, FolderPlus, LayoutGrid, Megaphone, MessageSquarePlus, Search, Settings, SlidersHorizontal } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { useProject, useProjects, useStatus } from "~/backend/queries";
+import { usePersonalBrain, useProject, useProjects, useStatus } from "~/backend/queries";
 import type { Project } from "~/backend/types";
 import { BrandMark } from "~/components/brand";
 import { ProjectIcon } from "~/components/project-icon";
@@ -57,9 +57,11 @@ function GlobalNav(props: { route: Route }) {
   const projects = useProjects();
   const setNewProject = useUi((state) => state.setNewProject);
   const status = useStatus();
-  const active = useMemo(() => (projects.data ?? []).filter((project) => !project.archivedAt).sort((a, b) => a.name.localeCompare(b.name, "nl")), [projects.data]);
-  const pinned = active.filter((project) => project.pinned);
-  const others = active.filter((project) => !project.pinned);
+  const personalId = usePersonalBrain()?.projectId ?? null;
+  const active = useMemo(() => (projects.data ?? []).filter((project) => !project.archivedAt || project.id === personalId).sort((a, b) => a.name.localeCompare(b.name, "nl")), [projects.data, personalId]);
+  // "Mijn brein" always heads the pinned list (brains plan §5.1).
+  const pinned = [...active.filter((project) => project.id === personalId), ...active.filter((project) => project.pinned && project.id !== personalId)];
+  const others = active.filter((project) => !project.pinned && project.id !== personalId);
   return (
     <>
       <nav className="flex flex-col gap-px px-2 pt-1" aria-label={copy.appName}>
@@ -152,6 +154,7 @@ function ProjectNav(props: { projectId: string; route: Route }) {
 export function Sidebar(props: { route: Route; projectId: string | null }) {
   const backend = useBackend();
   const setPalette = useUi((state) => state.setPalette);
+  const setFeedback = useUi((state) => state.setFeedback);
   return (
     <div className="flex h-full min-h-0 flex-col bg-sidebar">
       <div className="flex h-12 shrink-0 items-center gap-2 px-3 pt-[env(safe-area-inset-top)]" data-titlebar="sidebar">
@@ -174,6 +177,12 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
         </Tooltip>
       </div>
       {props.projectId ? <ProjectNav projectId={props.projectId} route={props.route} /> : <GlobalNav route={props.route} />}
+      <div className="px-2 pb-2">
+        <Button variant="ghost" className="w-full justify-start gap-2.5 px-2.5 text-muted-foreground hover:text-foreground" onClick={() => setFeedback(true)}>
+          <Megaphone />
+          {copy.feedback.open}
+        </Button>
+      </div>
     </div>
   );
 }
