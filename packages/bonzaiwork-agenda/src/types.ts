@@ -7,6 +7,8 @@ export type AgendaHost = {
   workspaces(): Array<{ id: string; path: string }>;
   onSessionActivity(listener: (activity: SessionActivity) => void): () => void;
   sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
+  /** Chats running in a workspace now, or null when the engine cannot say. */
+  runningSessions?(workspaceId: string): Promise<string[] | null>;
   log(level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>): void;
 };
 
