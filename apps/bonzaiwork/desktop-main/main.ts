@@ -4,11 +4,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { app } from "electron";
 
+import { registerPresenceSource } from "@bonzaiwork/agenda/presence";
 import { registerDiagnosticsSource } from "@bonzaiwork/feedback";
 import { SERVER_ENVIRONMENT_DEFAULTS } from "@bonzaiwork/policy";
 import { registerKeyStore } from "@bonzaiwork/litellm/keys";
 
 import { ElectronDiagnosticsSource } from "./diagnostics-source";
+import { ElectronPresenceSource } from "./presence-source";
 import { SafeStorageKeyStore } from "./safe-storage-key-store";
 
 /**
@@ -69,6 +71,7 @@ app.once("ready", () => {
 
 registerKeyStore(new SafeStorageKeyStore());
 registerDiagnosticsSource(new ElectronDiagnosticsSource());
+registerPresenceSource(new ElectronPresenceSource());
 
 // Packaged: <asar>/bonzaiwork/main.mjs next to <asar>/electron/main.mjs.
 // Development: apps/bonzaiwork/dist-electron/main.mjs.

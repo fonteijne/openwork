@@ -67,7 +67,11 @@ test("plannen, op tijd een chat starten, uitkomst volgen, gemist als de app dich
   await hooks.tick();
   expect(host.calls.find((entry) => entry.path === "/api/session")?.body).toMatchObject({ title: "Wat is er nieuw", model: { providerID: "litellm", id: "claude" }, location: { directory: "/brains/Mijn brein" } });
   expect(host.calls.find((entry) => entry.path === "/api/session/ses_1/prompt")?.body).toEqual({ text: "Vat samen", delivery: "steer" });
+  expect(hooks.isRoutineChat("ses_1")).toBe(true);
   host.emit("ses_1", "succeeded");
+  // Finished, still the routine's chat (agenda: its turns never count as yours).
+  expect(hooks.isRoutineChat("ses_1")).toBe(true);
+  expect(hooks.isRoutineChat("ses_other")).toBe(false);
   const listed = await call("/bonzaiwork/routines?workspaceId=ws_mijn");
   expect(listed.body.items[0]).toMatchObject({ nextRunAt: Date.UTC(2026, 9, 31, 8, 0), lastRun: { status: "succeeded", chatId: "ses_1", trigger: "scheduled" } });
 

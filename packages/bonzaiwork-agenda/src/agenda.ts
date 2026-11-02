@@ -1,0 +1,192 @@
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
+
+import { headlessDiagnosticsSource, registeredDiagnosticsSource } from "@bonzaiwork/feedback";
+
+import { dateOf, timeZoneName } from "./clock.ts";
+import { createMeter, mergeMeasured } from "./meter.ts";
+import { dayView } from "./overview.ts";
+import { dayQuarters } from "./quarters.ts";
+import { createAgendaRoutes } from "./routes.ts";
+import { defaultSettings } from "./parse.ts";
+import { createPresence, type PresenceReport, type PresenceSource } from "./presence.ts";
+import { createAgendaStore, type AgendaStore } from "./store.ts";
+import { createTracker, type Tracker } from "./tracker.ts";
+import type { AgendaDay, AgendaHost, AgendaSettings, DayView, Measured } from "./types.ts";
+
+export type AgendaOptions = {
+  stateDirectory?: string;
+  environment?: NodeJS.ProcessEnv;
+  now?: () => number;
+  /** How often finished quarters go to disk (plan §5.5). */
+  tickMs?: number;
+  /** How often presence is measured (plan §5.3). */
+  sampleMs?: number;
+  /** Tests: the desktop presence source; by default the one Electron registered. */
+  presenceSource?: () => PresenceSource | null;
+  /** Chats a routine started (from the routines hooks): their turns never count. */
+  isRoutineChat?: (sessionId: string) => boolean;
+  /** Where "Opslaan in Downloads" writes; by default the Downloads folder Electron registered. */
+  saveDirectory?: () => string;
+  /** Tests: the zone named in the booking document. */
+  timeZone?: () => string;
+};
+
+/**
+ * The agenda (docs/bonzaiwork/agenda-manager-plan.md): in the server process, per quarter hour,
+ * where you worked in BonzaiWork. No model, no engine, no brains (A7, A8).
+ */
+export function createAgendaHooks(options: AgendaOptions = {}) {
+  const environment = options.environment ?? process.env;
+  const stateDirectory = options.stateDirectory ?? environment.BONZAIWORK_STATE_DIR ?? join(homedir(), ".bonzaiwork");
+  const now = options.now ?? Date.now;
+  const meter = createMeter();
+  let host: AgendaHost | null = null;
+  let store: AgendaStore | null = null;
+  let tracker: Tracker | null = null;
+  let settings: AgendaSettings = defaultSettings();
+  let timer: ReturnType<typeof setInterval> | null = null;
+  let sampleTimer: ReturnType<typeof setInterval> | null = null;
+  let stopActivity: (() => void) | null = null;
+  let ticking: Promise<void> | null = null;
+  /** Day changes take turns: a flush and a correction never read the same file at once. */
+  let dayQueue: Promise<unknown> = Promise.resolve();
+
+  const presence = createPresence({ now, enabled: () => settings.enabled, source: options.presenceSource, addPresence: meter.addPresence });
+  const log: AgendaHost["log"] = (level, message, fields) => host?.log(level, message, fields);
+
+  function requireStore(): AgendaStore {
+    if (!store) throw new Error("The agenda has not started.");
+    return store;
+  }
+
+  /** Reads a day, lets `change` edit it, writes it when `change` says so. One at a time. */
+  function changeDay<T>(date: string, change: (day: AgendaDay) => Promise<{ write: boolean; result: T }> | { write: boolean; result: T }): Promise<T> {
+    const next = dayQueue.then(async () => {
+      const current = requireStore();
+      const day = await current.readDay(date);
+      const outcome = await change(day);
+      if (outcome.write) await current.writeDay(day);
+      return outcome.result;
+    });
+    dayQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  /** Finished quarters to disk, each merged with what is there (a restart within the quarter). */
+  async function flush(all = false): Promise<void> {
+    const finished = meter.take(now(), all);
+    const byDate = new Map<string, typeof finished>();
+    for (const entry of finished) byDate.set(dateOf(entry.start), [...(byDate.get(dateOf(entry.start)) ?? []), entry]);
+    for (const [date, entries] of byDate) {
+      const withTitles: Array<{ key: string; start: number; measured: Measured }> = [];
+      for (const entry of entries) withTitles.push({ ...entry, measured: { ...entry.measured, chats: (await tracker?.titles(entry.measured.chats)) ?? entry.measured.chats } });
+      await changeDay(date, (day) => {
+        for (const entry of withTitles) {
+          const existing = day.quarters[entry.key];
+          day.quarters[entry.key] = existing
+            ? { ...existing, measured: mergeMeasured(existing.measured, entry.measured) }
+            : { key: entry.key, start: entry.start, measured: entry.measured, correction: null, note: null, reference: null };
+        }
+        return { write: true, result: undefined };
+      }).catch((error: unknown) => log("error", "Agenda could not save a quarter", { date, error: String(error) }));
+    }
+  }
+
+  /** The clock (plan §5.5): mark this quarter as open, close finished ones. One tick at a time. */
+  function tick(): Promise<void> {
+    if (ticking) return ticking;
+    ticking = (async () => {
+      try {
+        if (settings.enabled) meter.markOpen(now());
+        await tracker?.prune();
+        await flush();
+      } finally {
+        ticking = null;
+      }
+    })();
+    return ticking;
+  }
+
+  /** The name to show: the one the UI last sent, else the folder name. */
+  function projectName(workspaceId: string): string {
+    const path = host?.workspaces().find((workspace) => workspace.id === workspaceId)?.path;
+    return settings.projects[workspaceId]?.name ?? (path ? basename(path) : null) ?? workspaceId;
+  }
+
+  /** A day as shown: stored quarters plus what is still in memory, within the day window. */
+  async function viewDay(date: string): Promise<DayView> {
+    const day = await requireStore().readDay(date);
+    for (const entry of meter.pending()) {
+      if (dateOf(entry.start) !== date) continue;
+      const existing = day.quarters[entry.key];
+      day.quarters[entry.key] = existing
+        ? { ...existing, measured: mergeMeasured(existing.measured, entry.measured) }
+        : { key: entry.key, start: entry.start, measured: entry.measured, correction: null, note: null, reference: null };
+    }
+    return dayView(date, dayQuarters(date, day, { projects: settings.projects, name: projectName, now: now() }));
+  }
+
+  let settingsQueue: Promise<unknown> = Promise.resolve();
+  function saveSettings(change: (next: AgendaSettings) => void): Promise<AgendaSettings> {
+    const next = settingsQueue.then(async () => {
+      const updated = structuredClone(settings);
+      change(updated);
+      await requireStore().writeSettings(updated);
+      settings = updated;
+      return settings;
+    });
+    settingsQueue = next.catch(() => undefined);
+    return next;
+  }
+
+  const routes = createAgendaRoutes({
+    host: () => host,
+    now,
+    timeZone: options.timeZone ?? timeZoneName,
+    settings: () => settings,
+    saveSettings,
+    projectName,
+    dayView: viewDay,
+    changeDay,
+    reportPresence: (input) => presence.report(input),
+    saveDirectory: options.saveDirectory ?? (() => (registeredDiagnosticsSource() ?? headlessDiagnosticsSource).saveDirectory()),
+  });
+
+  return {
+    routes,
+    /** Tests: one turn of the clock, and wait for turns being looked up. */
+    tick,
+    sample: () => presence.sample(),
+    reportPresence: (input: PresenceReport) => presence.report(input),
+    settled: () => tracker?.settled() ?? Promise.resolve(),
+    readDay: (date: string) => requireStore().readDay(date),
+    dayView: viewDay,
+    async start(next: AgendaHost) {
+      host = next;
+      store = createAgendaStore({ directory: join(stateDirectory, "agenda"), log, now });
+      settings = await store.readSettings();
+      tracker = createTracker({ host: next, meter, now, enabled: () => settings.enabled, isRoutineChat: options.isRoutineChat });
+      stopActivity = next.onSessionActivity((activity) => tracker?.onActivity(activity));
+      timer = setInterval(() => { void tick(); }, options.tickMs ?? 30_000);
+      timer.unref?.();
+      sampleTimer = setInterval(() => { presence.sample(); }, options.sampleMs ?? 60_000);
+      sampleTimer.unref?.();
+      await tick();
+    },
+    /** Stops the clock and saves the quarter so far, so a restart within it keeps what was measured. */
+    async stop() {
+      stopActivity?.();
+      stopActivity = null;
+      if (timer) clearInterval(timer);
+      if (sampleTimer) clearInterval(sampleTimer);
+      timer = null;
+      sampleTimer = null;
+      await ticking;
+      if (store) await flush(true);
+      host = null;
+    },
+  };
+}
+
+export type AgendaHooks = ReturnType<typeof createAgendaHooks>;

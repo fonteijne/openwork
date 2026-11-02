@@ -22,6 +22,7 @@ Stand: upstream `dev` op `2aa4481` (`v0.18.63` + upstream `dev` t/m #6620), geme
 apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electron-entry
   src/                           projecten, chats, routines, instellingen (zie apps/bonzaiwork/README.md)
   desktop-main/main.ts           zet env + keychain-store, laadt daarna de ONGEWIJZIGDE upstream main.mjs
+  desktop-main/presence-source.ts  focus en systeem-idle uit Electron voor de agenda
   scripts/package.mjs            verpakken; smoke-packaged.mjs: smoketest van de verpakte app
   src/features/brain/            breinen in de UI (statuspil, kaarten, instellingen, ophalen)
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
@@ -29,8 +30,12 @@ packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-ho
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
 docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest is, en regels daarvoor
 docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
+docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per kwartier je werkdag bijhoudt
+docs/bonzaiwork/agenda-manager-plan.md         implementatieplan van die agenda-agent: regels, bestanden, routes, prompts, fasen
+docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt
 packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
-packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm, brains en routines
+packages/bonzaiwork-agenda/      agenda: meting per kwartier (beurten, aanwezigheid), correcties, boekdocument voor Bridge (fase 1, backend)
+packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm, brains, routines, agenda en feedback
 scripts/bonzaiwork/fetch-git.mjs   meegeleverde git ophalen en uitdunnen (→ apps/bonzaiwork/resources/git)
 packages/bonzaiwork-feedback/    "Feedback sturen": screenshot, opgeschoonde logs, opslaan in Downloads (feedback.md)
 apps/server/src/downstream-hooks.ts   het aanhaakpunt in de server (nieuw bestand)
@@ -46,6 +51,7 @@ Electron main (BonzaiWork-entry)
   ├─ env: BONZAIWORK_* (ingebakken), OPENWORK_DISABLE_FREE_INFERENCE/HOSTED_MODELS=1,
   │       OPENWORK_SERVER_HOOKS=<bundel>/server-hooks.js
   ├─ registerKeyStore(SafeStorageKeyStore)      ← OS-keychain, in hetzelfde proces als de server
+  ├─ registerPresenceSource(ElectronPresenceSource) ← focus en idle voor de agenda, zelfde patroon
   └─ import upstream electron/main.mjs          ← start in-process openwork-server
         └─ openwork-server laadt OPENWORK_SERVER_HOOKS
              ├─ allowedProviderIds = ["litellm"]

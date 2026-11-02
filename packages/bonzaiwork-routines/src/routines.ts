@@ -378,6 +378,8 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
     /** Tests: one turn of the clock and of the question check. */
     tick,
     answerBrainQuestions,
+    /** A chat a routine started (agenda plan §5.4): its turns are the planner's, not the user's. */
+    isRoutineChat: (sessionId: string) => live.has(sessionId) || runs.some((run) => run.chatId === sessionId),
     async start(next: RoutinesHost) {
       host = next;
       await load();

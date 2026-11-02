@@ -1,3 +1,4 @@
+import { createAgendaHooks, type AgendaHost, type AgendaOptions } from "@bonzaiwork/agenda";
 import { createBrainsServerHooks, type BrainsHooksOptions, type BrainsHost, type EnginePermission, type EnginePolicy } from "@bonzaiwork/brains";
 import { createFeedbackRoutes, type FeedbackRoutesOptions } from "@bonzaiwork/feedback";
 import { createServerHooks, type ServerHooksOptions, type ServerHost, type ServerRoute } from "@bonzaiwork/litellm";
@@ -5,11 +6,11 @@ import { createRoutinesHooks, type RoutinesHost, type RoutinesOptions } from "@b
 
 /**
  * The one module openwork-server loads (OPENWORK_SERVER_HOOKS): the
- * LiteLLM-only policy, brains, routines and the feedback routes side by side.
+ * LiteLLM-only policy, brains, routines, the agenda and the feedback routes side by side.
  * The host type is what they need from apps/server/src/downstream-hooks.ts,
  * structurally.
  */
-export type Host = ServerHost & BrainsHost & RoutinesHost;
+export type Host = ServerHost & BrainsHost & RoutinesHost & AgendaHost;
 
 export type CombinedHooks = {
   allowedProviderIds: readonly string[];
@@ -19,22 +20,25 @@ export type CombinedHooks = {
   start(host: Host): Promise<void>;
 };
 
-export function createCombinedHooks(options: { litellm?: ServerHooksOptions; brains?: BrainsHooksOptions; routines?: RoutinesOptions; feedback?: FeedbackRoutesOptions } = {}): CombinedHooks {
+export function createCombinedHooks(options: { litellm?: ServerHooksOptions; brains?: BrainsHooksOptions; routines?: RoutinesOptions; agenda?: AgendaOptions; feedback?: FeedbackRoutesOptions } = {}): CombinedHooks {
   const litellm = createServerHooks(options.litellm);
   const brains = createBrainsServerHooks(options.brains);
   // A routine may read the brains it names without a click (brains plan §5.2).
   const routines = createRoutinesHooks({ answerBrainReads: brains.answerBrainReads, ...options.routines });
+  // Where you worked, per quarter hour (docs/bonzaiwork/agenda-manager-plan.md).
+  // Turns in a routine's chat are the planner's, not yours (agenda plan §5.4).
+  const agenda = createAgendaHooks({ isRoutineChat: routines.isRoutineChat, ...options.agenda });
   // "Feedback sturen" (docs/bonzaiwork/feedback.md).
   const feedback = createFeedbackRoutes(options.feedback);
   const paths = new Set<string>();
-  for (const route of [...litellm.routes, ...brains.routes, ...routines.routes, ...feedback]) {
+  for (const route of [...litellm.routes, ...brains.routes, ...routines.routes, ...agenda.routes, ...feedback]) {
     const key = `${route.method} ${route.path}`;
     if (paths.has(key)) throw new Error(`Route ${key} is registered twice.`);
     paths.add(key);
   }
   return {
     allowedProviderIds: litellm.allowedProviderIds,
-    routes: [...litellm.routes, ...brains.routes, ...routines.routes, ...feedback],
+    routes: [...litellm.routes, ...brains.routes, ...routines.routes, ...agenda.routes, ...feedback],
     enginePolicies: () => brains.enginePolicies(),
     enginePermissions: () => brains.enginePermissions(),
     async start(host) {
@@ -43,6 +47,7 @@ export function createCombinedHooks(options: { litellm?: ServerHooksOptions; bra
         litellm.start(host).catch((error: unknown) => host.log("error", "LiteLLM hooks failed to start", { error: String(error) })),
         brains.start(host),
         routines.start(host).catch((error: unknown) => host.log("error", "Routines failed to start", { error: String(error) })),
+        agenda.start(host).catch((error: unknown) => host.log("error", "Agenda failed to start", { error: String(error) })),
       ]);
     },
   };
