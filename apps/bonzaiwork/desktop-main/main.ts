@@ -16,7 +16,7 @@ import { SafeStorageKeyStore } from "./safe-storage-key-store";
  * It configures the process, then hands over to the unmodified upstream
  * shell, so upstream's main process stays mergeable:
  *
- *  - settings baked into the build (LiteLLM URL, default model, key mode);
+ *  - settings baked into the build (LiteLLM URL, default model, key mode, preferred models);
  *  - OpenWork's hosted and free models off;
  *  - the openwork-server hooks module: the LiteLLM-only policy, brains, routines and feedback;
  *  - the OS-keychain key store, registered before the in-process server starts;
@@ -25,7 +25,7 @@ import { SafeStorageKeyStore } from "./safe-storage-key-store";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-type BakedSettings = { litellmBaseUrl: string; defaultModel: string | null; keyMode: "user" | "workspace" };
+type BakedSettings = { litellmBaseUrl: string; defaultModel: string | null; keyMode: "user" | "workspace"; preferredModels: string[] | null };
 
 function readBakedSettings(): BakedSettings {
   const parsed: unknown = JSON.parse(readFileSync(join(here, "build-config.json"), "utf8"));
@@ -33,10 +33,13 @@ function readBakedSettings(): BakedSettings {
   const litellmBaseUrl = field("litellmBaseUrl");
   if (typeof litellmBaseUrl !== "string" || !litellmBaseUrl) throw new Error("build-config.json has no litellmBaseUrl.");
   const defaultModel = field("defaultModel");
+  const preferredModels = field("preferredModels");
   return {
     litellmBaseUrl,
     defaultModel: typeof defaultModel === "string" && defaultModel ? defaultModel : null,
     keyMode: field("keyMode") === "workspace" ? "workspace" : "user",
+    // Older build configs lack the field: the server then keeps the built-in list.
+    preferredModels: Array.isArray(preferredModels) ? preferredModels.filter((id): id is string => typeof id === "string") : null,
   };
 }
 
@@ -46,6 +49,7 @@ const environment: Record<string, string> = {
   BONZAIWORK_LITELLM_BASE_URL: baked.litellmBaseUrl,
   BONZAIWORK_KEY_MODE: baked.keyMode,
   ...(baked.defaultModel ? { BONZAIWORK_DEFAULT_MODEL: baked.defaultModel } : {}),
+  ...(baked.preferredModels ? { BONZAIWORK_PREFERRED_MODELS: baked.preferredModels.join(",") } : {}),
   OPENWORK_SERVER_HOOKS: pathToFileURL(join(here, "server-hooks.js")).href,
   // The shipped dugite-native git, when this build has one (docs/bonzaiwork/project-breinen-plan.md §3.1).
   ...(existsSync(join(process.resourcesPath ?? "", "git")) ? { BONZAIWORK_GIT_DIRECTORY: join(process.resourcesPath, "git") } : {}),
