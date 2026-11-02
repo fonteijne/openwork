@@ -15,7 +15,6 @@ const ENABLED = new Set([
   ".github/workflows/bonzaiwork.yml",
   ".github/workflows/upstream-sync.yml",
   ".github/workflows/codeql.yml",
-  ".github/workflows/warden-quick.yml",
   ".github/workflows/features-check.yml",
 ]);
 
