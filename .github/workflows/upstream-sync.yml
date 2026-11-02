@@ -6,9 +6,11 @@ name: Upstream sync
 #      never forced, never our commits),
 #   2. keeps upstream's workflows off in the fork (scripts/bonzaiwork/fork-workflows.mjs),
 #   3. merges upstream's latest release (not dev: it moves too fast to review)
-#      into an upstream-sync/<tag> branch from main and opens a PR to main with a
+#      into an upstream-sync/<tag> branch from nightly and opens a PR to nightly with a
 #      report of what must change before the merge. Merging stays a person's call;
 #      a scheduled Claude session reviews open sync PRs (README, "Beoordeling").
+#      nightly is the integration branch; main only receives tested nightly
+#      commits (README, "Branches"), so upstream releases are tested there first.
 # One sync PR at a time: while one is open, runs only fast-forward dev and note
 # on that PR when a newer release is out.
 #
@@ -52,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: nightly
           fetch-depth: 0
           token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
       - uses: actions/setup-node@v6
@@ -130,7 +132,7 @@ jobs:
       - name: Find an open sync PR
         id: open
         run: |
-          gh pr list --base main --state open --json number,headRefName \
+          gh pr list --base nightly --state open --json number,headRefName \
             --jq '[.[] | select(.headRefName | startswith("upstream-sync/"))][0] // empty | "number=\(.number)\nbranch=\(.headRefName)"' \
             >> "$GITHUB_OUTPUT"
 
@@ -151,7 +153,7 @@ jobs:
           # One running comment instead of one per day.
           gh pr comment "$pr" --edit-last --body "$body" 2>/dev/null || gh pr comment "$pr" --body "$body"
 
-      - name: Merge the release into a sync branch from main
+      - name: Merge the release into a sync branch from nightly
         id: prepare
         if: steps.open.outputs.number == ''
         run: |
@@ -161,7 +163,7 @@ jobs:
           base=$(node -p 'JSON.parse(require("fs").readFileSync("bonzaiwork.upstream.json", "utf8")).commit')
           echo "base=$base" >> "$GITHUB_OUTPUT"
           if git merge-base --is-ancestor "$sha" HEAD; then
-            echo "main already contains $tag" >> "$GITHUB_STEP_SUMMARY"
+            echo "nightly already contains $tag" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           branch="upstream-sync/$tag"
@@ -174,7 +176,7 @@ jobs:
           git switch -c "$branch"
 
           : > "$RUNNER_TEMP/conflicts.txt"
-          if ! git merge --no-ff --no-edit -m "Merge upstream $tag into main" "$sha"; then
+          if ! git merge --no-ff --no-edit -m "Merge upstream $tag into nightly" "$sha"; then
             git diff --name-only --diff-filter=U | grep -vx pnpm-lock.yaml > "$RUNNER_TEMP/conflicts.txt" || true
             if [ -s "$RUNNER_TEMP/conflicts.txt" ]; then
               # Not ours to resolve unattended: open the PR from the release itself so GitHub shows the conflicts.
@@ -228,7 +230,7 @@ jobs:
           count=$(git rev-list --count --no-merges "${{ steps.prepare.outputs.base }}..$sha")
           draft=()
           if [ "${{ steps.prepare.outputs.conflicts }}" = "true" ] || [ "${{ steps.prepare.outputs.patches_exit }}" != "0" ]; then draft=(--draft); fi
-          url=$(gh pr create --repo "$GH_REPO" --base main --head "${{ steps.prepare.outputs.branch }}" "${draft[@]}" \
+          url=$(gh pr create --repo "$GH_REPO" --base nightly --head "${{ steps.prepare.outputs.branch }}" "${draft[@]}" \
             --title "Upstream-sync: $tag ($count commits)" \
             --body-file "$RUNNER_TEMP/body.md")
           echo "number=${url##*/}" >> "$GITHUB_OUTPUT"
