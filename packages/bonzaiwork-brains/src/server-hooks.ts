@@ -44,6 +44,8 @@ export type BrainsHost = {
   reloadEngineProviders(): Promise<void>;
   onSessionActivity(listener: (activity: SessionActivity) => void): () => void;
   runningSessions(workspaceId: string): Promise<string[] | null>;
+  /** Opens the workspace's event stream now and waits until it is connected (downstream-hooks.ts). */
+  followSessions?(workspaceId: string): Promise<boolean>;
   sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
   updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
   setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
@@ -86,6 +88,8 @@ export type BrainsHooksOptions = {
   fetchEveryMs?: number;
   /** How often workspaces and running chats are checked against the host (default 10 s). */
   reconcileEveryMs?: number;
+  /** How long a turn announced by the pull may take to show up as running in the engine (default 10 s). */
+  announcedGraceMs?: number;
   /** Tests only. */
   allowFileProtocol?: boolean;
   ssh?: Partial<SshOptions>;
@@ -171,6 +175,9 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   const jobs = new Map<string, Job>();
   const running = new Map<string, Set<string>>();
   const lastChat = new Map<string, string>();
+  /** Turns the pull announced that no event has confirmed yet, with the time of the pull. */
+  const announced = new Map<string, number>();
+  const announcedGraceMs = options.announcedGraceMs ?? 10_000;
   const quietTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let policySignature = "";
   /** The closed folders the open engine folders were built with; null until the first write. */
@@ -451,6 +458,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     running.set(activity.workspaceId, set);
     const timer = quietTimers.get(activity.workspaceId);
     if (timer) { clearTimeout(timer); quietTimers.delete(activity.workspaceId); }
+    announced.delete(activity.sessionId);
     if (activity.state === "running") {
       set.add(activity.sessionId);
       return;
@@ -473,16 +481,31 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   async function pruneRunning(workspaceId: string): Promise<void> {
     const set = running.get(workspaceId);
     if (!set?.size) return;
-    const asked = [...set];
+    // A turn the pull just announced may not run in the engine yet: it is not over before it began.
+    const since = Date.now() - announcedGraceMs;
+    const asked = [...set].filter((id) => (announced.get(id) ?? 0) < since);
+    if (!asked.length) return;
     const live = await host?.runningSessions(workspaceId);
     if (!live) return;
     const gone = asked.filter((id) => !live.includes(id));
     if (!gone.length) return;
-    for (const id of gone) set.delete(id);
+    for (const id of gone) { set.delete(id); announced.delete(id); }
     // Its turn ended unheard: record it like any other.
     const latest = gone.at(-1);
     if (latest) lastChat.set(workspaceId, latest);
     if (set.size === 0 && !quietTimers.has(workspaceId)) quietSoon(workspaceId);
+  }
+
+  /**
+   * The pull comes right before a turn: the turn counts as running from here, so that when its
+   * events are missed after all, the periodic check (pruneRunning) still records it.
+   */
+  function announceTurn(workspaceId: string, sessionId: string): void {
+    const set = running.get(workspaceId) ?? new Set<string>();
+    running.set(workspaceId, set);
+    if (set.has(sessionId)) return;
+    set.add(sessionId);
+    announced.set(sessionId, Date.now());
   }
 
   function quietSoon(workspaceId: string): void {
@@ -773,13 +796,18 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     const sync = known(workspaceId);
     const own = personal();
     if (!sync && !own) return notABrain();
+    // The engine does not replay events: the turn is only heard when the folder's stream is open
+    // before the prompt goes out (a project made a moment ago has none yet).
+    const following = host?.followSessions?.(workspaceId) ?? Promise.resolve(true);
+    if (sessionId) announceTurn(workspaceId, sessionId);
     const others = (await host?.runningSessions(workspaceId))?.filter((id) => id !== sessionId) ?? [];
     // Never update while another chat in this project runs (plan §4.2); fetching is fine.
     const work = sync ? (others.length ? sync.fetchOnly() : sync.prepareTurn()) : Promise.resolve(null);
     const personalWork = own && own !== sync ? own.prepareTurn() : Promise.resolve(null);
     const both = Promise.all([work, personalWork]);
     const timeout = new Promise<null>((resolve) => setTimeout(resolve, prepareTimeoutMs, null));
-    const done = await Promise.race([both, timeout]);
+    const [done, heard] = await Promise.all([Promise.race([both, timeout]), following]);
+    if (!heard) log("warn", "The engine's events for this project are not followed yet; the periodic check records the turn", { brain: workspaceId });
     void both.then(() => refreshPolicies()).catch(() => undefined);
     // Also when updating failed or took too long: the local version of the preferences counts (plan §5.1).
     if (await refreshGlobalContext()) await new Promise((resolve) => setTimeout(resolve, 500));

@@ -82,6 +82,10 @@ await new Promise((done) => proxy.listen(0, "127.0.0.1", done));
 const proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
 
 const profile = mkdtempSync(join(tmpdir(), "bonzaiwork-smoke-"));
+// As on a Linux desktop (xdg-user-dirs): without user-dirs.dirs, Electron's "downloads" is the home folder.
+mkdirSync(join(profile, ".config"), { recursive: true });
+mkdirSync(join(profile, "Downloads"), { recursive: true });
+writeFileSync(join(profile, ".config", "user-dirs.dirs"), 'XDG_DOWNLOAD_DIR="$HOME/Downloads"\n');
 const workspace = join(profile, "workspace");
 mkdirSync(workspace, { recursive: true });
 writeFileSync(join(workspace, "notities.md"), "# Notities\n");
