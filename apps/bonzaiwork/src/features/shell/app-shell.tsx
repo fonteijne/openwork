@@ -10,6 +10,7 @@ import { useMediaQuery, DESKTOP, WIDE } from "~/lib/use-media";
 import { useOpenedOnce } from "~/lib/use-opened-once";
 import type { Route } from "~/lib/router";
 
+import { useAgendaPresence } from "../agenda/presence";
 import { Sidebar } from "./sidebar";
 import { useUi } from "./ui-store";
 
@@ -62,6 +63,7 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
   const toggleAgenda = useUi((state) => state.toggleAgenda);
   const agendaOpened = useOpenedOnce(useUi((state) => state.agendaOpen));
   const routeKey = JSON.stringify(props.route);
+  useAgendaPresence(props.projectId);
 
   // Navigating closes the drawer and the sidecar sheet.
   useEffect(() => {

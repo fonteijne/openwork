@@ -282,7 +282,9 @@ export function createDemoAgenda(options: { storageKey: string; withProjects: bo
       const measured: Measured = record.measured ?? { scores: {}, lastActivity: {}, chats: {}, appOpen: true };
       measured.appOpen = true;
       const minute = Math.floor(moment / 60_000);
-      if (input.projectId && known(input.projectId) && lastPresence.get(input.projectId) !== minute) {
+      // Like the server's presence (plan §5.3): the window has focus and there was input in the last minute.
+      const present = input.focused !== false && (input.lastInputAt === undefined || moment - input.lastInputAt < 60_000);
+      if (present && input.projectId && known(input.projectId) && lastPresence.get(input.projectId) !== minute) {
         lastPresence.set(input.projectId, minute);
         measured.scores[input.projectId] = (measured.scores[input.projectId] ?? 0) + 1;
         measured.lastActivity[input.projectId] = moment;
