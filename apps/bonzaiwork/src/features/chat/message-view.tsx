@@ -29,6 +29,8 @@ import { closeOpenMarkdown, renderMarkdown } from "~/lib/markdown";
 import { href } from "~/lib/router";
 import { describeTool, isVisibleTool, toolSentence, type ToolKind } from "~/lib/tools";
 
+import { catchFileLink, useOpenLink } from "./file-link";
+
 const TOOL_ICONS: Record<ToolKind, typeof FileText> = {
   read: FileText,
   write: FilePen,
@@ -72,9 +74,11 @@ function CopyButton(props: { text: string; label?: string }) {
 }
 
 export const Prose = memo(function Prose(props: { text: string; streaming?: boolean }) {
+  const openLink = useOpenLink();
   // Sanitized in renderMarkdown (DOMPurify): model output is untrusted.
   const html = renderMarkdown(props.streaming ? closeOpenMarkdown(props.text) : props.text);
-  return <div className="bw-prose text-foreground" dangerouslySetInnerHTML={{ __html: html }} />;
+  // Links to Markdown files in the project open in the side panel.
+  return <div className="bw-prose text-foreground" onClick={(event) => catchFileLink(event, openLink)} dangerouslySetInnerHTML={{ __html: html }} />;
 });
 
 function StepRow(props: { step: Step; projectId: string; live: boolean }) {
