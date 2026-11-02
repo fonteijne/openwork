@@ -60,13 +60,14 @@ describe("routes", () => {
 
   test("alleen-lezen apparaat: wijzigen geeft 403 read_only, lezen werkt", async () => {
     const { call } = await setup({ readOnly: true });
-    for (const [method, path, body] of [
+    const writes: Array<[string, string, unknown]> = [
       ["PATCH", "/bonzaiwork/agenda/settings", { enabled: false }],
       ["PUT", "/bonzaiwork/agenda/projects/ws_a", { bridgePost: null }],
       ["PUT", "/bonzaiwork/agenda/quarters", { date: "2026-11-02", from: "2026-11-02T09:00", to: "2026-11-02T09:00", correction: { kind: "away" } }],
       ["POST", "/bonzaiwork/agenda/undo/u-2026-11-02-abc", undefined],
       ["POST", "/bonzaiwork/agenda/booking-doc/save", { from: "2026-11-02", to: "2026-11-02" }],
-    ] as const) {
+    ];
+    for (const [method, path, body] of writes) {
       const response = await call(path, { method, body });
       expect([path, response.status, response.body.code]).toEqual([path, 403, "read_only"]);
     }

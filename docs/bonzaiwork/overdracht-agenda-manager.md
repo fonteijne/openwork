@@ -1,7 +1,7 @@
 # Overdracht: agenda-manager bouwen (MVP, fase 1 en 2)
 
-Voor een nieuwe sessie die de agenda-manager bouwt. Stand van 2 november 2026: onderzocht en gepland,
-nog niets gebouwd. Het plan is leidend: [`agenda-manager-plan.md`](./agenda-manager-plan.md). De
+Voor een nieuwe sessie die de agenda-manager bouwt. Stand van 2 november 2026: fase 1 (backend) is
+gebouwd, fase 2 (paneel) nog niet; zie §11. Het plan is leidend: [`agenda-manager-plan.md`](./agenda-manager-plan.md). De
 onderbouwing staat in [`agenda-manager-onderzoek.md`](./agenda-manager-onderzoek.md). Lees ook
 `AGENTS.md` (in de root), [`README.md`](./README.md) (vooral "Branches" en "CI"), `DESIGN.md` en
 [`../../PATCHES.md`](../../PATCHES.md).
@@ -158,3 +158,41 @@ overdracht §5 die fase 1 raken, en volg dan de volgorde uit overdracht §6.
 Commit per stap, push regelmatig, en meld na elke stap kort wat er staat.
 Open nog geen PR; vraag dat aan mij als fase 1 groen is.
 ```
+
+## 11. Stand na fase 1
+
+Gebouwd in `packages/bonzaiwork-agenda` (contract: [`frontend-contract.md`](./frontend-contract.md) §7.6), met
+`isRoutineChat` in routines, `ElectronPresenceSource` in desktop-main, inhaken in `server-hooks` en CI.
+
+**Uit §5 gecontroleerd**
+
+| # | Uitkomst |
+|---|---|
+| 1 | `pnpm install --frozen-lockfile` werkt. In een verse container ontbreekt de Electron-binary: `node node_modules/.pnpm/electron@*/node_modules/electron/install.js` haalt hem op (nodig voor xvfb-controles) |
+| 3 | Onder xvfb geven `powerMonitor.getSystemIdleTime()` en `BrowserWindow.getFocusedWindow()` zinnige waarden (idle liep 0 → 5 s; focus false → true na `win.focus()`, false na verbergen). `ElectronPresenceSource` geeft vóór `ready` "niet aanwezig" |
+| 4 | Niet live te testen zonder model en subagent. De tracker sluit subtaken altijd uit via `sessionInfo().parentId` (gecachet), dus komt er een event met het `sessionId` van een subtaak, dan telt het niet; komt er geen, dan ook niet. Nog nalopen met een echte subagent |
+| 2, 5 | Horen bij fase 2 (paneel, projectinstellingen); nog open |
+
+Rooktest tegen de echte openwork-server met de gebundelde server-hooks: alle routes antwoorden, een
+wijziging met een client-token geeft 401, met het host-token 200, en de bestanden komen in
+`bonzaiwork/agenda/`.
+
+**Bewuste keuzes en afwijkingen van het plan**
+
+- Kwartiersleutel: in het herhaalde uur bij wintertijd krijgen de tweede kwartieren hun offset erbij
+  (`"2026-10-25T02:15+01:00"`), zodat elke sleutel in een dag uniek is (100 kwartieren).
+- `PUT /quarters`: `from` en `to` zijn kwartiersleutels van die dag; `to` is het laatste kwartier (inclusief),
+  zodat 23:45 geen sleutel van de volgende dag nodig heeft.
+- `Block` heeft ook `source` en `appClosed`; blokken splitsen daarop. "Nu bezig" (`DayView.now.since`) rekent wel
+  terug over de hele reeks met hetzelfde label.
+- Boekdocument: de tijdlijn heeft een extra kolom "Referentie"; het JSON-blok heeft naast de velden uit §6.3 ook
+  `materiaal.labels` (labels van `other`-kwartieren), `gedeeld`, `minuten` bij away en `soort`/`label` bij
+  `zonder_post`. Een test vergelijkt de instructietekst letterlijk met plan §6.2.
+- Een corrupt dag- of instellingenbestand wordt opzij gezet (`*.corrupt-<ms>`) en als leeg gelezen, zodat de
+  volgende schrijfactie het niet vernietigt.
+- `isRoutineChat` geldt voor de hele chat van een routine, ook als je er later zelf in verder typt (zoals het
+  plan zegt); dan telt het via aanwezigheid.
+- "Opslaan in Downloads" overschrijft nooit: een tweede export van dezelfde periode wordt `…-2.md`.
+- De placeholder-titel van de engine ("New session - …") telt niet als chattitel; bij het afsluiten van een
+  kwartier worden de titels opnieuw opgehaald, omdat een nieuwe chat zijn titel pas tijdens de eerste beurt krijgt.
+

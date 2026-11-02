@@ -1,6 +1,6 @@
 import { isoLocal, timeOf, weekday } from "./clock.ts";
 import { dutchDuration, proposal, QUARTER_MINUTES, type TimeRange } from "./overview.ts";
-import { AWAY_LABEL, type DayView } from "./types.ts";
+import { AWAY_LABEL, type DayView, type QuarterKind, type QuarterView } from "./types.ts";
 
 /**
  * The booking document (plan §6): Markdown with the instructions for the assistant, the booking
@@ -52,8 +52,8 @@ export const INSTRUCTIONS = [
 export const INSTRUCTIONS_VERSION = 1;
 
 const WEEKDAYS = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"];
-const KINDS = { project: "project", other: "anders", away: "away" } as const;
-const SOURCES = { measured: "gemeten", user: "gebruiker" } as const;
+const KINDS: Record<QuarterKind, string> = { project: "project", other: "anders", away: "away" };
+const SOURCES: Record<QuarterView["source"], string> = { measured: "gemeten", user: "gebruiker" };
 
 /** One table cell: no line breaks, `|` and backticks escaped. */
 export function cell(value: string): string {

@@ -27,7 +27,8 @@ export function fakeHost(options: { readOnly?: boolean } = {}) {
     session(sessionId: string, title: string | null, parentId: string | null = null) { sessions.set(sessionId, { title, parentId }); },
     setRunning(workspaceId: string, sessionIds: string[]) { running.set(workspaceId, sessionIds); },
     emit(workspaceId: string, sessionId: string, state: "running" | "idle") {
-      for (const listener of listeners) listener({ workspaceId, sessionId, state, ...(state === "idle" ? { outcome: "succeeded" as const } : {}) });
+      const activity: SessionActivity = state === "idle" ? { workspaceId, sessionId, state, outcome: "succeeded" } : { workspaceId, sessionId, state };
+      for (const listener of listeners) listener(activity);
     },
   };
 }

@@ -8,5 +8,7 @@ test("één module met de routes en policies van beide", () => {
   const paths = hooks.routes.map((route) => `${route.method} ${route.path}`);
   expect(paths).toContain("GET /bonzaiwork/status");
   expect(paths).toContain("POST /bonzaiwork/brains/:workspaceId/pull");
+  expect(paths).toContain("GET /bonzaiwork/agenda/day");
+  expect(paths).toContain("POST /bonzaiwork/agenda/booking-doc/save");
   expect(hooks.enginePolicies()[0]).toEqual({ action: "tool.use", resource: "shell:git *", effect: "deny" });
 });

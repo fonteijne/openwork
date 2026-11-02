@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { keyStart } from "../src/clock.ts";
 import { createAgendaStore } from "../src/store.ts";
-import type { AgendaDay } from "../src/types.ts";
+import type { AgendaDay, AgendaSettings } from "../src/types.ts";
 
 const directories: string[] = [];
 async function setup() {
@@ -41,7 +41,7 @@ describe("store", () => {
   test("dag en instellingen heen en terug, met rechten 0600", async () => {
     const { directory, store } = await setup();
     await store.writeDay(DAY);
-    const settings = { version: 1 as const, enabled: false, projects: { a: { name: "Project A", bridgePost: { entityId: "<ENTITY_ID_A>", label: "Project A, ontwikkeling" } } }, recentPosts: [{ entityId: "<ENTITY_ID_A>", label: null }] };
+    const settings: AgendaSettings = { version: 1, enabled: false, projects: { a: { name: "Project A", bridgePost: { entityId: "<ENTITY_ID_A>", label: "Project A, ontwikkeling" } } }, recentPosts: [{ entityId: "<ENTITY_ID_A>", label: null }] };
     await store.writeSettings(settings);
     expect(await store.readDay("2026-11-02")).toEqual(DAY);
     expect(await store.readSettings()).toEqual(settings);

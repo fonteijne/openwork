@@ -531,6 +531,86 @@ routes: de gebruiker maakt het issue zelf aan op GitHub.
 | `POST /bonzaiwork/feedback/collect` | `{ notes }` → `{ id, system, logs, screenshot }`: venster vastleggen, logs lezen en opschonen |
 | `POST /bonzaiwork/feedback/:id/save` | `{ screenshot }` → `{ folder, files }`: `screenshot.png` en `logs.txt` in een nieuwe map in Downloads |
 
+### 7.6 Agenda
+
+Fase 1 (backend) gebouwd in `packages/bonzaiwork-agenda`; het paneel komt in fase 2. Plan en regels:
+[`agenda-manager-plan.md`](./agenda-manager-plan.md). De agenda houdt per kwartier (lokale tijd) bij in welk
+project je werkte, over alle projecten heen, zonder model en zonder chat in je project. Opslag in
+`<userData>/bonzaiwork/agenda/` (`settings.json`, `days/<datum>.json`), atomisch en met rechten `0600`.
+
+- **Meting**: elke minuut een aanwezigheidsminuut voor het open project als het venster focus heeft en er de
+  laatste 60 s invoer was; plus 2 punten per beurt die jij startte (routine-runs en subtaken tellen niet).
+  Hoogste score wint; geen activiteit is **"Away from BonzaiWork"** (dit label wordt niet vertaald).
+- **Jouw invoer gaat voor**: een correctie (`project`, `other`, `away`) wint altijd van de meting.
+
+```ts
+type BridgePost = { entityId: string; label: string | null };   // entityId: 1–64 tekens, geen spaties
+
+type AgendaSettingsView = {
+  enabled: boolean;                                   // "Werkdag bijhouden"
+  projects: Array<{ workspaceId: string; name: string; bridgePost: BridgePost | null }>;
+  recentPosts: BridgePost[];                          // max 10, nieuwste eerst, om aan te vullen
+};
+
+type Correction =
+  | { kind: "project"; workspaceId: string }
+  | { kind: "other"; label: string; bridgePost: BridgePost | null }   // label max 120 tekens
+  | { kind: "away" };
+
+type QuarterView = {
+  key: string;                       // "2026-11-02T10:15"; in het herhaalde uur bij wintertijd met offset: "…T02:15+01:00"
+  start: number; end: number;        // ms
+  kind: "project" | "other" | "away";
+  workspaceId: string | null; projectName: string | null;
+  label: string;                     // projectnaam, eigen label of "Away from BonzaiWork"
+  bridgePost: BridgePost | null;     // van de correctie, anders van het project
+  source: "measured" | "user";
+  shared: string[];                  // andere projecten met activiteit in dit kwartier ("Ook actief in …")
+  chats: string[];                   // chattitels
+  note: string | null;               // max 500 tekens
+  reference: string | null;          // ticket- of bronreferentie, max 120 tekens
+  appClosed: boolean;                // away omdat de app dicht was ("De app was dicht")
+  current: boolean;
+};
+
+type Block = {                       // aaneengesloten kwartieren met dezelfde soort, project/label, post, referentie en bron
+  start: number; end: number; quarters: number;
+  kind: QuarterView["kind"]; workspaceId: string | null; label: string;
+  bridgePost: BridgePost | null; reference: string | null;
+  source: "measured" | "user"; appClosed: boolean;
+  chats: string[]; notes: string[]; shared: string[];
+};
+
+type DayView = {
+  date: string;                      // "2026-11-02"
+  now: { workspaceId: string | null; label: string; since: number } | null;   // voor de pil: "Project A · sinds 10:15"
+  quarters: QuarterView[];           // van het eerste tot het laatste actieve of gecorrigeerde kwartier (op vandaag tot nu)
+  blocks: Block[];
+  totals: Array<{ bridgePost: BridgePost | null; label: string; minutes: number }>;   // away telt niet
+  missingPosts: number;              // te boeken kwartieren zonder Bridge-post
+};
+```
+
+| Route | Auth | Doel |
+|---|---|---|
+| `GET /bonzaiwork/agenda/settings` | client | `AgendaSettingsView`; ook de capability-probe (404 = geen agenda op deze server) |
+| `PATCH /bonzaiwork/agenda/settings` | host-token | `{ enabled }` |
+| `PUT /bonzaiwork/agenda/projects/:workspaceId` | host-token | `{ bridgePost: BridgePost \| null }` |
+| `GET /bonzaiwork/agenda/day?date=YYYY-MM-DD` | client | `DayView` (standaard vandaag) |
+| `PUT /bonzaiwork/agenda/quarters` | host-token | `{ date, from, to, correction \| null, note?, reference? }`. `from` en `to` zijn kwartiersleutels van die dag, `to` is het laatste kwartier (inclusief). `correction: null` zet terug naar de meting; `note`/`reference` weglaten laat ze staan, `null` wist ze. Geeft `{ undoId }` |
+| `POST /bonzaiwork/agenda/undo/:undoId` | host-token | Wijziging ongedaan maken (de laatste 20 per dag) |
+| `POST /bonzaiwork/agenda/presence` | client | `{ workspaceId \| null, name?, focused?, lastInputAt? }`: het open project bij elke routewissel; in de browser ook focus en laatste invoer (elke minuut) |
+| `GET /bonzaiwork/agenda/booking-doc?from=&to=` | client | Het boekdocument als `text/markdown` (max 31 dagen) |
+| `POST /bonzaiwork/agenda/booking-doc/save` | host-token | `{ from, to }` → `{ path }` in Downloads, `bonzaiwork-uren-<van>[_<tot>].md`; overschrijft nooit (dan `-2`, `-3`) |
+
+Wijzigen op een alleen-lezen apparaat geeft `403 read_only`. Fouten zijn `{ code, message }` met onder meer
+`invalid_date`, `invalid_period`, `period_too_long`, `invalid_quarters`, `invalid_correction`, `invalid_post`,
+`invalid_workspace`, `project_not_found` en `undo_not_found`.
+
+Het **boekdocument** (plan §6) bevat een kop, vaste instructies voor de assistent, het boekvoorstel per datum ×
+Bridge-post (× referentie), aandachtspunten (tijd zonder post, gedeelde kwartieren, away), de tijdlijn per dag
+en een JSON-blok met dezelfde gegevens. BonzaiWork boekt zelf niets in Bridge.
+
 ## 8. Open beslissingen
 
 | # | Vraag | Gevolg voor het ontwerp |
