@@ -20,6 +20,7 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatBytes, formatDateTime, formatMoney, relativeTime } from "~/lib/format";
+import { ProjectPostRow } from "~/features/agenda/agenda-settings";
 import { BrainSettingsSection } from "~/features/brain/brain-settings";
 import { href, navigate, SETTINGS_SECTIONS, type SettingsSection } from "~/lib/router";
 
@@ -108,6 +109,7 @@ function GeneralSection(props: { project: Project }) {
             ) : undefined
           }
         />
+        <ProjectPostRow projectId={project.id} />
         <Row
           label={copy.routines.title}
           action={
