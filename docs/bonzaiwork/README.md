@@ -30,6 +30,7 @@ docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest 
 docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
 docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per kwartier je werkdag bijhoudt (nog niet gebouwd)
 docs/bonzaiwork/agenda-manager-plan.md         implementatieplan van die agenda-agent: regels, bestanden, routes, prompts, fasen
+docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt
 packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
 packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm, brains en routines
 scripts/bonzaiwork/fetch-git.mjs   meegeleverde git ophalen en uitdunnen (→ apps/bonzaiwork/resources/git)
