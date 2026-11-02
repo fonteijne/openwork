@@ -30,6 +30,8 @@ import { closeOpenMarkdown, renderMarkdown } from "~/lib/markdown";
 import { href } from "~/lib/router";
 import { describeTool, isVisibleTool, toolSentence, type ToolKind } from "~/lib/tools";
 
+import { useOpenLink } from "./file-link";
+
 const TOOL_ICONS: Record<ToolKind, typeof FileText> = {
   read: FileText,
   write: FilePen,
@@ -73,8 +75,10 @@ function CopyButton(props: { text: string; label?: string }) {
 }
 
 export const Prose = memo(function Prose(props: { text: string; streaming?: boolean }) {
+  const openLink = useOpenLink();
   const html = renderMarkdown(props.streaming ? closeOpenMarkdown(props.text) : props.text);
-  return <ProseHtml className="text-foreground" html={html} />;
+  // Links to Markdown files in the project open in the side panel, web links in the browser.
+  return <ProseHtml className="text-foreground" html={html} onLink={openLink} />;
 });
 
 function StepRow(props: { step: Step; projectId: string; live: boolean }) {
