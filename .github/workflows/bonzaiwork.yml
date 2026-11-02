@@ -1,16 +1,22 @@
 name: BonzaiWork
 
-# BonzaiWork's own CI (docs/bonzaiwork/README.md, "CI"). Runs on every PR and on
-# pushes to main, nightly and upstream-sync/<tag> merge branches: typecheck of
-# what we build on, our unit tests, the engine end-to-end check of the
-# LiteLLM-only policy, and a packaged Linux build that starts and answers one
-# chat turn.
+# BonzaiWork's own CI (docs/bonzaiwork/README.md, "CI"): typecheck of what we
+# build on, our unit tests, the engine end-to-end check of the LiteLLM-only
+# policy, and a packaged Linux build that starts and answers one chat turn.
+#
+# Runs once per change, not once per branch it passes through:
+# - every push to a PR that is ready for review (drafts wait until "Ready for
+#   review"), including the upstream-sync/<tag> PRs;
+# - pushes to nightly, the commit that gets promoted.
+# Not on pushes to main: main only fast-forwards to a nightly commit that ran
+# here already. Not on pushes to PR branches: the PR run covers them. A change
+# that only touches documentation skips the jobs (scripts/bonzaiwork/ci-scope.mjs).
 
 on:
   push:
-    # Feature branches run through pull_request; pushing them too ran every commit twice.
-    branches: [main, nightly, "upstream-sync/**"]
+    branches: [nightly]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -21,7 +27,27 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    # A skipped job counts as passed for required checks, so drafts and docs-only changes still merge.
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.scope.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+      - id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/bonzaiwork/ci-scope.mjs "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
+
   checks:
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -81,7 +107,8 @@ jobs:
         run: node scripts/bonzaiwork/check-patches.mjs
 
   package-linux:
-    needs: checks
+    needs: [scope, checks]
+    if: needs.scope.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

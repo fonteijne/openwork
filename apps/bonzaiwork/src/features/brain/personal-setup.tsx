@@ -3,7 +3,7 @@ import { BrainCircuit, FolderOpen } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, useBrainAuthor, usePersonalBrain, useStatus } from "~/backend/queries";
+import { keys, newProjectModels, useBrainAuthor, usePersonalBrain, useStatus } from "~/backend/queries";
 import type { Project } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Field, Input } from "~/components/ui/field";
@@ -24,6 +24,7 @@ export const PERSONAL_LATER_KEY = "bonzaiwork.personalBrainLater";
 function usePersonalSetup() {
   const backend = useBackend();
   const client = useQueryClient();
+  const status = useStatus();
   const [busy, setBusy] = useState<"existing" | "new" | null>(null);
   const [typing, setTyping] = useState(false);
   const [path, setPath] = useState("");
@@ -39,6 +40,8 @@ function usePersonalSetup() {
         folderPath,
         instructions: null,
         defaultModel: null,
+        // Like every new project: the preferred models only.
+        allowedModels: newProjectModels(status.data),
       });
       await backend.brains.register(project.id, { kind: "personal" });
       await Promise.all([client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.brains })]);

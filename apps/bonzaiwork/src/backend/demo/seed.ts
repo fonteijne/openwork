@@ -24,7 +24,7 @@ import { localTimezone, nextOccurrence } from "~/lib/schedule";
 
 /** Everything the demo backend keeps, persisted per browser. */
 export type DemoState = {
-  version: 3;
+  version: 4;
   keyMode: KeyMode;
   userKey: string | null;
   models: Model[];
@@ -63,6 +63,11 @@ export const DEMO_MODELS: Model[] = [
   { id: "claude-haiku-5-5", name: "Claude Haiku 5.5" },
   { id: "gpt-5-2", name: "GPT-5.2" },
   { id: "mistral-large-3", name: "Mistral Large 3" },
+  { id: "gpt-6-luna", name: "GPT-6 Luna" },
+  { id: "glm-5", name: "GLM 5" },
+  { id: "glm-4.7-flash", name: "GLM 4.7 Flash" },
+  { id: "qwen3.8-27b", name: "Qwen 3.8 27B" },
+  { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -283,7 +288,7 @@ const MOVE_TEXT = `Ik heb een checklist gemaakt in **verhuizing/checklist.md**, 
 export function createSeed(now: number, options: { empty: boolean; keyMode: KeyMode }): DemoState {
   const zone = localTimezone();
   const base: DemoState = {
-    version: 3,
+    version: 4,
     keyMode: options.keyMode,
     userKey: options.keyMode === "user" && !options.empty ? "sk-demo-persoonlijk-91c2" : null,
     models: DEMO_MODELS,
