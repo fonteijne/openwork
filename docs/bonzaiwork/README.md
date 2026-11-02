@@ -164,18 +164,30 @@ leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI impor
 ## CI
 
 `.github/workflows/bonzaiwork.yml`: typecheck, unit-tests, engine-E2E, PATCHES-check en een verpakte
-Linux-build met smoketest. Upstream heeft ±50 eigen workflows. Veel daarvan draaien op `push` naar
+Linux-build met smoketest. Hij draait één keer per wijziging, niet op elke branch waar die langskomt:
+
+- bij elke push naar een PR die klaar is voor review, ook de `upstream-sync/<tag>`-PR's. Een **draft-PR**
+  draait niet; zet de PR op "Ready for review" als je de CI wilt. Zo kost doorwerken op een PR niets tot je klaar bent;
+- bij een push naar `nightly` (de merge van een PR): dat is de commit die je promoveert;
+- niet bij een push naar `main`: die krijgt alleen een `nightly`-commit die hier al gedraaid heeft;
+- niet bij een push naar een feature-branch zonder PR.
+
+Raakt een wijziging alleen documentatie (`docs/`, `.github/ISSUE_TEMPLATE/`, `*.md` in de root behalve
+`PATCHES.md`), dan slaan de jobs over (`scripts/bonzaiwork/ci-scope.mjs`). Overgeslagen jobs tellen als geslaagd,
+dus ook als ze verplichte checks zijn blokkeren ze de merge niet. Een nieuwe push op dezelfde PR breekt de lopende run af.
+
+Upstream heeft ±50 eigen workflows. Veel daarvan draaien op `push` naar
 `dev`, publiceren naar hun releases of hebben hun secrets nodig. Zet ze uit in GitHub → Actions per
 workflow (dat raakt geen bestanden en geeft dus geen merge-conflicten), behalve wat wij ook gebruiken.
 
-Status in `fonteijne/openwork` (27-10-2026):
+Status in `fonteijne/openwork` (02-11-2026):
 
 | Workflow | Bestand | Stand | Reden |
 |---|---|---|---|
 | BonzaiWork | `bonzaiwork.yml` | aan | onze CI |
 | CodeQL | `codeql.yml` | aan | vond al een echt probleem (ReDoS) |
-| Warden quick review, Feature registry check | `warden-quick.yml`, `features-check.yml` | aan | slagen zonder secrets |
-| Warden | `warden.yml` | **uit** | heeft `WARDEN_OPENAI_API_KEY` nodig |
+| Feature registry check | `features-check.yml` | aan | slaagt zonder secrets, alleen bij wijzigingen aan feature-registry of UI-guardrails |
+| Warden, Warden quick review | `warden.yml`, `warden-quick.yml` | **uit** | hebben `WARDEN_OPENAI_API_KEY` nodig; zonder die sleutel slaat quick review alles over en kost hij alleen een run |
 | Build and core checks | `ci-tests.yml` | **uit** | draait op Blacksmith-runners van upstream |
 | PR change proof | `pr-proof.yml` | **uit** | draait op Blacksmith-runners van upstream |
 
