@@ -35,8 +35,13 @@ Niet opnieuw ter discussie stellen. Zie plan §0.
   `claude/agenda-fase2-paneel`. Geen willekeurige achtervoegsels.
 - **PR's naar `nightly`** (integratie en default branch), nooit naar `main`. Fase 2 bouwt voort op
   fase 1: wacht op de merge, of maak de branch van fase 2 vanaf die van fase 1 en zet dat in de PR.
-- De plan- en onderzoeksdocumenten staan op `claude/agenda-manager-plan`. Zijn die nog niet in
-  `nightly`, neem die commits dan mee in de PR van fase 1.
+- De plan- en onderzoeksdocumenten staan op `claude/agenda-manager-plan` (daar is `nightly` met
+  fonteijne/openwork#8 en #16 al in gemerged). Zijn ze nog niet in `nightly`, neem die commits dan mee in
+  de PR van fase 1, of laat de gebruiker eerst een docs-PR van die branch mergen.
+- **CI draait niet bij een push naar een feature-branch**, alleen bij een PR die klaar is voor review en
+  bij pushes naar `nightly` (README, "CI"; sinds fonteijne/openwork#16). Een draft-PR wacht ook. Draai
+  daarom zelf de typecheck- en teststappen uit `.github/workflows/bonzaiwork.yml` voordat je meldt dat
+  een fase groen is.
 - **Geen upstream-bestanden wijzigen.** Alles past in `packages/bonzaiwork-*`, `apps/bonzaiwork` en
   `docs/bonzaiwork`. `node scripts/bonzaiwork/check-patches.mjs` moet groen blijven zonder nieuwe rij in
   `PATCHES.md`.
@@ -85,7 +90,8 @@ Niet opnieuw ter discussie stellen. Zie plan §0.
    presence terug op het UI-signaal (plan §5.3).
 4. Of `session.execution`-events ook voor subtaken komen, en met welk `sessionId`. Test met een chat
    die een subagent start; de regel blijft: subtaken tellen niet apart.
-5. Of `merge-base` van `nightly` en `claude/agenda-manager-plan` klopt, voordat je die commits meeneemt.
+5. Of `apps/bonzaiwork/src/features/settings/project-settings.tsx` na de voorkeursmodellen
+   (fonteijne/openwork#8) nog dezelfde secties heeft; het Bridge-post-veld komt in "general".
 
 ## 6. Volgorde fase 1 (één PR)
 
