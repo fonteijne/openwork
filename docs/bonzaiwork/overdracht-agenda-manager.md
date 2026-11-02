@@ -1,7 +1,8 @@
 # Overdracht: agenda-manager bouwen (MVP, fase 1 en 2)
 
-Voor een nieuwe sessie die de agenda-manager bouwt. Stand van 2 november 2026: fase 1 (backend) is
-gebouwd, fase 2 (paneel) nog niet; zie §11. De startprompt voor fase 2 staat in §12. Het plan is leidend: [`agenda-manager-plan.md`](./agenda-manager-plan.md). De
+Voor een nieuwe sessie die de agenda-manager bouwt. Stand van 2 november 2026: fase 1 (backend, §11) en
+fase 2 (paneel, §13) zijn gebouwd; daarmee staat de MVP. Wat er is en hoe je het test:
+[`agenda.md`](./agenda.md). Het plan is leidend: [`agenda-manager-plan.md`](./agenda-manager-plan.md). De
 onderbouwing staat in [`agenda-manager-onderzoek.md`](./agenda-manager-onderzoek.md). Lees ook
 `AGENTS.md` (in de root), [`README.md`](./README.md) (vooral "Branches" en "CI"), `DESIGN.md` en
 [`../../PATCHES.md`](../../PATCHES.md).
@@ -233,3 +234,41 @@ zelf de typecheck- en teststappen uit .github/workflows/bonzaiwork.yml (de CI dr
 ready for review is). Maak de PR naar nightly 'ready for review' wanneer fase 2 groen is en laat mij
 weten wanneer je klaar bent.
 ```
+
+## 13. Stand na fase 2
+
+Gebouwd in `apps/bonzaiwork` (overzicht en testinstructies: [`agenda.md`](./agenda.md)). De backend uit fase 1 is
+niet veranderd; `@bonzaiwork/agenda` kreeg alleen een extra export `./model` met de pure delen (types, klok,
+`dayQuarters`, `dayView`, `proposal`, `bookingDocument`), zodat de demo en de UI met dezelfde functies rekenen als
+de server.
+
+**Uit §5 gecontroleerd**
+
+| # | Uitkomst |
+|---|---|
+| 2 | `@base-ui/react` 1.4.1: `Dialog.Root modal={false}` zet de focus-trap (`FloatingFocusManager modal={false}`) en de scroll-lock uit. Wel sluit hij standaard bij focus buiten de popup en bij Esc waar dan ook. `Panel` zet daarom `disablePointerDismissal` (ook geen sluiten bij focus-out) en laat Esc van buiten het paneel door (`details.cancel()` + `allowPropagation()`), zodat Esc in de composer en de toestemmingskaart blijft werken. Enter binnen het paneel gaat niet door naar de sneltoetsen van de pagina |
+| 5 | `project-settings.tsx` heeft na de voorkeursmodellen dezelfde secties (`SETTINGS_SECTIONS`); "general" is `GeneralSection`. Het veld "Bridge-post" staat daar onder "Map" |
+
+**Headless gecontroleerd** (Playwright, demo en live dev-server met de gebundelde server-hooks en een nep-LiteLLM):
+de pil staat op elke pagina; ⌘J/Ctrl+J opent en sluit het paneel, en de composer houdt focus en invoer (typen met
+het paneel open, Esc in de composer laat het open, sluiten zet de focus terug in de composer); een kwartier
+toevoegen, wijzigen en ongedaan maken werkt; "Kopieer voor chat" en "Opslaan in Downloads" leveren het document uit
+fase 1; de Bridge-post uit de projectinstellingen staat op de server; de vastgezette kolom blijft na herladen en
+klapt de sidecar in; op telefoonbreedte opent de sheet. Screenshots: `screenshots/agenda-*.png`.
+
+**Bewuste keuzes en afwijkingen van het plan**
+
+- De pil toont "Project A" en "sinds 10:15" als twee delen zonder middenpunt (C7: geen middle-dot als decoratie).
+- De editor staat in het paneel zelf (geen dialoog); de tijdlijn wijkt zolang. Een gemeten away-blok opent als
+  "Anders", omdat dat bijna altijd een meeting is (A2).
+- Bevestigingen staan in het paneel (wijzigen, ongedaan maken) of in de exportdialoog ("Gekopieerd", "Opgeslagen in
+  Downloads" met "Toon in map"); de instellingen tonen de nieuwe stand in de rij. Nergens een toast (plan §7.6).
+- `⌘J` sluit een vastgezette kolom ook; hij blijft vastgezet voor de volgende keer. Wordt het venster smal terwijl
+  de kolom open is, dan sluit hij in plaats van een overlay te worden (S5: niets opent vanzelf).
+- Een overlay blijft open bij navigeren (net als de kolom); alleen Esc in het paneel, ⌘J of de sluitknop sluiten.
+- De samenvatting in de exportdialoog rekent met `proposal()` uit het pakket over de dagen van de periode, dus
+  dezelfde cijfers als het document.
+- Presence: bij elke navigatie, en in een gewone browser (dev, demo) elke minuut met focus en laatste invoer; in de
+  desktop-app geen timer in de UI.
+- De lege dag toont alleen een titel (P2); "Toevoegen" staat er direct boven.
+

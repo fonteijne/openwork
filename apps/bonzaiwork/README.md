@@ -43,6 +43,9 @@ de app alleen-lezen. Zonder `OPENWORK_APPROVAL_MODE=auto` (de desktopshell zet d
 - **Projectinstellingen**: key en modellen, instructies, skills, commando's, connecties (MCP), extra mappen,
   bestanden en activiteit. Globale skills en commando's zijn alleen-lezen.
 - **Serverfouten** worden Nederlands (`http.ts`); de Engelse zin van de server blijft op `detail`.
+- **Agenda** (contract §7.6, [`docs/bonzaiwork/agenda.md`](../../docs/bonzaiwork/agenda.md)): pil in de bovenbalk,
+  niet-modaal paneel (⌘J) met tijdlijn, wijzigen en ongedaan maken, export voor Bridge en de Bridge-post per
+  project. Rekent met `@bonzaiwork/agenda/model`, net als de server; zonder agenda op de server staat de pil op slot.
 - **Routines, verbruik en zoeken in inhoud** hebben de §7-routes nodig en tonen tot dan hun vergrendelde
   staat (DESIGN.md P4).
 
@@ -71,7 +74,7 @@ src/
   styles.css             tokens, thema's, prose, reduced motion
   backend/               types, queries, demo/, live/
   components/ui/         Button, Field, Dialog/Sheet, Menu, Select, Tooltip, Toast, …
-  features/              onboarding, projects, project + chat, settings, routines, shell
+  features/              onboarding, projects, project + chat, settings, routines, agenda, shell
   lib/                   opmaak (nl-NL), planning (DST), tools in woorden, markdown, idle, lazy modules
 ```
 
@@ -88,7 +91,8 @@ Routes (hash, zodat de build ook vanaf `file://` werkt): `#/`, `#/p/:id`, `#/p/:
 - **Mobiel**: geen horizontale scroll; de zijbalk wordt een lade, de sidecar een sheet.
 - **Smoketest**: `scripts/smoke-packaged.mjs` stuurt de verpakte app aan via `data-testid`'s
   (`litellm-key-input`, `litellm-key-submit`, `litellm-server`, `new-workspace`, `workspace-item`,
-  `composer-input`, `composer-send`, `chat-messages`) en `data-role="assistant"`. Houd die stabiel.
+  `composer-input`, `composer-send`, `chat-messages`) en `data-role="assistant"`. Houd die stabiel; de agenda heeft
+  eigen `agenda-*`-testids (zie `docs/bonzaiwork/agenda.md`).
 
 ## Open beslissingen (contract §8)
 
