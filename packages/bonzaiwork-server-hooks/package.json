@@ -2,7 +2,7 @@
   "name": "@bonzaiwork/server-hooks",
   "private": true,
   "type": "module",
-  "description": "The one openwork-server hooks module BonzaiWork loads (OPENWORK_SERVER_HOOKS): LiteLLM and brains together.",
+  "description": "The one openwork-server hooks module BonzaiWork loads (OPENWORK_SERVER_HOOKS): LiteLLM, brains, routines, the agenda and feedback together.",
   "exports": {
     ".": {
       "types": "./src/server-hooks.ts",
@@ -15,6 +15,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@bonzaiwork/agenda": "workspace:*",
     "@bonzaiwork/brains": "workspace:*",
     "@bonzaiwork/feedback": "workspace:*",
     "@bonzaiwork/litellm": "workspace:*",

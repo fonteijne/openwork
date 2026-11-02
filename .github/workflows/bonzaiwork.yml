@@ -75,6 +75,7 @@ jobs:
           pnpm --filter @bonzaiwork/litellm typecheck
           pnpm --filter @bonzaiwork/brains typecheck
           pnpm --filter @bonzaiwork/routines typecheck
+          pnpm --filter @bonzaiwork/agenda typecheck
           pnpm --filter @bonzaiwork/server-hooks typecheck
           pnpm --filter @bonzaiwork/feedback typecheck
           pnpm --filter @bonzaiwork/app typecheck
@@ -85,6 +86,7 @@ jobs:
           pnpm --filter @bonzaiwork/litellm test
           pnpm --filter @bonzaiwork/brains test
           pnpm --filter @bonzaiwork/routines test
+          pnpm --filter @bonzaiwork/agenda test
           pnpm --filter @bonzaiwork/server-hooks test
           pnpm --filter @bonzaiwork/feedback test
           pnpm --filter @bonzaiwork/app test
