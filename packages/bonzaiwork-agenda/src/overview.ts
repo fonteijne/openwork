@@ -29,7 +29,7 @@ export type Booking = {
 
 export type MissingPost = { date: string; label: string; kind: "project" | "other"; minutes: number; times: TimeRange[] };
 export type AwayRange = { date: string; from: string; to: string; minutes: number; appClosed: boolean };
-export type SharedRange = { date: string; from: string; to: string; label: string; sharedWith: string[] };
+export type SharedRange = { date: string; from: string; to: string; minutes: number; label: string; sharedWith: string[] };
 
 export type Proposal = {
   bookings: Booking[];
@@ -190,10 +190,11 @@ export function proposal(days: readonly DayView[]): Proposal {
       if (!quarter.shared.length) { previous = null; continue; }
       if (previous && previous.end === quarter.start && previous.range.label === quarter.label && sameList(previous.range.sharedWith, quarter.shared)) {
         previous.range.to = timeOf(quarter.end);
+        previous.range.minutes += QUARTER_MINUTES;
         previous.end = quarter.end;
         continue;
       }
-      const range = { date: day.date, from: timeOf(quarter.start), to: timeOf(quarter.end), label: quarter.label, sharedWith: [...quarter.shared] };
+      const range = { date: day.date, from: timeOf(quarter.start), to: timeOf(quarter.end), minutes: QUARTER_MINUTES, label: quarter.label, sharedWith: [...quarter.shared] };
       shared.push(range);
       previous = { end: quarter.start + QUARTER_MS, range };
     }

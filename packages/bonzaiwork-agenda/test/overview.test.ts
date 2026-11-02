@@ -79,7 +79,7 @@ describe("boekvoorstel", () => {
       { date: DATE, from: "12:00", to: "12:45", minutes: 45, appClosed: false },
       { date: DATE, from: "13:00", to: "13:30", minutes: 30, appClosed: true },
     ]);
-    expect(result.shared).toEqual([{ date: DATE, from: "14:00", to: "14:15", label: "Project A", sharedWith: ["Project C"] }]);
+    expect(result.shared).toEqual([{ date: DATE, from: "14:00", to: "14:15", minutes: 15, label: "Project A", sharedWith: ["Project C"] }]);
     expect(result.minutes).toEqual({ book: 375, missing: 30, away: 75 });
     for (const booking of result.bookings) expect(booking.minutes % 15).toBe(0);
   });
