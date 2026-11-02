@@ -1,7 +1,7 @@
 # Overdracht: agenda-manager bouwen (MVP, fase 1 en 2)
 
 Voor een nieuwe sessie die de agenda-manager bouwt. Stand van 2 november 2026: fase 1 (backend) is
-gebouwd, fase 2 (paneel) nog niet; zie §11. Het plan is leidend: [`agenda-manager-plan.md`](./agenda-manager-plan.md). De
+gebouwd, fase 2 (paneel) nog niet; zie §11. De startprompt voor fase 2 staat in §12. Het plan is leidend: [`agenda-manager-plan.md`](./agenda-manager-plan.md). De
 onderbouwing staat in [`agenda-manager-onderzoek.md`](./agenda-manager-onderzoek.md). Lees ook
 `AGENTS.md` (in de root), [`README.md`](./README.md) (vooral "Branches" en "CI"), `DESIGN.md` en
 [`../../PATCHES.md`](../../PATCHES.md).
@@ -140,7 +140,7 @@ Klaar als: de acceptatiecriteria van plan §8 fase 1 gehaald zijn, en
 - Optie van `bridge add_worklog` voor de referentie onbekend: de assistent kijkt het na met `--help`.
 - Geen automatische opruiming van daglogs.
 
-## 10. Startprompt voor de nieuwe sessie
+## 10. Startprompt voor de nieuwe sessie (fase 1)
 
 ```text
 Bouw fase 1 van de agenda-manager in BonzaiWork.
@@ -196,3 +196,40 @@ wijziging met een client-token geeft 401, met het host-token 200, en de bestande
 - De placeholder-titel van de engine ("New session - …") telt niet als chattitel; bij het afsluiten van een
   kwartier worden de titels opnieuw opgehaald, omdat een nieuwe chat zijn titel pas tijdens de eerste beurt krijgt.
 
+## 12. Startprompt voor fase 2
+
+Fase 2 bouwt op fase 1 (fonteijne/openwork#17). Is die gemerged, begin dan vanaf `origin/nightly`; anders vanaf
+`claude/agenda-manager-plan`, en zet dat in de PR.
+
+```text
+Bouw fase 2 van de agenda-manager in BonzaiWork: het paneel, de Bridge-posten en de export (frontend).
+Fase 1 (backend, packages/bonzaiwork-agenda) staat al.
+
+Lees eerst, in deze volgorde:
+docs/bonzaiwork/overdracht-agenda-manager.md (vooral §3, §5, §7, §11),
+docs/bonzaiwork/agenda-manager-plan.md (§0, §7 en §8 "Fase 2"),
+docs/bonzaiwork/frontend-contract.md §7.6 (types en routes die de UI gebruikt),
+AGENTS.md (vooral "Verify changes headless"), DESIGN.md, docs/bonzaiwork/README.md (Branches en CI),
+PATCHES.md en apps/bonzaiwork/README.md.
+
+Werk op een nieuwe branch claude/agenda-fase2-paneel vanaf origin/nightly als fonteijne/openwork#17
+gemerged is, anders vanaf claude/agenda-manager-plan (zeg dat dan in de PR). Schrijft de sessie een
+andere branch voor, gebruik die. De beslissingen in plan §0 liggen vast; de backend uit fase 1
+verandert alleen als de UI iets echt mist (meld dat dan apart).
+
+Begin met de punten in overdracht §5 die nog open zijn voor fase 2: §5.2 (Base UI Dialog
+modal={false} zonder focus-trap in de geïnstalleerde @base-ui/react, anders een eigen aside) en §5.5
+(secties van project-settings.tsx). Volg dan de volgorde uit overdracht §7.
+
+Regels: geen upstream-bestanden wijzigen (check-patches.mjs blijft groen zonder nieuwe rij); alle
+teksten in copy.ts in het Nederlands volgens DESIGN.md C1–C7, behalve het label "Away from BonzaiWork";
+geen toast of melding buiten het paneel (plan §7.6); demo en screenshots alleen met placeholders
+("Project A", "<ENTITY_ID_A>"). Controleer headless (seed.appWeb of de demo-backend met Playwright),
+vooral dat de composer focus en invoer houdt met het paneel open. Zet screenshots en de
+DESIGN.md-regel-id's in de PR.
+
+Commit per stap, push regelmatig, en meld na elke stap kort wat er staat. Draai voor je "groen" meldt
+zelf de typecheck- en teststappen uit .github/workflows/bonzaiwork.yml (de CI draait pas als de PR
+ready for review is). Maak de PR naar nightly 'ready for review' wanneer fase 2 groen is en laat mij
+weten wanneer je klaar bent.
+```
