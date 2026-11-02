@@ -5,6 +5,7 @@ import { BookOpen, ChevronLeft, FilePen, FileText, FolderOpen, GitBranch, Plug, 
 import { useBackend } from "~/backend/context";
 import { modelName, projectHasKey, useRoutines, useStatus, useSummary, useUsage } from "~/backend/queries";
 import type { Chat, Message, Project } from "~/backend/types";
+import { ProseHtml } from "~/components/prose-html";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/field";
 import { Locked, Skeleton, StatusDot } from "~/components/ui/misc";
@@ -25,7 +26,7 @@ import { useMediaQuery, WIDE } from "~/lib/use-media";
 import { ConceptFacts } from "../brain/concept-facts";
 import { useProjectState, useRuntime } from "../project/runtime";
 import { useUi, type SidecarFile } from "../shell/ui-store";
-import { catchFileLink, useMarkdownLinkOpener, type OpenLink } from "./file-link";
+import { useMarkdownLinkOpener, type OpenLink } from "./file-link";
 
 function Group(props: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
@@ -81,7 +82,7 @@ function FileBody(props: { projectId: string; chatId: string | null; path: strin
     return (
       <>
         <ConceptFacts projectId={props.projectId} path={props.path} />
-        <div className="bw-prose" onClick={(event) => catchFileLink(event, props.onLink ?? null)} dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+        <ProseHtml html={renderMarkdown(content)} onLink={props.onLink} />
       </>
     );
   }

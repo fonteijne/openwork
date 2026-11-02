@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, type MouseEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, type ReactNode } from "react";
 
 import type { Project } from "~/backend/types";
 import { markdownLinkTarget } from "~/lib/file-links";
@@ -34,17 +34,4 @@ export function useMarkdownLinkOpener(project: Project, chatId: string | null, b
     },
     [project.id, project.path, chatId, baseDir, wide, openSidecarFile],
   );
-}
-
-/**
- * Click handler for rendered Markdown (HTML from `renderMarkdown`): a click on
- * a link to a project file opens it in the side panel instead of outside the app.
- */
-export function catchFileLink(event: MouseEvent<HTMLElement>, open: OpenLink | null) {
-  if (!open || event.defaultPrevented) return;
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  const anchor = target.closest("a");
-  if (!anchor || !event.currentTarget.contains(anchor)) return;
-  if (open(anchor.getAttribute("href"))) event.preventDefault();
 }

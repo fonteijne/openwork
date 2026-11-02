@@ -68,3 +68,19 @@ export function renderMarkdown(source: string): string {
   }
   return html;
 }
+
+/**
+ * The web address a clicked link in rendered Markdown should open, or null
+ * when the app has nothing to open (an anchor, a relative path, an unknown
+ * scheme). Only http(s) and mailto leave the app.
+ */
+export function externalLinkHref(href: string | null | undefined): string | null {
+  const value = href?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
