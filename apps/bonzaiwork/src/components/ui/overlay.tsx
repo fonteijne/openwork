@@ -20,6 +20,10 @@ if (typeof window !== "undefined") {
   whenIdle(() => void alerts.load());
 }
 
+/**
+ * Every modal dims what is behind it, also when it opens from another dialog, the agenda panel or a
+ * sheet: Base UI skips the backdrop of a nested dialog unless `forceRender` is set.
+ */
 const BACKDROP =
   "fixed inset-0 z-50 bg-backdrop transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[ending-style]:duration-100";
 
@@ -42,7 +46,7 @@ export function Dialog(props: {
   return (
     <DialogPrimitive.Root open={props.open} onOpenChange={(open) => props.onOpenChange(open)}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className={BACKDROP} />
+        <DialogPrimitive.Backdrop forceRender className={BACKDROP} />
         <DialogPrimitive.Popup
           initialFocus={props.initialFocus}
           className={cn(
@@ -82,7 +86,7 @@ export function ConfirmDialog(props: {
   return (
     <AlertPrimitive.Root open={props.open} onOpenChange={(open) => props.onOpenChange(open)}>
       <AlertPrimitive.Portal>
-        <AlertPrimitive.Backdrop className={BACKDROP} />
+        <AlertPrimitive.Backdrop forceRender className={BACKDROP} />
         <AlertPrimitive.Popup className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-window bg-popover p-5 text-popover-foreground shadow-shell outline-none transition-[opacity,transform] duration-150 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[ending-style]:duration-100">
           <AlertPrimitive.Title className="text-base font-semibold">{props.title}</AlertPrimitive.Title>
           <AlertPrimitive.Description className="mt-2 text-sm text-muted-foreground">{props.body}</AlertPrimitive.Description>
@@ -105,7 +109,7 @@ export function Sheet(props: { open: boolean; onOpenChange: (open: boolean) => v
   return (
     <DialogPrimitive.Root open={props.open} onOpenChange={(open) => props.onOpenChange(open)}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className={BACKDROP} />
+        <DialogPrimitive.Backdrop forceRender className={BACKDROP} />
         <DialogPrimitive.Popup
           aria-label={props.label}
           className={cn(

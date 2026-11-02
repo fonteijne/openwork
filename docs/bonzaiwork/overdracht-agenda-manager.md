@@ -271,4 +271,7 @@ klapt de sidecar in; op telefoonbreedte opent de sheet. Screenshots: `screenshot
 - Presence: bij elke navigatie, en in een gewone browser (dev, demo) elke minuut met focus en laatste invoer; in de
   desktop-app geen timer in de UI.
 - De lege dag toont alleen een titel (P2); "Toevoegen" staat er direct boven.
+- Elke modale dialoog dimt wat erachter ligt, ook als hij genest opent (de exportdialoog vanuit het paneel of de
+  sheet): Base UI slaat de backdrop van een geneste dialoog over, tenzij `forceRender`; dat staat nu op de backdrop
+  van `Dialog`, `ConfirmDialog` en `Sheet`.
 
