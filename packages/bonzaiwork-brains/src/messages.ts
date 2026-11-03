@@ -50,6 +50,12 @@ export const SYNC_MESSAGES = {
   localChanges: (files: readonly string[]) => `Bijwerken wacht: ${files.slice(0, 3).join(", ")}${files.length > 3 ? ` en ${files.length - 3} meer` : ""} ${files.length === 1 ? "is" : "zijn"} hier gewijzigd en kan niet vastgelegd worden (alleen lezen, of groter dan 10 MB). Zet de wijziging terug of bewaar het bestand elders.`,
   keptCopies: (folder: string) => `Wat niet gedeeld kon worden, staat bewaard in ${folder}/ (alleen op deze laptop).`,
   unsafeName: (path: string) => `Dit brein bevat een bestandsnaam die BonzaiWork niet veilig kan verwerken${path ? ` (${JSON.stringify(path)})` : ""}: met een regeleinde of een spatie aan het eind. Vraag de beheerder hem te hernoemen; tot dan wordt niets bijgewerkt.`,
-  invalidKnowledge: (files: readonly string[]) => `Niet gedeeld: ${files.join(", ")} ${files.length === 1 ? "mist" : "missen"} de kop met het type (OKF). Laat de AI het herstellen of vul het type in.`,
+  // Each problem says what to change: "mist het type" for a title with a colon sent people (and the AI)
+  // fixing a type that was there all along.
+  invalidKnowledge: (items: ReadonlyArray<{ path: string; problem: "no_frontmatter" | "invalid_yaml" | "no_type"; line?: number }>) => `Niet gedeeld (OKF): ${items.map((item) => {
+    if (item.problem === "no_type") return `${item.path} mist het type in de kop (type: …)`;
+    if (item.problem === "no_frontmatter") return `${item.path} begint niet met een kop tussen twee regels --- (met daarin type: …); de eerste regel moet --- zijn`;
+    return `de kop van ${item.path} is niet te lezen${item.line ? ` (regel ${item.line})` : ""}; zet een waarde met een dubbele punt erin tussen aanhalingstekens, zoals title: "Notulen: kick-off"`;
+  }).join("; ")}. Laat de AI het herstellen of pas de kop aan.`,
   brokenWorkflow: (problems: ReadonlyArray<{ path: string; problem: string }>) => `Niet gedeeld: in de werkwijze ${problems.map((item) => `${item.path} (${item.problem})`).join("; ")}. Laat de AI het herstellen of pas het aan.`,
 } as const;

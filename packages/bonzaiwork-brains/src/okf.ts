@@ -41,11 +41,17 @@ export type Concept = { type: string; title: string | null; description: string 
 
 export type ConceptProblem = "no_frontmatter" | "invalid_yaml" | "no_type";
 
-export function parseConcept(text: string): { ok: true; concept: Concept } | { ok: false; problem: ConceptProblem } {
+/** Why a concept is refused; `line` is the file line of the first YAML error (the opening --- is line 1). */
+export type ConceptFailure = { ok: false; problem: ConceptProblem; line?: number };
+
+export function parseConcept(text: string): { ok: true; concept: Concept } | ConceptFailure {
   const parts = split(text);
   if (!parts) return { ok: false, problem: "no_frontmatter" };
   const doc = parseDocument(parts.frontmatter);
-  if (doc.errors.length) return { ok: false, problem: "invalid_yaml" };
+  if (doc.errors.length) {
+    const line = doc.errors[0]?.linePos?.[0]?.line;
+    return line ? { ok: false, problem: "invalid_yaml", line: line + 1 } : { ok: false, problem: "invalid_yaml" };
+  }
   const value: unknown = doc.toJS();
   if (typeof value !== "object" || value === null || Array.isArray(value)) return { ok: false, problem: "invalid_yaml" };
   const data: Record<string, unknown> = Object.fromEntries(Object.entries(value));
@@ -218,7 +224,7 @@ export type KnowledgePlan = {
   /** Changes inside references/ to undo: sources are immutable. */
   restore: string[];
   /** Concepts that are not OKF-conformant: no commit. */
-  invalid: Array<{ path: string; problem: ConceptProblem }>;
+  invalid: Array<{ path: string; problem: ConceptProblem; line?: number }>;
 };
 
 /**
@@ -255,7 +261,7 @@ export async function planKnowledge(input: {
     const text = await read(change.path);
     if (text === null) continue;
     const parsed = parseConcept(text);
-    if (!parsed.ok) { invalid.push({ path: change.path, problem: parsed.problem }); continue; }
+    if (!parsed.ok) { invalid.push({ path: change.path, problem: parsed.problem, ...(parsed.line ? { line: parsed.line } : {}) }); continue; }
     if (isReferencePath(change.path)) {
       logLines.push({ label: "Creation", title: parsed.concept.title ?? link, link, note: input.note });
       continue;

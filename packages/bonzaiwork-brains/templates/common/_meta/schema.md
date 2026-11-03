@@ -24,7 +24,9 @@ Kies het `type` van een concept uit deze lijst. Past er geen, voeg dan hier een 
 
 - Eén concept per bestand, ingedeeld naar onderwerp. Werk een bestaand concept bij in plaats van een
   tweede over hetzelfde te maken.
-- Frontmatter: `type` (verplicht), `title`, `description` (één zin), `tags`.
+- Frontmatter: `type` (verplicht), `title`, `description` (één zin), `tags`. Het bestand begint met
+  `---`. Staat er een dubbele punt in een waarde, zet die dan tussen aanhalingstekens:
+  `title: "Notulen: kick-off"`.
 - Kennis uit een bron: de bron in `sources` (`id`, `resource`, `title`) en een voetnoot `[^id]` bij de
   bewering.
 - Links zijn relatief (`[kortingsbeleid](kortingsbeleid.md)`), geen `[[wikilinks]]`. Een link naar een
