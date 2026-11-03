@@ -382,6 +382,8 @@ export type BrainStatus = {
   merging: boolean;
   /** Dutch, from the server. */
   error: string | null;
+  /** The error is about the folder's git setup: "Herstellen" puts it back; any other error takes "Opnieuw proberen". */
+  repairable: boolean;
   pendingTrust: TrustItem[];
   unshared: { path: string; reason: "not_markdown" | "too_large" }[];
   warnings: string[];
