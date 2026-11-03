@@ -312,5 +312,5 @@ groen; de smoketest-testids aanwezig.
 |---|---|---|
 | A2 | Agenda-pil uit de bovenbalk naar de zijbalkvoet (tegen agenda-plan §7.2 "op elke pagina" in). | Ja: nog steeds op elke pagina, maar de titel is weer van de pagina. |
 | A3 | Presence op Vandaag: inline acties melden het project van de kaart; de pagina zelf telt als "Niet in BonzaiWork". | Ja; een "plak-regel" (laatste project één kwartier vasthouden) komt later met de agenda-eigenaar. |
-| B1 | "Mijn brein" verlaat de projectenlijst; blijft als project bestaan in de backend. | Ja: `#/brein` toont dat project; de lijst filtert het eruit. |
+| B1 | "Mijn brein" verlaat de projectenlijst; blijft als project bestaan in de backend. | Ja: `#/brein` toont dat project; de lijst filtert het eruit. Chatten met het brein blijft kunnen: "Nieuwe chat" en de laatste chats op `#/brein`; in een chat van het brein staat de chatlijst onder "Jouw brein" in de zijbalk. |
 | S1 | Oude instellingen-hashes blijven werken als alias. | Ja. |
