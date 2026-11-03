@@ -40,6 +40,17 @@ export function brainStateLabel(status: BrainStatus, now = Date.now()): string {
   }
 }
 
+/**
+ * How a stopped brain starts again (issue 23): "Herstellen" puts back what BonzaiWork guards
+ * (.git/config, remote, branch, history); every other stop is "Opnieuw proberen", which checks
+ * the notes again and shares. Null when nothing is stopped.
+ */
+export function brainRecovery(status: BrainStatus): "repair" | "retry" | null {
+  if (status.state === "error" && status.repairable) return "repair";
+  if (status.mode === "read_only") return null;
+  return status.state === "error" || status.state === "offline" || status.state === "read_only" ? "retry" : null;
+}
+
 export type BrainAttentionKind = "conflict" | "needs_trust" | "error";
 
 /** The one reason the user has to act, or null (brief §8: conflict, trust, error). */

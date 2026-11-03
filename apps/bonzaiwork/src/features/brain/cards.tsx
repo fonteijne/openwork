@@ -17,7 +17,7 @@ import { href } from "~/lib/router";
 import { fileName } from "~/lib/tools";
 
 import { useBrainAction } from "./actions";
-import { attentionKind, dismissTrust, useTrustDismissed } from "./model";
+import { attentionKind, brainRecovery, dismissTrust, useTrustDismissed } from "./model";
 import { useStartChat } from "./start-chat";
 import { WorkflowCheckCard } from "./workflows";
 
@@ -152,7 +152,15 @@ export function BrainAttentionCard(props: { projectId: string; /** Off on the Br
     );
   }
 
-  const repair = () => void run("repair", () => brains.repair(props.projectId), copy.brain.attention.repairing);
+  // Issue 23: only a guarded git error takes "Herstellen"; a content error takes "Opnieuw proberen",
+  // which checks the notes again and shares once they pass.
+  const recovery = brainRecovery(status);
+  const recover =
+    recovery === "repair"
+      ? () => void run("repair", () => brains.repair(props.projectId), copy.brain.attention.repairing)
+      : recovery === "retry"
+        ? () => void run("share", () => brains.share(props.projectId), status.remote ? copy.brain.shared : undefined)
+        : null;
   return (
     <Callout
       className={props.className}
@@ -160,15 +168,17 @@ export function BrainAttentionCard(props: { projectId: string; /** Off on the Br
       label={copy.brain.attention.label}
       tone="failure"
       tabIndex={0}
-      onKeyDown={cardKeys({ enter: repair })}
+      onKeyDown={recover ? cardKeys({ enter: recover }) : undefined}
       icon={<CircleAlert />}
       title={copy.attention.brain.error}
       state={status.error ?? copy.brain.attention.errorState}
       actions={
-        <Button variant="primary" disabled={disabled} onClick={repair}>
-          {copy.attention.brain.repair}
-          <Kbd>⏎</Kbd>
-        </Button>
+        recover ? (
+          <Button variant="primary" disabled={disabled} onClick={recover}>
+            {recovery === "repair" ? copy.attention.brain.repair : copy.brain.retry}
+            <Kbd>⏎</Kbd>
+          </Button>
+        ) : undefined
       }
       link={link}
     />

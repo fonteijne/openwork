@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { BrainHistoryEntry, BrainStatus, ConceptView } from "~/backend/types";
 
-import { attentionKind, brainChip, conceptChecked, deliverableOf, groupKnowledge, isKnowledgeNote, knowledgeCounts, noteTitle, stageChatTitle, teamOf } from "./model";
+import { attentionKind, brainChip, brainRecovery, conceptChecked, deliverableOf, groupKnowledge, isKnowledgeNote, knowledgeCounts, noteTitle, stageChatTitle, teamOf } from "./model";
 
 const status = (patch: Partial<BrainStatus> = {}): BrainStatus => ({
   kind: "project", state: "synced", mode: "auto", remote: "git@gitlab.com:team/brein.git", branch: "main", ahead: 0, behind: 0, lastSyncAt: 1_000,
-  conflictFiles: [], conflictBy: null, merging: false, error: null, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
+  conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
   ...patch,
 });
 
@@ -14,6 +14,16 @@ const entry = (author: string, at: number, files: string[] = []): BrainHistoryEn
 
 const concept = (patch: Partial<ConceptView> = {}): ConceptView => ({
   type: "Policy", title: null, description: null, tags: [], status: "draft", stale: false, generated: null, verified: [], tier: "unverified", sources: [], ...patch,
+});
+
+describe("how a stopped brain starts again (issue 23)", () => {
+  it("repairs only a guarded git error; any other stop is retried", () => {
+    expect(brainRecovery(status({ state: "error", repairable: true }))).toBe("repair");
+    expect(brainRecovery(status({ state: "error" }))).toBe("retry");
+    expect(brainRecovery(status({ state: "offline" }))).toBe("retry");
+    expect(brainRecovery(status({ state: "error", mode: "read_only" }))).toBeNull();
+    expect(brainRecovery(status({ state: "synced" }))).toBeNull();
+  });
 });
 
 describe("the one reason to act", () => {

@@ -64,6 +64,11 @@ export type BrainStatus = {
   merging: boolean;
   /** Dutch; the English git/ssh text only goes to the log. */
   error: string | null;
+  /**
+   * The error is about what BonzaiWork guards (`.git/config`, the remote, the branch, the
+   * history): "Herstellen" puts it back. Any other error is retried with "Opnieuw proberen".
+   */
+  repairable: boolean;
   /** Items waiting for the user's decision; they are not in the folder (needs_trust). */
   pendingTrust: TrustItem[];
   /** New files that were not shared by themselves (plan §4.3). */
@@ -99,11 +104,16 @@ export type BrainSyncOptions = {
   busy?: () => Promise<boolean>;
 };
 
+type ErrorCause = RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" | "local";
+
 type Problem =
   | { kind: "offline"; message: string }
   | { kind: "read_only"; message: string }
   | { kind: "conflict"; message: string; files: string[]; by: string | null; merging?: boolean }
-  | { kind: "error"; message: string; cause: RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" | "local" };
+  | { kind: "error"; message: string; cause: ErrorCause };
+
+/** Plan §7.4: what guard() checks before any git work; only "Herstellen" lifts these. */
+const GUARDED: readonly ErrorCause[] = ["config", "remote", "branch", "history"];
 
 export type TurnResult = { committed: boolean; shared: boolean; blockedBy?: string };
 
@@ -199,6 +209,11 @@ export class BrainSync {
     await this.persist({ gitConfig: await this.readConfig() });
   }
 
+  /** A problem only "Herstellen" lifts: guard() stops every git action until then. */
+  private get repairable(): boolean {
+    return this.problem?.kind === "error" && GUARDED.includes(this.problem.cause);
+  }
+
   private author(): Record<string, string> {
     const { name, email } = this.options.author();
     return { "user.name": name, "user.email": email };
@@ -220,7 +235,7 @@ export class BrainSync {
    * (filters, includes) or send work elsewhere, so nothing runs.
    */
   private async guard(): Promise<boolean> {
-    if (this.problem?.kind === "error" && ["config", "remote", "branch", "history"].includes(this.problem.cause)) return false;
+    if (this.repairable) return false;
     const config = await this.readConfig();
     if (this.record.gitConfig !== null && config !== this.record.gitConfig) {
       this.problem = { kind: "error", cause: "config", message: SYNC_MESSAGES.configChanged };
@@ -386,9 +401,11 @@ export class BrainSync {
       this.problem = { kind: "error", cause: "secret", message: SYNC_MESSAGES.secret(blockedBy) };
       return { committed: false, blockedBy };
     }
+    // The checks passed: an earlier block is over, also when the fix left nothing new to record
+    // (the file was put back or removed), or the brain stays stopped on a solved problem (#23).
+    if (this.problem?.kind === "error" && (this.problem.cause === "secret" || this.problem.cause === "content")) this.problem = null;
     if (!staged) return { committed: false };
     await this.ok(["commit", "-q", "--no-verify", "-F", "-"], { input: message, config: this.author() });
-    if (this.problem?.kind === "error" && (this.problem.cause === "secret" || this.problem.cause === "content")) this.problem = null;
     return { committed: true };
   }
 
@@ -1127,6 +1144,7 @@ export class BrainSync {
       conflictBy: problem?.kind === "conflict" ? problem.by : null,
       merging: problem?.kind === "conflict" && problem.merging === true,
       error: problem?.message ?? null,
+      repairable: this.repairable,
       pendingTrust: this.pending,
       unshared: this.unshared,
       warnings: this.warnings,

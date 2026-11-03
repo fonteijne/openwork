@@ -54,6 +54,7 @@ const brain = (projectId: string, kind: "project" | "personal" = "project"): Bra
     conflictBy: null,
     merging: false,
     error: null,
+    repairable: false,
     pendingTrust: [],
     unshared: [],
     warnings: [],

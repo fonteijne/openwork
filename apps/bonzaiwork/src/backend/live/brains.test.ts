@@ -36,6 +36,7 @@ describe("brain status", () => {
       conflictBy: null,
       merging: false,
       error: null,
+      repairable: false,
       pendingTrust: [{ path: "opencode.json", kind: "config", mcpServers: ["crm"] }],
       unshared: [],
       warnings: [],
