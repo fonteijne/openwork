@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookOpen, CalendarClock, Clock, Repeat, Square } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
@@ -64,7 +64,7 @@ function BusyRow(props: { chat: Chat; project: Project }) {
             ·
           </span>
           {/* The running step shimmers (V6); without the chat's messages the word carries the state. */}
-          <span className="bw-shimmer font-medium" role="status">
+          <span className="bw-shimmer font-medium">
             {copy.home.busyNow}
           </span>
         </span>
@@ -78,11 +78,37 @@ function BusyRow(props: { chat: Chat; project: Project }) {
   );
 }
 
+/** One sentence when a chat leaves Bezig ("Concurrentieanalyse is klaar"), not a status per row. */
+function useBusyAnnouncement(chats: readonly Chat[]): string {
+  const [spoken, setSpoken] = useState("");
+  const running = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    const now = new Map(chats.filter((chat) => chat.status === "running").map((chat) => [chat.id, chat.untitled ? copy.chat.untitled : chat.title]));
+    const before = running.current;
+    running.current = now;
+    if (!before) return;
+    for (const [id, title] of before) {
+      if (now.has(id)) continue;
+      const after = chats.find((chat) => chat.id === id);
+      const status = after?.status === "waiting" || after?.status === "failed" ? after.status : "idle";
+      setSpoken(copy.home.busyEnded(title, status));
+    }
+  }, [chats]);
+  return spoken;
+}
+
 export function BusySection(props: { chats: readonly Chat[]; projects: ReadonlyMap<string, Project> }) {
   const rows = props.chats.filter((chat) => chat.status === "running" && !chat.parentId && props.projects.has(chat.projectId));
-  if (!rows.length) return null;
+  const announcement = useBusyAnnouncement(props.chats);
+  const live = (
+    <p role="status" aria-live="polite" className="sr-only">
+      {announcement}
+    </p>
+  );
+  if (!rows.length) return live;
   return (
     <section aria-labelledby="home-busy" data-testid="home-busy">
+      {live}
       <SectionHeading id="home-busy" title={copy.home.busy} count={rows.length} />
       <ul className="border-t border-border">
         {rows.map((chat) => {

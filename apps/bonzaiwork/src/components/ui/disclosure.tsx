@@ -30,7 +30,7 @@ export function Disclosure(props: {
       <Collapsible.Trigger
         data-testid={props.testId}
         className={cn(
-          "group flex w-full min-w-0 select-none items-center gap-1.5 rounded-lg text-start text-muted-foreground outline-none transition-colors duration-100 hover:bg-hover hover:text-foreground data-[panel-open]:text-foreground pointer-coarse:min-h-10",
+          "group flex w-full min-w-0 select-none items-center gap-1.5 rounded-lg text-start text-muted-foreground outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2 transition-colors duration-100 hover:bg-hover hover:text-foreground data-[panel-open]:text-foreground pointer-coarse:min-h-11",
           props.size === "sm" ? "h-7 px-1 text-xs" : "h-8 px-1 text-sm",
         )}
       >

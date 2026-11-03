@@ -19,7 +19,7 @@ import { DESKTOP, useMediaQuery } from "~/lib/use-media";
 import { AgendaStatusRow } from "../agenda/agenda-status-row";
 import { ChatList } from "../chat/chat-list";
 import { ProjectRuntimeProvider } from "../project/runtime";
-import { useAttentionCounts, useSidebarProjects } from "../projects/use-listed-projects";
+import { projectChipStatus, useAttentionCounts, useSidebarProjects } from "../projects/use-listed-projects";
 import { HelpMenu } from "./help-menu";
 import { useUi } from "./ui-store";
 
@@ -70,30 +70,39 @@ function ExpandedProject(props: { project: Project; activeChatId: string | null;
   );
 }
 
+/** Short words in the 256px column ("Wacht", not "Wacht op jou"); the dots of Bezig and Wacht need their word (V2). */
+function sidebarStatusWord(status: ChipStatus): string | undefined {
+  if (status === "locked") return copy.shell.status.locked;
+  if (status === "waiting") return copy.shell.status.waitingShort;
+  return undefined;
+}
+
 function ProjectRow(props: { project: Project; status: ChipStatus; open: boolean; expanded: boolean; activeChatId: string | null; onToggle: () => void }) {
   const { project } = props;
   return (
     <li>
-      <div className={cn("flex h-8 items-center gap-1 rounded-full pe-2.5 ps-1 transition-colors duration-100 hover:bg-hover pointer-coarse:h-10", props.open && "bg-background shadow-card")}>
+      <div className={cn("flex h-8 items-center gap-1 rounded-full pe-2.5 ps-1 transition-colors duration-100 hover:bg-hover pointer-coarse:h-11", props.open && "bg-background shadow-card")}>
         <button
           type="button"
           aria-expanded={props.expanded}
           aria-label={props.expanded ? copy.shell.collapseProject(project.name) : copy.shell.expandProject(project.name)}
           disabled={props.open}
           onClick={props.onToggle}
-          className="flex size-6 shrink-0 items-center justify-center rounded-full text-subtle-foreground hover:bg-active hover:text-foreground disabled:opacity-60 pointer-coarse:size-8"
+          className="flex size-6 shrink-0 items-center justify-center rounded-full text-subtle-foreground hover:bg-active hover:text-foreground disabled:opacity-60 pointer-coarse:size-11"
         >
           <ChevronRight className={cn("size-3.5 transition-transform duration-150 motion-reduce:transition-none", props.expanded && "rotate-90")} aria-hidden="true" />
         </button>
         <a
           href={href({ name: "project", projectId: project.id, chatId: null })}
           aria-current={props.open ? "page" : undefined}
+          // The name gets the room: short words for running/waiting, an icon alone (word on hover and for
+          // assistive tech) for failed and "Geen key", whose shapes differ.
           className={cn("flex h-full min-w-0 flex-1 items-center gap-2 text-sm text-muted-foreground hover:text-foreground", props.open && "font-semibold text-foreground")}
         >
           <ProjectIcon icon={project.icon} color={project.color} size="sm" />
           <span className="min-w-0 flex-1 truncate">{project.name}</span>
         </a>
-        <StatusChip status={props.status} label={props.status === "locked" ? copy.shell.status.locked : undefined} className="text-[11px]" />
+        <StatusChip status={props.status} label={sidebarStatusWord(props.status)} wordHidden={props.status === "failed" || props.status === "locked"} className="shrink-0 text-[11px]" />
       </div>
       {props.expanded ? (
         <ProjectRuntimeProvider projectId={project.id}>
@@ -192,7 +201,7 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
             {visible.map((project) => {
               const open = project.id === openId;
               const summary = summaries.get(project.id);
-              const projectStatus: ChipStatus = !projectHasKey(status.data, project) ? "locked" : summary?.waitingCount ? "waiting" : summary?.failedCount ? "failed" : summary?.runningCount ? "running" : "idle";
+              const projectStatus = projectChipStatus(projectHasKey(status.data, project), summary);
               return (
                 <ProjectRow
                   key={project.id}

@@ -66,7 +66,7 @@ export function Tabs<V extends string>(props: {
             nativeButton={item.href === undefined}
             render={item.href !== undefined ? <a href={item.href} /> : undefined}
             className={cn(
-              "flex h-8 shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm text-muted-foreground outline-none transition-colors duration-100 hover:bg-hover hover:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-45 pointer-coarse:h-10 [&_svg]:size-4 [&_svg]:shrink-0",
+              "flex h-8 shrink-0 select-none items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-sm text-muted-foreground outline-none transition-colors duration-100 hover:bg-hover hover:text-foreground focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-45 pointer-coarse:h-11 [&_svg]:size-4 [&_svg]:shrink-0",
               props.surface === "sand" ? "data-[active]:bg-background data-[active]:shadow-card" : "data-[active]:bg-sand-3",
               "data-[active]:font-semibold data-[active]:text-foreground",
             )}

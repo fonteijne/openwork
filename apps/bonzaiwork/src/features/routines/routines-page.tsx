@@ -329,7 +329,8 @@ function RoutineRow(props: { routine: Routine; project: Project | null; showProj
               <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
                 <CircleDashed aria-hidden="true" className="size-3.5 shrink-0 text-warning-foreground" />
                 <span className="text-foreground">{copy.routines.missedAt(whenPhrase(last.scheduledAt))}</span>
-                <span className="text-subtle-foreground">· {copy.routines.missedRule}</span>
+                {/* The rule on its own line, not behind a dangling "·" (C7). */}
+                <span className="basis-full ps-5 text-subtle-foreground">{copy.routines.missedRule}</span>
               </span>
               <FixControl routine={routine} project={project} />
             </>

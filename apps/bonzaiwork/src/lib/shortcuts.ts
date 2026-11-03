@@ -85,10 +85,14 @@ export function isEditable(target: EventTarget | null): boolean {
   return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
-/** Focus is inside a dialog, menu or list popup: the window's chords stay out of the way. */
+/**
+ * Focus is inside a modal dialog, menu or list popup: the window's chords stay out of the way. A
+ * non-modal panel (the Details overlay, `data-nonmodal`) leaves the page usable, so ⌘\ closes it
+ * and ⌘K still opens the palette from inside it (S6: one action, one home).
+ */
 export function inOverlay(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  return target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]') !== null;
+  return target.closest('[role="dialog"]:not([data-nonmodal]), [role="alertdialog"], [role="menu"], [role="listbox"]') !== null;
 }
 
 /** The page's composer takes focus (⌘N, "Nieuwe chat"): the page that owns a composer listens. */

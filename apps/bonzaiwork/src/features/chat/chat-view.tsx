@@ -15,6 +15,7 @@ import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { canGoBack, goBack, navigate } from "~/lib/router";
 import { chord } from "~/lib/shortcuts";
+import { scrollBehavior } from "~/lib/use-media";
 import { writeLocal } from "~/lib/storage";
 
 import { useProjectState, useRuntime } from "../project/runtime";
@@ -27,6 +28,7 @@ import { PermissionCard, QuestionCard } from "./interaction-cards";
 import { BrainPermissionCard, isBrainRead } from "~/features/brain/brain-permission";
 import { BrainCards } from "~/features/brain/cards";
 import { BrainTurnLine } from "~/features/brain/turn-line";
+import { useTurnAnnouncement } from "./announce";
 import { AssistantTurn, ThinkingLine, UserMessage, type TurnActions } from "./message-view";
 
 // "Maak hier een routine van" (brief §8): the editor is the routines page's chunk, fetched on first use.
@@ -158,8 +160,12 @@ export function ChatView(props: { project: Project; chatId: string }) {
 
   const stop = useCallback(() => {
     if (liveTurn) setStoppedTurns((current) => (current.includes(liveTurn) ? current : [...current, liveTurn]));
-    void backend.chats.abort(project.id, props.chatId).catch((failure: unknown) => toast(errorText(failure), { tone: "error" }));
-  }, [backend, project.id, props.chatId, liveTurn]);
+    // The sidebar's project chip and Vandaag's Bezig read the summaries: refresh them so "Bezig" leaves with the turn.
+    void backend.chats
+      .abort(project.id, props.chatId)
+      .then(refreshAttention)
+      .catch((failure: unknown) => toast(errorText(failure), { tone: "error" }));
+  }, [backend, project.id, props.chatId, liveTurn, refreshAttention]);
 
   /** The person's message that started a turn, for retry and rerun. */
   const userBefore = useCallback(
@@ -259,6 +265,8 @@ export function ChatView(props: { project: Project; chatId: string }) {
     }
   };
 
+  const announcement = useTurnAnnouncement({ status: chat?.status ?? "idle", decision: permissions?.length ? "permission" : questions?.length ? "question" : false }, messages);
+
   if (!chat) {
     if (chatsState === "loading") return <ChatSkeleton project={project} />;
     return (
@@ -280,7 +288,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
 
   const permission = permissions?.[0];
   const question = questions?.[0];
-  const decisionPending = Boolean(permission ?? question);
+  const decisionPending = permission ? "permission" : question ? "question" : false;
 
   return (
     <div
@@ -335,6 +343,10 @@ export function ChatView(props: { project: Project; chatId: string }) {
       ) : null}
 
       <main className="relative flex min-h-0 flex-1 flex-col">
+        {/* The turn's state, spoken: step changes at most every 5 s, end states at once (WCAG 4.1.3). */}
+        <p role="status" aria-live="polite" className="sr-only" data-testid="chat-announce">
+          {announcement}
+        </p>
         <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="chat-scroller">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 pt-6 sm:px-6" style={{ paddingBottom: dockHeight + 16 }} data-testid="chat-messages">
             {entry?.state === "loading" && !messages.length ? (
@@ -396,7 +408,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
                 className="pointer-events-auto rounded-full bg-background shadow-card"
                 onClick={() => {
                   stick.current = true;
-                  scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+                  scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: scrollBehavior() });
                 }}
               >
                 <ArrowDown />

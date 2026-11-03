@@ -38,8 +38,8 @@ export function Select(props: {
         className={cn(
           "inline-flex min-w-0 items-center gap-1.5 text-sm outline-none transition-colors duration-150 disabled:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
           props.variant === "pill"
-            ? "h-7 max-w-[14rem] rounded-full px-2.5 text-muted-foreground hover:bg-hover hover:text-foreground data-[popup-open]:bg-hover pointer-coarse:h-9"
-            : "h-8 w-full justify-between rounded-full bg-background px-3.5 ring-1 ring-inset ring-input focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-10",
+            ? "h-7 max-w-[14rem] rounded-full px-2.5 text-muted-foreground hover:bg-hover hover:text-foreground data-[popup-open]:bg-hover pointer-coarse:h-11 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+            : "h-8 w-full justify-between rounded-full bg-background px-3.5 ring-1 ring-inset ring-input focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11",
           props.className,
         )}
       >

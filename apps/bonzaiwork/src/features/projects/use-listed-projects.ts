@@ -4,6 +4,7 @@ import { useQueries } from "@tanstack/react-query";
 import { useBackend } from "~/backend/context";
 import { keys, useAttention, usePersonalBrain, useProjects } from "~/backend/queries";
 import type { Project, ProjectSummary } from "~/backend/types";
+import type { ChipStatus } from "~/components/ui/chip";
 
 /**
  * The projects as the shell lists them, shared by the sidebar, Vandaag, the palette and the
@@ -38,6 +39,15 @@ function useSummaries(projects: Project[]): Map<string, ProjectSummary> {
  * The projects the sidebar lists: not archived, not the personal brain (decision B1); pinned first
  * in a stable order (⌘1…⌘9), then by activity.
  */
+/** The same status the sidebar shows for a project row: key first, then waiting, failed, running. */
+export function projectChipStatus(hasKey: boolean, summary: { waitingCount: number; failedCount: number; runningCount: number } | undefined): ChipStatus {
+  if (!hasKey) return "locked";
+  if (summary?.waitingCount) return "waiting";
+  if (summary?.failedCount) return "failed";
+  if (summary?.runningCount) return "running";
+  return "idle";
+}
+
 export function useSidebarProjects() {
   const projects = useProjects();
   const personalId = usePersonalBrain()?.projectId ?? null;

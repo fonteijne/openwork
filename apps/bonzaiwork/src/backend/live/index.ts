@@ -237,8 +237,14 @@ export async function createLiveBackend(): Promise<Backend> {
   };
 
   const workspaces = new Map<string, Workspace>();
-  /** Live run state per chat, from the event stream; list reads fill it in. */
+  /** Live run state per chat, from the event stream; list reads and the attention poll keep it fresh. */
   const liveStatus = new Map<string, ChatStatus>();
+  /** Which project a chat belongs to, so a reconcile only touches that project's chats. */
+  const projectOfChat = new Map<string, string>();
+  /** The chat of each routine's last run, filled whenever the routines are listed (the 10 s poll). */
+  const routineOfChat = new Map<string, string>();
+  /** When this device first saw a request wait: a stable `at`, so cards keep their order between polls. */
+  const firstSeen = new Map<string, number>();
   const assignmentsByProject = new Map<string, Record<string, string>>();
   const failed = failedChatStore(new URL(connection.baseUrl).host);
   /** The last known status of a chat outside a list read: the stream's, else a remembered failure. */
@@ -418,7 +424,8 @@ export async function createLiveBackend(): Promise<Backend> {
       note: projectMeta.chatNotes[session.id] ?? null,
       status,
       revertMessageId: session.revertMessageId,
-      routineId: null,
+      // Known for the last run of each routine (the list carries no older run chats).
+      routineId: routineOfChat.get(session.id) ?? null,
       // The engine's session carries no text; reading every history would cost a request per chat.
       preview: null,
     };
@@ -442,7 +449,34 @@ export async function createLiveBackend(): Promise<Backend> {
   }
 
   async function runStates(engineTarget: EngineTarget): Promise<Map<string, ChatStatus>> {
-    return (await activeRequests(engineTarget)).states;
+    const states = (await activeRequests(engineTarget)).states;
+    if (engineTarget.workspaceId) await syncStates(engineTarget, engineTarget.workspaceId, states);
+    return states;
+  }
+
+  /**
+   * The engine's word on which chats of one project run is authoritative: write it into
+   * `liveStatus` and drop a running/waiting entry the engine no longer has (its stream may be
+   * parked or the window hidden). A chat that stopped running while nobody listened is read once:
+   * an error on its last message makes it a remembered failure (Voor jou, `failedCount`).
+   */
+  async function syncStates(engineTarget: EngineTarget, projectId: string, states: ReadonlyMap<string, ChatStatus>): Promise<void> {
+    const ended: string[] = [];
+    for (const [id, state] of liveStatus) {
+      if (projectOfChat.get(id) !== projectId || states.has(id) || (state !== "running" && state !== "waiting")) continue;
+      liveStatus.delete(id);
+      if (!failed.has(id)) ended.push(id);
+    }
+    for (const [id, state] of states) {
+      liveStatus.set(id, state);
+      projectOfChat.set(id, projectId);
+    }
+    await Promise.all(
+      ended.map(async (id) => {
+        const last = (await engine.messages(engineTarget, id).catch(() => [])).at(-1);
+        if (last?.role === "assistant" && last.error) failed.set(id, projectId, last.error);
+      }),
+    );
   }
 
   /** Projects as the overview and Vandaag see them: every unarchived workspace with its metadata. */
@@ -462,6 +496,17 @@ export async function createLiveBackend(): Promise<Backend> {
   async function attentionOf(entry: Workspace, projectMeta: ProjectMeta): Promise<AttentionItem[]> {
     const engineTarget: EngineTarget = { connection, workspaceId: entry.id, directory: entry.path };
     const requests = await activeRequests(engineTarget);
+    await syncStates(engineTarget, entry.id, requests.states);
+    const live = new Set([...requests.permissions, ...requests.questions].map((request) => request.id));
+    for (const id of firstSeen.keys()) if (id.startsWith(`${entry.id}:`) && !live.has(id.slice(entry.id.length + 1))) firstSeen.delete(id);
+    const seenAt = (requestId: string): number => {
+      const key = `${entry.id}:${requestId}`;
+      const known = firstSeen.get(key);
+      if (known !== undefined) return known;
+      const now = Date.now();
+      firstSeen.set(key, now);
+      return now;
+    };
     const titles = new Map<string, string>();
     const title = async (chatId: string): Promise<string | null> => {
       const known = titles.get(chatId);
@@ -478,7 +523,7 @@ export async function createLiveBackend(): Promise<Backend> {
         if (projectMeta.archivedChatIds.includes(request.chatId)) return;
         const chatTitle = await title(request.chatId);
         if (chatTitle === null) return;
-        const at = Date.now();
+        const at = seenAt(request.id);
         if (kind === "permission") items.push({ kind, projectId: entry.id, chatId: request.chatId, chatTitle, request, at });
         else items.push({ kind, projectId: entry.id, chatId: request.chatId, chatTitle, request, at });
       }),
@@ -570,7 +615,9 @@ export async function createLiveBackend(): Promise<Backend> {
   async function routinesList(projectId: string | null): Promise<Routine[]> {
     if (!routinesOnServer) return [];
     const query = projectId ? `?workspaceId=${enc(projectId)}` : "";
-    return items(await req(`/bonzaiwork/routines${query}`)).flatMap((entry) => readRoutine(entry) ?? []);
+    const routines = items(await req(`/bonzaiwork/routines${query}`)).flatMap((entry) => readRoutine(entry) ?? []);
+    for (const routine of routines) if (routine.lastRun?.chatId) routineOfChat.set(routine.lastRun.chatId, routine.id);
+    return routines;
   }
 
   // -------------------------------------------------------------------------
@@ -705,10 +752,7 @@ export async function createLiveBackend(): Promise<Backend> {
           cursor ? Promise.resolve(null) : backend.groups.list(projectId).catch(() => null),
         ]);
         if (groups) assignmentsByProject.set(projectId, groups.assignments);
-        if (!cursor) {
-          for (const [id, state] of liveStatus) if ((state === "running" || state === "waiting") && !states.has(id)) liveStatus.delete(id);
-          for (const [id, state] of states) liveStatus.set(id, state);
-        }
+        for (const session of page.sessions) projectOfChat.set(session.id, projectId);
         return { items: page.sessions.map((session) => toChat(projectId, session, projectMeta, states.get(session.id) ?? knownStatus(session.id))), nextCursor: page.next };
       },
       async create(projectId, input) {
@@ -762,9 +806,14 @@ export async function createLiveBackend(): Promise<Backend> {
         if (input.command) await engine.command(engineTarget, chatId, input.command, text);
         else await engine.prompt(engineTarget, chatId, text, input.skills);
         liveStatus.set(chatId, "running");
+        projectOfChat.set(chatId, projectId);
         failed.remove(chatId);
       },
-      abort: async (projectId, chatId) => void (await engine.interrupt(await target(projectId), chatId)),
+      async abort(projectId, chatId) {
+        await engine.interrupt(await target(projectId), chatId);
+        // Stopped is idle, not failed (C5); a parked stream would otherwise leave it "running".
+        liveStatus.set(chatId, "idle");
+      },
       async fork(projectId, chatId, beforeMessageId) {
         const session = await engine.fork(await target(projectId), chatId, beforeMessageId);
         return toChat(projectId, session, await meta.get(projectId), "idle");
@@ -783,11 +832,17 @@ export async function createLiveBackend(): Promise<Backend> {
         if (limit <= 0) return [];
         const pages = await Promise.all(
           (await liveProjects()).map(async ({ entry, projectMeta }) => {
-            // The newest page per project, without run states or groups: one request per project.
-            const page = await engine.listSessions({ connection, workspaceId: entry.id, directory: entry.path }, null, limit).catch(() => ({ sessions: [], next: null }));
+            // The newest page per project and the engine's run states: Bezig and "Terwijl je weg
+            // was" must not trust a stream that may be parked (window hidden, runtime released).
+            const engineTarget: EngineTarget = { connection, workspaceId: entry.id, directory: entry.path };
+            const [page, states] = await Promise.all([
+              engine.listSessions(engineTarget, null, limit).catch(() => ({ sessions: [], next: null })),
+              runStates(engineTarget).catch(() => null),
+            ]);
+            for (const session of page.sessions) projectOfChat.set(session.id, entry.id);
             return page.sessions
               .filter((session) => !session.parentId && !projectMeta.archivedChatIds.includes(session.id))
-              .map((session) => toChat(entry.id, session, projectMeta, knownStatus(session.id)));
+              .map((session) => toChat(entry.id, session, projectMeta, states?.get(session.id) ?? knownStatus(session.id)));
           }),
         );
         return pages.flat().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
@@ -838,6 +893,7 @@ export async function createLiveBackend(): Promise<Backend> {
       const emit = (event: ProjectEvent) => {
         if (event.type === "chat.status") {
           liveStatus.set(event.chatId, event.status);
+          projectOfChat.set(event.chatId, projectId);
           if (event.status === "failed") failed.set(event.chatId, projectId, null);
           else if (event.status !== "idle") failed.remove(event.chatId);
         }

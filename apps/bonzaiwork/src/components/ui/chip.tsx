@@ -45,6 +45,11 @@ export function StatusChip(props: {
   detail?: ReactNode;
   /** Render as a filled pill instead of bare text (page headers). */
   pill?: boolean;
+  /**
+   * The word is read out and shown on hover, not drawn: for a narrow column where the icon's shape
+   * already differs (failed = alert, locked = lock), so it is never hue alone (V2).
+   */
+  wordHidden?: boolean;
   className?: string;
 }) {
   if (props.status === "idle" && !props.label) return null;
@@ -52,6 +57,7 @@ export function StatusChip(props: {
   return (
     <span
       data-status={props.status}
+      title={props.wordHidden ? word : undefined}
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground",
         props.pill && "h-6 rounded-full bg-muted px-2",
@@ -63,7 +69,7 @@ export function StatusChip(props: {
       {props.status === "waiting" ? <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-amber-9 ring-1 ring-inset ring-amber-11/50" /> : null}
       {props.status === "failed" ? <CircleAlert aria-hidden="true" className="size-3.5 shrink-0 text-red-11" /> : null}
       {props.status === "locked" ? <Lock aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" /> : null}
-      <span className="truncate">{word}</span>
+      <span className={props.wordHidden ? "sr-only" : "truncate"}>{word}</span>
       {props.detail ? <span className="truncate font-normal text-subtle-foreground">{props.detail}</span> : null}
     </span>
   );

@@ -52,8 +52,8 @@ export function SegmentedControl<V extends string>(props: {
           value={item.value}
           disabled={item.disabled}
           className={cn(
-            "flex min-w-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-medium text-muted-foreground outline-none transition-[background-color,color,box-shadow] duration-100 hover:text-foreground data-[checked]:bg-background data-[checked]:font-semibold data-[checked]:text-foreground data-[checked]:shadow-card data-[disabled]:pointer-events-none data-[disabled]:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
-            props.size === "sm" ? "h-6 px-2.5 text-xs pointer-coarse:h-8" : "h-7 px-3 text-sm pointer-coarse:h-9",
+            "flex min-w-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-full font-medium text-muted-foreground outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 transition-[background-color,color,box-shadow] duration-100 hover:text-foreground data-[checked]:bg-background data-[checked]:font-semibold data-[checked]:text-foreground data-[checked]:shadow-card data-[disabled]:pointer-events-none data-[disabled]:opacity-45 [&_svg]:size-4 [&_svg]:shrink-0",
+            props.size === "sm" ? "h-6 px-2.5 text-xs pointer-coarse:h-10" : "h-7 px-3 text-sm pointer-coarse:h-11",
             props.fill && "flex-1",
             props.scroll && "shrink-0",
           )}

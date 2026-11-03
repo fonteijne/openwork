@@ -16,7 +16,6 @@ import { awayRows, MAX_AWAY_ROWS, nextRoutine, readLastSeen, writeLastSeen } fro
 import { BusySection, ProjectsSection, WhileAwaySection, WorkdaySection } from "./sections";
 
 /** Enough recent chats to find what runs and what finished since last time (brief §5). */
-const RECENT_LIMIT = 24;
 
 const toHistory = (results: { data: BrainHistoryEntry[] | undefined }[]): (BrainHistoryEntry[] | null)[] => results.map((result) => result.data ?? null);
 
@@ -54,7 +53,7 @@ export function HomePage() {
   const smallUp = useMediaQuery(SMALL_UP);
   const { projects, summaries } = useSidebarProjects();
   const attention = useAttention();
-  const recent = useRecentChats(RECENT_LIMIT);
+  const recent = useRecentChats();
   const routines = useRoutines(null);
   const brains = useBrains();
   const author = useBrainAuthor();

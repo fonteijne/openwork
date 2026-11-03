@@ -9,10 +9,10 @@ export function Skeleton(props: { className?: string }) {
   return <span aria-hidden="true" className={cn("block animate-pulse rounded-md bg-muted", props.className)} />;
 }
 
-/** One key or chord ("⏎", "⌘⏎", "esc") as a keycap; inside a button it reads in the button's ink. */
+/** One key or chord ("⏎", "⌘⏎", "esc") as a keycap in the surrounding ink (AA at 11px); the border keeps it quiet. */
 export function Kbd(props: { children: ReactNode; className?: string }) {
   return (
-    <kbd className={cn("inline-flex h-4 min-w-4 items-center justify-center rounded border border-current/25 px-1 font-sans text-[11px] leading-none text-current opacity-80", props.className)}>
+    <kbd className={cn("inline-flex h-4 min-w-4 items-center justify-center rounded border border-current/25 px-1 font-sans text-[11px] leading-none text-current", props.className)}>
       {props.children}
     </kbd>
   );

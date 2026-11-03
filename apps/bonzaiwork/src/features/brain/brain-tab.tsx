@@ -141,6 +141,8 @@ function StateLine(props: { brain: Brain }) {
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm" data-testid="brain-state" data-state={status.state}>
       <BookOpen className="size-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
       <StatusChip status={chip.status} label={chip.label} className="text-sm" />
+      {/* An idle chip has no glyph after the word, so the two facts need their own separator (P9). */}
+      <span aria-hidden="true" className="text-subtle-foreground">·</span>
       <span className="text-muted-foreground">{sharing}</span>
     </div>
   );
@@ -275,10 +277,10 @@ function CareSection(props: { projectId: string; readOnly: boolean; setUpBusy: b
         }
       />
       <Row
-        label={copy.brain.setUpTitle}
+        label={copy.brain.layoutTitle}
         action={
           <Button variant="secondary" size="sm" disabled={props.readOnly || props.setUpBusy} onClick={props.onSetUp}>
-            {copy.brain.setUpTitle}
+            {copy.brain.setUpChat}
           </Button>
         }
       />

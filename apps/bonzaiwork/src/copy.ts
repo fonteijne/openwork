@@ -71,6 +71,8 @@ export const copy = {
     routineStarted: "Gestart",
     trustCount: (count: number) => (count === 1 ? "1 onderdeel wacht op jouw akkoord" : `${count} onderdelen wachten op jouw akkoord`),
     conflictFiles: (count: number) => (count === 1 ? "1 notitie" : `${count} notities`),
+    /** Spoken once when a chat leaves Bezig (a hidden live region). */
+    busyEnded: (title: string, status: "idle" | "waiting" | "failed") => (status === "waiting" ? `${title} wacht op jou` : status === "failed" ? `${title} is mislukt` : `${title} is klaar`),
     busyNow: "Bezig",
     stopped: "Gestopt",
   },
@@ -94,6 +96,8 @@ export const copy = {
     status: {
       locked: "Geen key",
       idle: "Klaar",
+      /** The sidebar's short form: the project name keeps its room in the 256px column. */
+      waitingShort: "Wacht",
     },
     sidebarCollapse: "Zijbalk inklappen",
     sidebarExpand: "Zijbalk tonen",
@@ -115,6 +119,8 @@ export const copy = {
     detailsHide: "Details verbergen",
     switchProject: "Project wisselen",
     notFoundTitle: "Deze pagina bestaat niet",
+    /** What happened, under the bar's title; the action says where to go (C6, P2: not the title twice). */
+    notFoundBody: "Deze link klopt niet meer",
     notFoundAction: "Naar Vandaag",
     shortcuts: {
       home: "Vandaag",
@@ -519,15 +525,25 @@ export const copy = {
     openSubtask: "Deeltaak openen",
     loadFailed: "Deze chat kon niet worden geladen.",
     sendFailed: "Je bericht is niet verstuurd.",
+    /** On the failed-send toast of a first message: the same text and attachments again (C2). */
+    resend: "Opnieuw versturen",
     newChatFailed: "De chat kon niet worden gestart.",
     retry: "Opnieuw proberen",
     reconnecting: "Verbinding herstellen…",
     header: {
       back: "Terug",
     },
+    /** One spoken sentence per turn change (a hidden live region; WCAG 4.1.3). */
+    announce: {
+      running: (step: string | null) => (step ? `Bezig: ${step}` : "Bezig"),
+      done: (steps: number) => (steps ? `Klaar · ${steps} ${steps === 1 ? "stap" : "stappen"}` : "Klaar"),
+      waitingPermission: "Wacht op jou: toestemming",
+      waitingQuestion: "Wacht op jou: vraag",
+    },
     composer: {
       /** A permission or question is open: the card is the focal element, not the field (T4). */
       decisionPending: "Beantwoord eerst de vraag hierboven",
+      permissionPending: "Kies eerst hierboven of dit mag",
       /** The agent is working: a message steers it, ⌘⏎ waits for the end (T5). */
       steer: "Stuur bij: de agent neemt dit mee",
       steerHint: "bijsturen",
@@ -620,7 +636,7 @@ export const copy = {
     add: "Toevoegen",
     name: "Naam",
     defaultModelNone: "Eerste beschikbare model",
-    usageLocked: "Verbruik per project komt beschikbaar zodra de app het bij LiteLLM kan opvragen",
+    usageLocked: "Verbruik niet op te vragen · je beheerder zet dit aan",
     runModes: {
       default: { label: "Vragen bij gevoelige acties", hint: "Wijzigingen buiten de projectmap en opdrachten op je computer vragen eerst toestemming." },
       approve: { label: "Altijd eerst vragen", hint: "Elke wijziging en elke opdracht wacht op jouw akkoord." },
@@ -1246,6 +1262,8 @@ export const copy = {
     maintenancePlanned: "Ingepland",
     maintenancePrompt: "Kijk eerst in knowledge/log.md: staat er deze week (sinds maandag) al een regel van Wekelijks onderhoud, zeg dan alleen wie het deed en stop. Anders: controleer dit brein volgens de skill okf-lint en geef de bevindingen, belangrijkste eerst.",
     setUpTitle: "Inrichten",
+    /** The maintenance row that offers "Brein inrichten": a noun, the action says the verb (S2, C1). */
+    layoutTitle: "Indeling",
     setUpHint: "De AI richt deze map in als brein: kennis in knowledge/, werkwijzen in workflows/. Je ziet eerst het voorstel; er verandert niets zonder jouw akkoord.",
     setUpChat: "Brein inrichten",
     setUpPrompt: "Gebruik de skill icm-architect in de Restructure-modus om deze map in te richten als brein volgens AGENTS.md en _meta/schema.md: kennis als OKF-concepten in knowledge/, terugkerend werk als werkwijzen in workflows/. Laat eerst het plan zien (wat waarheen, wat nieuw) en wacht op mijn akkoord voordat je iets verplaatst of schrijft. Verwijder niets.",

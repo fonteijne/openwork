@@ -40,7 +40,7 @@ export function HelpMenu() {
       side="top"
       align="start"
       trigger={
-        <Button variant="quiet" size="icon-sm" aria-label={copy.shell.help}>
+        <Button variant="quiet" size="icon-sm" aria-label={copy.shell.help} data-testid="help-menu">
           <CircleHelp />
         </Button>
       }

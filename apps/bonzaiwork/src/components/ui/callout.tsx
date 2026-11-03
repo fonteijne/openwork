@@ -1,10 +1,11 @@
-import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, type HTMLAttributes, type ReactNode } from "react";
 
+import { ownCardFocus } from "~/lib/card-keys";
 import { cn } from "~/lib/cn";
 
 import { Chip } from "./chip";
 
-export type CalloutProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
+export type CalloutProps = Omit<HTMLAttributes<HTMLDivElement>, "title"> & {
   /** Leading 16px lucide icon; the slot tints with the tone. */
   icon: ReactNode;
   /** The one bold sentence: what will happen, to what (P9). */
@@ -21,8 +22,10 @@ export type CalloutProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
   decision?: boolean;
   /** `failure` draws a red hairline (C5: red is for failures only); `neutral` the plain card ring. */
   tone?: "neutral" | "failure";
-  /** Names the card for assistive tech ("Toestemming", "Vraag van de agent"). */
+  /** The kind of card for assistive tech ("De agent vraagt toestemming"); read before the title. */
   label: string;
+  /** The card's own chords for assistive tech (`aria-keyshortcuts`), e.g. "Enter Escape". */
+  keyShortcuts?: string;
   /** Extra content under the state line (RadioCards, a text field). */
   children?: ReactNode;
   testId?: string;
@@ -35,14 +38,25 @@ export type CalloutProps = Omit<HTMLAttributes<HTMLElement>, "title"> & {
  * failure a red hairline; everything else the plain card ring. Key chords belong to the card
  * element: pass `tabIndex` and `onKeyDown` and they apply here, never on `window` (brief §4).
  */
-export const Callout = forwardRef<HTMLElement, CalloutProps>(function Callout(
-  { icon, title, chip, state, actions, link, decision, tone = "neutral", label, children, testId, className, ...rest },
+export const Callout = forwardRef<HTMLDivElement, CalloutProps>(function Callout(
+  { icon, title, chip, state, actions, link, decision, tone = "neutral", label, keyShortcuts, children, testId, className, onPointerDown, ...rest },
   ref,
 ) {
+  const id = useId();
+  // A focused card announces kind + what will happen, then the state line (action · data · risk,
+  // P9), as a group, not a landmark: five cards are not five regions.
+  const sameAsTitle = typeof title === "string" && title === label;
   return (
-    <section
+    <div
       ref={ref}
-      aria-label={label}
+      role="group"
+      aria-labelledby={sameAsTitle ? `${id}-title` : `${id}-kind ${id}-title`}
+      aria-describedby={state ? `${id}-state` : undefined}
+      aria-keyshortcuts={keyShortcuts}
+      onPointerDown={(event) => {
+        ownCardFocus(event);
+        onPointerDown?.(event);
+      }}
       data-testid={testId}
       data-decision={decision ? "" : undefined}
       data-tone={tone}
@@ -54,6 +68,11 @@ export const Callout = forwardRef<HTMLElement, CalloutProps>(function Callout(
       )}
       {...rest}
     >
+      {sameAsTitle ? null : (
+        <span id={`${id}-kind`} className="sr-only">
+          {label}
+        </span>
+      )}
       <div className="flex items-start gap-3">
         <span
           aria-hidden="true"
@@ -65,7 +84,7 @@ export const Callout = forwardRef<HTMLElement, CalloutProps>(function Callout(
           {icon}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold leading-snug text-foreground">
+          <p id={`${id}-title`} className="text-sm font-semibold leading-snug text-foreground">
             {title}
             {chip ? (
               <>
@@ -76,7 +95,11 @@ export const Callout = forwardRef<HTMLElement, CalloutProps>(function Callout(
               </>
             ) : null}
           </p>
-          {state ? <p className="mt-0.5 text-sm text-muted-foreground">{state}</p> : null}
+          {state ? (
+            <p id={`${id}-state`} className="mt-0.5 text-sm text-muted-foreground">
+              {state}
+            </p>
+          ) : null}
           {children ? <div className="mt-3">{children}</div> : null}
           {actions || link ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -86,6 +109,6 @@ export const Callout = forwardRef<HTMLElement, CalloutProps>(function Callout(
           ) : null}
         </div>
       </div>
-    </section>
+    </div>
   );
 });

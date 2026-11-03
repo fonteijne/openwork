@@ -17,6 +17,7 @@ import { FOCUS_COMPOSER_EVENT } from "~/lib/shortcuts";
 
 import { ModelsBlocked } from "../chat/blocked";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "../chat/composer";
+import { sendFirstMessage } from "../chat/first-message";
 import { useUi } from "../shell/ui-store";
 import { defaultProjectId } from "./model";
 
@@ -129,10 +130,9 @@ export function HomeComposer(props: { projects: readonly Project[]; size: "defau
     if (!effectiveModel) return false;
     try {
       const chat = await backend.chats.create(project.id, { model: effectiveModel });
-      // The chat is the person's object (P11): it opens at once, the message arrives in it.
-      void backend.chats
-        .send(project.id, chat.id, { text: input.text, model: effectiveModel, agent, attachments: input.attachments, command: input.command, skills: input.skills })
-        .catch((failure: unknown) => toast(`${copy.chat.sendFailed} ${errorText(failure)}`, { tone: "error" }));
+      // The chat is the person's object (P11): it opens with the message already in it; a send
+      // that fails puts the words back in that chat's composer and offers "Opnieuw versturen".
+      sendFirstMessage(backend, chat, { text: input.text, model: effectiveModel, agent, attachments: input.attachments, command: input.command, skills: input.skills });
       rememberProject(project.id);
       if (backend.capabilities.agenda) void backend.agenda.reportPresence({ projectId: project.id, name: project.name });
       navigate({ name: "project", projectId: project.id, chatId: chat.id });

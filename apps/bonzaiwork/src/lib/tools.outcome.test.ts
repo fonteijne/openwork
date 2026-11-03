@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Message, ToolPart } from "~/backend/types";
 
-import { deliveredFiles, isFailedStep, isStoppedStep, isStoppedTurn, stepFixKind } from "./tools";
+import { deliveredFiles, touchedFiles, isFailedStep, isStoppedStep, isStoppedTurn, stepFixKind } from "./tools";
 
 const tool = (overrides: Partial<ToolPart>): ToolPart => ({
   type: "tool", id: "t", tool: "read", status: "completed", input: {}, output: null, error: null, startedAt: null, endedAt: null, childChatId: null, ...overrides,
@@ -45,5 +45,12 @@ describe("what a turn delivered", () => {
 
   it("leaves out a write that failed", () => {
     expect(deliveredFiles([message([tool({ tool: "write", status: "error", error: "EACCES", input: { filePath: "x.md" } })])])).toEqual([]);
+  });
+
+  it("does not call a file changed while its write waits for permission or still runs", () => {
+    const waiting = [message([tool({ tool: "read", input: { filePath: "prijslijst-2027.md" } }), tool({ tool: "write", status: "pending", input: { filePath: "prijslijst-2027.md" } })])];
+    expect(deliveredFiles(waiting)).toEqual([]);
+    expect(touchedFiles(waiting)).toEqual([{ path: "prijslijst-2027.md", name: "prijslijst-2027.md", changed: false }]);
+    expect(deliveredFiles([message([tool({ tool: "edit", status: "running", input: { filePath: "x.md" } })])])).toEqual([]);
   });
 });

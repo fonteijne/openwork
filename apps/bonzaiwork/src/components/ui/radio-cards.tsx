@@ -43,7 +43,7 @@ export function RadioCards<V extends string>(props: {
           key={item.value}
           value={item.value}
           disabled={item.disabled}
-          className="group flex min-h-11 select-none items-center gap-3 border-b border-border px-1.5 py-2 text-start outline-none transition-colors duration-100 last:border-b-0 hover:bg-hover focus-visible:rounded-lg data-[disabled]:pointer-events-none data-[disabled]:opacity-45 pointer-coarse:min-h-12 [&_svg]:size-4 [&_svg]:shrink-0"
+          className="group flex min-h-11 select-none items-center gap-3 border-b border-border px-1.5 py-2 text-start outline-none transition-colors duration-100 last:border-b-0 hover:bg-hover focus-visible:rounded-lg focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring focus-visible:-outline-offset-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-45 pointer-coarse:min-h-12 [&_svg]:size-4 [&_svg]:shrink-0"
         >
           <span
             aria-hidden="true"

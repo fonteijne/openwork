@@ -21,7 +21,7 @@ import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { projectRelativePath } from "~/lib/file-links";
 import { formatDateTime, formatMoney, formatTokens, formatWhen, relativeTime } from "~/lib/format";
-import { href, navigate } from "~/lib/router";
+import { href, navigate, type ProjectTab } from "~/lib/router";
 import { describeSchedule } from "~/lib/schedule";
 import { insertComposerText } from "~/lib/shortcuts";
 import { touchedFiles } from "~/lib/tools";
@@ -470,16 +470,22 @@ function ProjectGroup(props: { project: Project }) {
   );
 }
 
-/** Details on the Werk tab (brief §6): Brein · Werkwijze · Routine · Project. Nothing here repeats the page's rows. */
-function WorkDetails(props: { project: Project }) {
+/**
+ * Details on a project tab (brief §6): Brein · Werkwijze · Routine · Project. Never repeats the
+ * page's own rows: the Brein tab drops the brain line, Routines the routine, Instellingen the
+ * project facts (key, usage, agenda).
+ */
+function WorkDetails(props: { project: Project; tab: ProjectTab }) {
   return (
     <>
-      <Group title={copy.project.details.brain} testId="details-brain">
-        <BrainLine projectId={props.project.id} />
-      </Group>
+      {props.tab === "brain" ? null : (
+        <Group title={copy.project.details.brain} testId="details-brain">
+          <BrainLine projectId={props.project.id} />
+        </Group>
+      )}
       <WorkflowsGroup project={props.project} />
-      <NextRoutineGroup project={props.project} />
-      <ProjectGroup project={props.project} />
+      {props.tab === "routines" ? null : <NextRoutineGroup project={props.project} />}
+      {props.tab === "settings" ? null : <ProjectGroup project={props.project} />}
     </>
   );
 }
@@ -649,7 +655,7 @@ function ChatDetails(props: { project: Project; chat: Chat }) {
  * The Details column, overlay or sheet (brief §4, §6). With a file in the hash it is the reader;
  * on a chat it shows Resultaat first; on the Werk tab Brein · Werkwijze · Routine · Project.
  */
-export function Details(props: { project: Project; chatId: string | null; onClose?: () => void }) {
+export function Details(props: { project: Project; chatId: string | null; tab?: ProjectTab; onClose?: () => void }) {
   const chat = useProjectState((state) => (props.chatId ? state.chats[props.chatId] : undefined));
   const file = useOpenedFile(props.project.id);
   if (file) return <FileView project={props.project} path={file} chatId={props.chatId} onClose={props.onClose} />;
@@ -663,7 +669,7 @@ export function Details(props: { project: Project; chatId: string | null; onClos
           </Button>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{chat ? <ChatDetails project={props.project} chat={chat} /> : <WorkDetails project={props.project} />}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto">{chat ? <ChatDetails project={props.project} chat={chat} /> : <WorkDetails project={props.project} tab={props.tab ?? "work"} />}</div>
     </div>
   );
 }

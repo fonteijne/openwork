@@ -187,7 +187,9 @@ try {
   check("LiteLLM received the linked key", litellmCalls.some((call) => call.url === "/v1/chat/completions" && call.authorization === `Bearer ${KEY}`));
 
   // Feedback (#9): the dialog shows Electron's capture of this window, and saving writes it with redacted logs.
-  await page.getByRole("button", { name: "Feedback sturen" }).first().click();
+  // Feedback lives in the help menu in the sidebar foot (brief §4): open it, then pick the item.
+  await page.locator('[data-testid="help-menu"]').first().click();
+  await page.getByRole("menuitem", { name: "Feedback sturen" }).click();
   const thumbnail = await page.waitForSelector('img[alt="Screenshot van BonzaiWork"]', { timeout: 30_000 }).then(() => true, () => false);
   check("feedback dialog shows a screenshot of the window", thumbnail);
   await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-feedback.png") });

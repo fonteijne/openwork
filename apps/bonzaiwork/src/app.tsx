@@ -124,7 +124,7 @@ function NotFound() {
         <PageTitle>{copy.shell.notFoundTitle}</PageTitle>
       </TopBar>
       <EmptyState
-        title={copy.shell.notFoundTitle}
+        title={copy.shell.notFoundBody}
         action={
           <Button variant="secondary" onClick={() => navigate({ name: "home" })}>
             {copy.shell.notFoundAction}

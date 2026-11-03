@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Menu as MenuIcon, PanelRight } from "lucide-react";
 
@@ -81,7 +81,27 @@ export function DetailsToggle() {
   );
 }
 
+/** The window title follows the page ("Vandaag · BonzaiWork"), so a screen reader hears where it is. */
+export function useDocumentTitle(title: string | null) {
+  useEffect(() => {
+    document.title = title ? `${title} · ${copy.appName}` : copy.appName;
+  }, [title]);
+}
+
+/**
+ * The page heading a route change moves focus to when nothing else holds it (the drawer's trigger
+ * unmounted with the old page): `data-page-title`, focusable by script only (tabIndex -1).
+ */
+export const PAGE_TITLE = "[data-page-title]";
+/** A heading is not a control: focus put there by script draws no ring (it only tells assistive tech where it is). */
+export const PAGE_TITLE_FOCUS = "outline-none";
+
 /** 16px/600: the title owns the bar (V1 allows ≤ 20px). */
 export function PageTitle(props: { children: ReactNode }) {
-  return <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{props.children}</h1>;
+  useDocumentTitle(typeof props.children === "string" ? props.children : null);
+  return (
+    <h1 tabIndex={-1} data-page-title="" className={cn("truncate text-lg font-semibold tracking-tight text-foreground", PAGE_TITLE_FOCUS)}>
+      {props.children}
+    </h1>
+  );
 }

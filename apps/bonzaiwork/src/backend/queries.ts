@@ -221,13 +221,16 @@ export function useAttention() {
   });
 }
 
+/** One limit for every reader, so the palette and Vandaag share one cache and one poll. */
+export const RECENT_LIMIT = 24;
+
 /** The newest chats across projects, for the palette and "Terwijl je weg was". */
-export function useRecentChats(limit: number) {
+export function useRecentChats() {
   const backend = useBackend();
   const projects = useProjects();
   return useQuery({
-    queryKey: [...keys.recent, limit] as const,
-    queryFn: () => backend.chats.recent(limit),
+    queryKey: [...keys.recent, RECENT_LIMIT] as const,
+    queryFn: () => backend.chats.recent(RECENT_LIMIT),
     enabled: (projects.data?.length ?? 0) > 0,
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,

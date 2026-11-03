@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { CalendarClock, CircleAlert, GitMerge, HelpCircle, ShieldQuestion, UserRoundPen } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
@@ -13,11 +13,11 @@ import { RadioCards } from "~/components/ui/radio-cards";
 import { Select } from "~/components/ui/select";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { cardKeys } from "~/lib/card-keys";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatTime, relativeTime } from "~/lib/format";
 import { href, navigate } from "~/lib/router";
-import { isEditable } from "~/lib/shortcuts";
 import { fileName } from "~/lib/tools";
 
 import { isBrainRead } from "../brain/brain-permission";
@@ -30,7 +30,7 @@ const REVERSIBLE = new Set(["edit", "write", "patch"]);
  * script after an answer (brief §5) and the ring says where ⏎ and esc go (S6, V7: never a missing
  * focus ring). `outline-solid` restores the style that Callout's `outline-none` clears.
  */
-const CARD = "focus:outline-solid focus:outline-2 focus:outline-offset-2 focus:outline-ring";
+const CARD = "group/card focus:outline-solid focus:outline-2 focus:outline-offset-2 focus:outline-ring";
 
 export type AttentionCardProps = {
   item: AttentionItem;
@@ -41,58 +41,47 @@ export type AttentionCardProps = {
   /** The card is answered: it leaves, the page stays, focus moves on (P11, S5). */
   onResolved: () => void;
   cardRef: (element: HTMLElement | null) => void;
+  /**
+   * The first card is the screen's focal element (brief §5, P7): only its action is the filled
+   * electric primary; the others use the secondary ring until one of them holds focus (V2).
+   */
+  isFocal: boolean;
 };
 
-type Chords = { enter?: () => void; escape?: () => void; digit?: (n: number) => void };
-
-/**
- * Chords belong to the focused card, never to the window (brief §4): inert while a field inside
- * has focus, and a focused button or link keeps its own ⏎. Radios let ⏎ through, so a choice made
- * with ↑↓ can be sent without leaving it.
- */
-function cardKeys(chords: Chords) {
-  return (event: KeyboardEvent<HTMLElement>) => {
-    const target = event.target;
-    if (event.metaKey || event.ctrlKey || event.altKey || isEditable(target)) return;
-    if (target instanceof Element && target !== event.currentTarget && target.closest('button:not([role="radio"]), a, select, [role="menu"], [role="listbox"]')) return;
-    if (event.key === "Enter" && chords.enter) {
-      event.preventDefault();
-      chords.enter();
-    } else if (event.key === "Escape" && chords.escape) {
-      event.preventDefault();
-      chords.escape();
-    } else if (/^[1-9]$/.test(event.key) && chords.digit) {
-      event.preventDefault();
-      chords.digit(Number(event.key));
-    }
-  };
+/** Filled primary on the focal card or on the card that holds focus; the ring button elsewhere. */
+function primary(isFocal: boolean): { variant: "primary" | "secondary"; className?: string } {
+  return isFocal ? { variant: "primary" } : { variant: "secondary", className: FOCUS_PRIMARY };
 }
 
-/** The object the person already knows: project tile · chat title · time, then the risk (brief §5, P9). */
-function Context(props: { project: Project | null; title?: string | null; at: number; extra?: ReactNode }) {
+/** A non-focal card's primary turns filled while focus is inside that card (where ⏎ goes). */
+const FOCUS_PRIMARY = "group-focus-within/card:bg-primary group-focus-within/card:text-primary-foreground group-focus-within/card:ring-0 group-focus-within/card:hover:bg-primary-hover";
+const LINK_BASE = "inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-sm font-medium pointer-coarse:h-11";
+const LINK_PRIMARY = "bg-primary text-primary-foreground hover:bg-primary-hover";
+const LINK_SECONDARY = `text-foreground ring-1 ring-inset ring-border-strong hover:bg-hover ${FOCUS_PRIMARY}`;
+const linkClass = (isFocal: boolean) => cn(LINK_BASE, isFocal ? LINK_PRIMARY : LINK_SECONDARY);
+
+/**
+ * The object the person already knows: project tile · chat title · time, then the risk (brief §5, P9).
+ * Plain inline text, so a line breaks between words and each separator travels with the item after
+ * it (no "·" left dangling at a line end, C7). A long detail (a routine's reason) gets its own line.
+ */
+function Context(props: { project: Project | null; title?: string | null; at: number; extra?: ReactNode; extraOwnLine?: boolean }) {
   return (
-    <span className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5">
+    <>
       {props.project ? (
-        <span className="inline-flex items-center gap-1.5 text-foreground">
-          <ProjectIcon icon={props.project.icon} color={props.project.color} size="sm" className="size-4 [&_svg]:size-2.5" />
+        <span className="text-foreground">
+          <ProjectIcon icon={props.project.icon} color={props.project.color} size="sm" className="me-1.5 inline-flex size-4 align-[-3px] [&_svg]:size-2.5" />
           {props.project.name}
         </span>
       ) : null}
-      {props.title ? (
-        <>
-          <span aria-hidden="true">·</span>
-          <span className="truncate">{props.title}</span>
-        </>
-      ) : null}
-      <span aria-hidden="true">·</span>
-      <span className="whitespace-nowrap">{relativeTime(props.at)}</span>
-      {props.extra ? (
-        <>
-          <span aria-hidden="true">·</span>
-          <span>{props.extra}</span>
-        </>
-      ) : null}
-    </span>
+      {props.title ? <span>{props.project ? " · " : null}{props.title}</span> : null}
+      {" "}
+      <span className="whitespace-nowrap">
+        {props.project || props.title ? "· " : null}
+        {relativeTime(props.at)}
+      </span>
+      {props.extra ? (props.extraOwnLine ? <span className="block">{props.extra}</span> : <span> · {props.extra}</span>) : null}
+    </>
   );
 }
 
@@ -132,7 +121,7 @@ const openChatAction = (projectId: string, chatId: string) => ({ label: copy.att
 // Permission (T4, P9)
 // ---------------------------------------------------------------------------
 
-function PermissionCard(props: { item: Extract<AttentionItem, { kind: "permission" }>; project: Project; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
+function PermissionCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kind: "permission" }>; project: Project; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
   const backend = useBackend();
   const { busy, act } = useCardAction(props.project, props.onResolved);
   const { item, project } = props;
@@ -151,6 +140,7 @@ function PermissionCard(props: { item: Extract<AttentionItem, { kind: "permissio
       className={CARD}
       tabIndex={0}
       onKeyDown={cardKeys({ enter: () => void reply("once"), escape: () => void reply("reject") })}
+      keyShortcuts="Enter Escape"
       testId="attention-permission"
       label={copy.permission.title}
       decision
@@ -172,7 +162,7 @@ function PermissionCard(props: { item: Extract<AttentionItem, { kind: "permissio
       }
       actions={
         <>
-          <Button variant="primary" disabled={busy} onClick={() => void reply("once")}>
+          <Button {...primary(props.isFocal)} disabled={busy} onClick={() => void reply("once")}>
             {copy.attention.permission.allow}
             <Kbd>⏎</Kbd>
           </Button>
@@ -216,7 +206,7 @@ function MultiField(props: { request: QuestionRequest; field: QuestionField; pic
   );
 }
 
-function QuestionCard(props: { item: Extract<AttentionItem, { kind: "question" }>; project: Project; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
+function QuestionCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kind: "question" }>; project: Project; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
   const backend = useBackend();
   const { busy, act } = useCardAction(props.project, props.onResolved);
   const [selected, setSelected] = useState<Record<string, string[]>>({});
@@ -257,6 +247,7 @@ function QuestionCard(props: { item: Extract<AttentionItem, { kind: "question" }
           if (firstField && option) pick(firstField, option.label);
         },
       })}
+      keyShortcuts="Enter Escape"
       testId="attention-question"
       label={copy.question.title}
       decision
@@ -265,7 +256,7 @@ function QuestionCard(props: { item: Extract<AttentionItem, { kind: "question" }
       state={<Context project={project} title={item.chatTitle} at={item.at} />}
       actions={
         <>
-          <Button variant="primary" disabled={!complete || busy} onClick={answer}>
+          <Button {...primary(props.isFocal)} disabled={!complete || busy} onClick={answer}>
             {copy.attention.question.answer}
             <Kbd>⏎</Kbd>
           </Button>
@@ -293,7 +284,7 @@ function QuestionCard(props: { item: Extract<AttentionItem, { kind: "question" }
                   label:
                     fieldIndex === 0 && index < 9 ? (
                       <span className="inline-flex items-center gap-2">
-                        <Kbd className="text-subtle-foreground">{index + 1}</Kbd>
+                        <Kbd className="text-muted-foreground">{index + 1}</Kbd>
                         {option.label}
                       </span>
                     ) : (
@@ -346,7 +337,10 @@ function fixHref(kind: ChatErrorKind, projectId: string): string | null {
   }
 }
 
-function FailedChatCard(props: { item: Extract<AttentionItem, { kind: "chat_failed" }>; project: Project; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
+/** Causes that pass by themselves: trying again is the next action. */
+const TRANSIENT: ReadonlySet<ChatErrorKind> = new Set<ChatErrorKind>(["rate_limited", "litellm_unreachable", "unknown"]);
+
+function FailedChatCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kind: "chat_failed" }>; project: Project; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
   const backend = useBackend();
   const status = useStatus();
   const { busy, act } = useCardAction(props.project, props.onResolved);
@@ -373,12 +367,31 @@ function FailedChatCard(props: { item: Extract<AttentionItem, { kind: "chat_fail
       { title: copy.home.retried, action: openChatAction(project.id, item.chatId) },
     );
 
+  // A cause that another try cannot fix (the budget is used up, the key is refused, the model is
+  // gone) makes the fix the ⏎ primary and "Opnieuw" the secondary (T2, C6); a passing cause
+  // (rate limit, the server unreachable, unknown) keeps "Opnieuw" first.
+  const fixFirst = Boolean(fix && fixLink) && !TRANSIENT.has(kind);
+  const retryButton = (filled: boolean) => (
+    <Button {...(filled ? primary(props.isFocal) : { variant: "secondary" as const })} disabled={busy} onClick={retry}>
+      {copy.attention.chatFailed.retry}
+      {filled ? <Kbd>⏎</Kbd> : null}
+    </Button>
+  );
+  const fixAnchor = (filled: boolean) =>
+    fix && fixLink ? (
+      <a href={fixLink} className={filled ? linkClass(props.isFocal) : cn(LINK_BASE, "text-foreground ring-1 ring-inset ring-border-strong hover:bg-hover")}>
+        {fix}
+        {filled ? <Kbd>⏎</Kbd> : null}
+      </a>
+    ) : null;
+
   return (
     <Callout
       ref={props.cardRef}
       className={CARD}
       tabIndex={0}
-      onKeyDown={cardKeys({ enter: retry })}
+      onKeyDown={cardKeys({ enter: fixFirst && fixLink ? () => window.location.assign(fixLink) : retry })}
+      keyShortcuts="Enter"
       testId="attention-failed"
       label={copy.attention.chatFailed.title(copy.attention.chatFailed.reason[kind])}
       tone="failure"
@@ -386,17 +399,17 @@ function FailedChatCard(props: { item: Extract<AttentionItem, { kind: "chat_fail
       title={copy.attention.chatFailed.title(copy.attention.chatFailed.reason[kind])}
       state={<Context project={project} title={item.chatTitle} at={item.at} />}
       actions={
-        <>
-          <Button variant="primary" disabled={busy} onClick={retry}>
-            {copy.attention.chatFailed.retry}
-            <Kbd>⏎</Kbd>
-          </Button>
-          {fix && fixLink ? (
-            <a href={fixLink} className="inline-flex h-8 items-center rounded-full px-3.5 text-sm font-medium text-foreground ring-1 ring-inset ring-border-strong hover:bg-hover pointer-coarse:h-10">
-              {fix}
-            </a>
-          ) : null}
-        </>
+        fixFirst ? (
+          <>
+            {fixAnchor(true)}
+            {retryButton(false)}
+          </>
+        ) : (
+          <>
+            {retryButton(true)}
+            {fixAnchor(false)}
+          </>
+        )
       }
       link={<ChatLink projectId={project.id} chatId={item.chatId} />}
     />
@@ -407,7 +420,7 @@ function FailedChatCard(props: { item: Extract<AttentionItem, { kind: "chat_fail
 // Routine: the fix on the row; a missed or failed run gets "Nu uitvoeren"
 // ---------------------------------------------------------------------------
 
-function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>; project: Project; routine: Routine | null; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
+function RoutineCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kind: "routine" }>; project: Project; routine: Routine | null; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
   const backend = useBackend();
   const status = useStatus();
   const { busy, act } = useCardAction(props.project, props.onResolved);
@@ -444,12 +457,13 @@ function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>;
       className={CARD}
       tabIndex={0}
       onKeyDown={cardKeys(needsFix ? {} : { enter: runNow })}
+      keyShortcuts={needsFix ? undefined : "Enter"}
       testId={`attention-routine-${item.reason}`}
       label={item.name}
       tone={item.reason === "failed" ? "failure" : "neutral"}
       icon={<CalendarClock />}
       title={item.name}
-      state={<Context project={project} at={item.at} extra={state} />}
+      state={<Context project={project} at={item.at} extra={state} extraOwnLine={state.length > 48} />}
       actions={
         needsFix ? (
           hasKey && models.length ? (
@@ -463,12 +477,12 @@ function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>;
               className="w-auto min-w-48"
             />
           ) : (
-            <a href={href({ name: "project-settings", projectId: project.id, group: "toegang" })} className="inline-flex h-8 items-center rounded-full bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover pointer-coarse:h-10">
+            <a href={href({ name: "project-settings", projectId: project.id, group: "toegang" })} className={linkClass(props.isFocal)}>
               {copy.attention.routine.linkKey}
             </a>
           )
         ) : (
-          <Button variant="primary" disabled={busy} onClick={runNow}>
+          <Button {...primary(props.isFocal)} disabled={busy} onClick={runNow}>
             {copy.attention.routine.runNow}
             <Kbd>⏎</Kbd>
           </Button>
@@ -483,7 +497,7 @@ function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>;
 // Brain: the state sentence and the way to the Brein tab (brief §8)
 // ---------------------------------------------------------------------------
 
-function BrainCard(props: { item: Extract<AttentionItem, { kind: "brain" }>; project: Project; brain: Brain | null; cardRef: AttentionCardProps["cardRef"] }) {
+function BrainCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kind: "brain" }>; project: Project; brain: Brain | null; cardRef: AttentionCardProps["cardRef"] }) {
   const { item, project } = props;
   const status = props.brain?.status ?? null;
   const target = href({ name: "project-brain", projectId: project.id });
@@ -502,6 +516,7 @@ function BrainCard(props: { item: Extract<AttentionItem, { kind: "brain" }>; pro
       className={CARD}
       tabIndex={0}
       onKeyDown={cardKeys({ enter: () => navigate({ name: "project-brain", projectId: project.id }) })}
+      keyShortcuts="Enter"
       testId={`attention-brain-${item.state}`}
       label={title}
       decision={item.state !== "error"}
@@ -510,7 +525,7 @@ function BrainCard(props: { item: Extract<AttentionItem, { kind: "brain" }>; pro
       title={title}
       state={<Context project={project} at={item.at} extra={sentence} />}
       actions={
-        <a href={target} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover pointer-coarse:h-10">
+        <a href={target} className={linkClass(props.isFocal)}>
           {copy.home.openBrain}
           <Kbd>⏎</Kbd>
         </a>
@@ -523,7 +538,7 @@ function BrainCard(props: { item: Extract<AttentionItem, { kind: "brain" }>; pro
 // Preference proposal (brains plan §7.3)
 // ---------------------------------------------------------------------------
 
-function ProposalCard(props: { item: Extract<AttentionItem, { kind: "proposal" }>; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
+function ProposalCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kind: "proposal" }>; onResolved: () => void; cardRef: AttentionCardProps["cardRef"] }) {
   const backend = useBackend();
   const { busy, act } = useCardAction(null, props.onResolved);
   const { proposal } = props.item;
@@ -535,6 +550,7 @@ function ProposalCard(props: { item: Extract<AttentionItem, { kind: "proposal" }
       className={CARD}
       tabIndex={0}
       onKeyDown={cardKeys({ enter: () => decide("accept"), escape: () => decide("reject") })}
+      keyShortcuts="Enter Escape"
       testId="attention-proposal"
       label={copy.attention.proposal.title}
       decision
@@ -550,7 +566,7 @@ function ProposalCard(props: { item: Extract<AttentionItem, { kind: "proposal" }
       }
       actions={
         <>
-          <Button variant="primary" disabled={busy} onClick={() => decide("accept")}>
+          <Button {...primary(props.isFocal)} disabled={busy} onClick={() => decide("accept")}>
             {copy.attention.proposal.add}
             <Kbd>⏎</Kbd>
           </Button>
@@ -570,16 +586,16 @@ export function AttentionCard(props: AttentionCardProps) {
   const { item, project } = props;
   switch (item.kind) {
     case "permission":
-      return project ? <PermissionCard item={item} project={project} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
+      return project ? <PermissionCard isFocal={props.isFocal} item={item} project={project} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
     case "question":
-      return project ? <QuestionCard item={item} project={project} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
+      return project ? <QuestionCard isFocal={props.isFocal} item={item} project={project} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
     case "chat_failed":
-      return project ? <FailedChatCard item={item} project={project} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
+      return project ? <FailedChatCard isFocal={props.isFocal} item={item} project={project} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
     case "routine":
-      return project ? <RoutineCard item={item} project={project} routine={props.routine} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
+      return project ? <RoutineCard isFocal={props.isFocal} item={item} project={project} routine={props.routine} onResolved={props.onResolved} cardRef={props.cardRef} /> : null;
     case "brain":
-      return project ? <BrainCard item={item} project={project} brain={props.brain} cardRef={props.cardRef} /> : null;
+      return project ? <BrainCard isFocal={props.isFocal} item={item} project={project} brain={props.brain} cardRef={props.cardRef} /> : null;
     case "proposal":
-      return <ProposalCard item={item} onResolved={props.onResolved} cardRef={props.cardRef} />;
+      return <ProposalCard isFocal={props.isFocal} item={item} onResolved={props.onResolved} cardRef={props.cardRef} />;
   }
 }

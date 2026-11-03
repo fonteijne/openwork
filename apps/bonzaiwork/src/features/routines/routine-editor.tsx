@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Check } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { hasNoModels, keys, projectModels, useProjects, useStatus } from "~/backend/queries";
@@ -168,12 +169,15 @@ export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value
                   type="button"
                   aria-pressed={on}
                   onClick={() => toggleDay(day)}
+                  // Selected is the chip's selected look (active fill, strong ring, a check), not electric:
+                  // "Routine maken" stays the one filled primary (V2, P7).
                   className={cn(
-                    "h-8 min-w-10 rounded-full px-2.5 text-sm capitalize ring-1 ring-inset transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-10",
-                    on ? "bg-primary text-primary-foreground ring-primary" : "text-muted-foreground ring-border-strong hover:bg-hover",
+                    "inline-flex h-8 min-w-10 items-center justify-center gap-1 rounded-full px-2.5 text-sm capitalize ring-1 ring-inset transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11",
+                    on ? "bg-active font-semibold text-foreground ring-border-strong" : "text-muted-foreground ring-border hover:bg-hover",
                     props.error && !on && "ring-red-9",
                   )}
                 >
+                  {on ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
                   {dayShort(day)}
                 </button>
               );

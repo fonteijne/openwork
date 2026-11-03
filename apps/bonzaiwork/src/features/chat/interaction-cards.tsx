@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HelpCircle, ShieldQuestion } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
@@ -10,6 +10,7 @@ import { Kbd } from "~/components/ui/misc";
 import { RadioCards } from "~/components/ui/radio-cards";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { cardKeys, focusCard } from "~/lib/card-keys";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { isEditable } from "~/lib/shortcuts";
@@ -29,38 +30,14 @@ const FILE_ACTIONS = new Set(["edit", "write", "read", "patch", "external_direct
 /** Focus by script after an answer shows the ring on any focus: it says where ⏎ and esc go (S6, V7). */
 const CARD = "focus:outline-2 focus:outline-offset-2 focus:outline-ring";
 
-type Chords = { enter?: () => void; escape?: () => void; digit?: (n: number) => void };
-
-/**
- * Inert while a field inside the card has focus; a focused button or link keeps its own ⏎. Radios
- * let ⏎ through, so a choice made with ↑↓ can be sent without leaving it.
- */
-function cardKeys(chords: Chords) {
-  return (event: KeyboardEvent<HTMLElement>) => {
-    const target = event.target;
-    if (event.metaKey || event.ctrlKey || event.altKey || isEditable(target)) return;
-    if (target instanceof Element && target !== event.currentTarget && target.closest('button:not([role="radio"]), a, select, [role="menu"], [role="listbox"]')) return;
-    if (event.key === "Enter" && chords.enter) {
-      event.preventDefault();
-      chords.enter();
-    } else if (event.key === "Escape" && chords.escape) {
-      event.preventDefault();
-      chords.escape();
-    } else if (/^[1-9]$/.test(event.key) && chords.digit) {
-      event.preventDefault();
-      chords.digit(Number(event.key));
-    }
-  };
-}
-
 /** The card takes focus on arrival when nothing else is being typed in: the decision is the focal element (T4). */
 function useCardFocus(autoFocus: boolean | undefined) {
-  const card = useRef<HTMLElement>(null);
+  const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!autoFocus) return;
     const active = document.activeElement;
     if (active instanceof HTMLElement && active !== document.body && isEditable(active) && !active.matches(":disabled")) return;
-    card.current?.focus({ preventScroll: true });
+    if (card.current) focusCard(card.current, { preventScroll: true });
   }, [autoFocus]);
   return card;
 }
@@ -108,6 +85,7 @@ export function PermissionCard(props: PermissionCardProps) {
       className={cn(CARD, props.className)}
       tabIndex={0}
       onKeyDown={cardKeys({ enter: () => void reply("once"), escape: () => void reply("reject") })}
+      keyShortcuts="Enter Escape"
       testId="permission-card"
       label={copy.permission.title}
       decision
@@ -238,6 +216,7 @@ export function QuestionCard(props: QuestionCardProps) {
           if (firstField && option) pick(firstField, option.label);
         },
       })}
+      keyShortcuts="Enter Escape"
       testId="question-card"
       label={copy.question.title}
       decision

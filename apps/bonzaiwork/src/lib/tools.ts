@@ -287,12 +287,15 @@ export function stepFixKind(part: ToolPart): StepFixKind | null {
 
 export type TouchedFile = { path: string; name: string; changed: boolean };
 
-/** Files the agent read or changed in these messages, newest action wins. */
+/**
+ * Files the agent read or changed in these messages, newest action wins. Only completed steps
+ * count: a write still waiting for permission (pending) or running has changed nothing yet (P1).
+ */
 export function touchedFiles(messages: readonly Message[]): TouchedFile[] {
   const files = new Map<string, TouchedFile>();
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type !== "tool" || part.status === "error") continue;
+      if (part.type !== "tool" || part.status !== "completed") continue;
       const path = str(part.input, "filePath", "file_path", "path");
       if (!path) continue;
       const changed = ["write", "edit", "multiedit", "patch", "apply_patch"].includes(part.tool);

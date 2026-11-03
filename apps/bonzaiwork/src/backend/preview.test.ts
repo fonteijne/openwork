@@ -19,7 +19,15 @@ const user = (id: string, text: string): Message => ({ id, chatId: "c", role: "u
 describe("plainText", () => {
   it("drops headings, tables, code and markup but keeps the words", () => {
     const text = plainText("**Week 44: 4 offertes verstuurd, 1 akkoord**\n\n| Klant | Bedrag |\n|---|---|\n| A | 1 |\n\n```\ncode\n```\n\n- De *grootste* is [Mertens](https://x).\n\n---\n\n> Zal ik `opvolgmails` voorbereiden?");
-    expect(text).toBe("Week 44: 4 offertes verstuurd, 1 akkoord De grootste is Mertens. Zal ik opvolgmails voorbereiden?");
+    expect(text).toBe("Week 44: 4 offertes verstuurd, 1 akkoord. De grootste is Mertens. Zal ik opvolgmails voorbereiden?");
+  });
+});
+
+describe("plainText joins paragraphs as sentences", () => {
+  it("puts a boundary after a heading and after a paragraph without closing punctuation", () => {
+    const week = "**Week 44: 4 offertes verstuurd, 1 akkoord**\n\n| Klant |\n|---|\n| A |\n\n**Opvallend**\n\n- De offerte voor Mertens is de grootste.\n\n**Openstaand:** 2 offertes";
+    expect(plainText(week)).toBe("Week 44: 4 offertes verstuurd, 1 akkoord. Opvallend: De offerte voor Mertens is de grootste. Openstaand: 2 offertes");
+    expect(plainText("Hier is een voorstel:\n\nOnderwerp: Offerte webshop\n\nBeste Marieke,\n\nDank voor je vraag.")).toBe("Hier is een voorstel: Onderwerp: Offerte webshop. Beste Marieke, Dank voor je vraag.");
   });
 });
 
@@ -32,7 +40,7 @@ describe("cutAt", () => {
 
 describe("chatPreview", () => {
   it("reads the last assistant text, skipping turns without text", () => {
-    expect(chatPreview([user("u", "Hoi"), assistant("a1", "Eerste **antwoord**."), user("u2", "Nog een"), assistant("a2", "## Kop\n\nTweede antwoord.")])).toBe("Kop Tweede antwoord.");
+    expect(chatPreview([user("u", "Hoi"), assistant("a1", "Eerste **antwoord**."), user("u2", "Nog een"), assistant("a2", "## Kop\n\nTweede antwoord.")])).toBe("Kop: Tweede antwoord.");
     expect(chatPreview([user("u", "Hoi"), assistant("a1", "Eerste antwoord."), assistant("a2", null)])).toBe("Eerste antwoord.");
   });
 

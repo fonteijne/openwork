@@ -21,9 +21,26 @@ function stripInline(line: string): string {
     .trim();
 }
 
-/** Markdown to plain text: one paragraph per line, without headings markers, lists, quotes, tables or code. */
+/** A line that is only a heading: `# Kop`, or wholly bold (`**Opvallend**`). */
+function isHeading(line: string): boolean {
+  return /^#{1,6}\s+/.test(line) || /^(\*\*|__)[^*_]+\1:?$/.test(line);
+}
+
+/**
+ * How one paragraph joins the next, so the line reads as sentences (C4) and not as one run-on:
+ * a heading takes ": " (". " when it already holds a colon), a paragraph without closing
+ * punctuation takes ". ", and one that ends in ":", "," or ";" simply continues.
+ */
+function joiner(text: string, heading: boolean): string {
+  if (/[:,;]$/.test(text)) return " ";
+  if (/[.!?…)"”]$/.test(text)) return " ";
+  return heading && !text.includes(":") ? ": " : ". ";
+}
+
+/** Markdown to plain text: paragraphs joined as sentences, without heading markers, lists, quotes, tables or code. */
 export function plainText(markdown: string): string {
-  const lines: string[] = [];
+  let out = "";
+  let pending = "";
   let inFence = false;
   for (const raw of markdown.split(/\r?\n/)) {
     const line = raw.trim();
@@ -34,9 +51,11 @@ export function plainText(markdown: string): string {
     if (inFence || !line) continue;
     if (/^\|/.test(line) || /^(-{3,}|\*{3,}|_{3,})$/.test(line)) continue;
     const text = stripInline(line.replace(/^#{1,6}\s+/, "").replace(/^>\s?/, "").replace(/^(?:[-*+]|\d+[.)])\s+/, ""));
-    if (text) lines.push(text);
+    if (!text) continue;
+    out += pending + text;
+    pending = joiner(text, isHeading(line));
   }
-  return lines.join(" ");
+  return out;
 }
 
 export function cutAt(text: string, limit = PREVIEW_LIMIT): string {

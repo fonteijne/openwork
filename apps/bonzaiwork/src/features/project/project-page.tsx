@@ -4,10 +4,11 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { Check, ChevronDown, FolderPlus, LayoutGrid } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, useProject, useRoutines } from "~/backend/queries";
+import { keys, projectHasKey, useProject, useRoutines, useStatus } from "~/backend/queries";
 import type { Project } from "~/backend/types";
 import { ProjectIcon } from "~/components/project-icon";
-import { PageTitle, TopBar, TopBarHost, type TopBarHostSlots } from "~/components/top-bar";
+import { PageTitle, TopBar, TopBarHost, useDocumentTitle, type TopBarHostSlots } from "~/components/top-bar";
+import { StatusChip } from "~/components/ui/chip";
 import { Button } from "~/components/ui/button";
 import { EmptyState, Skeleton } from "~/components/ui/misc";
 import { Panel, Sheet } from "~/components/ui/overlay";
@@ -21,7 +22,7 @@ import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
 import { ChatView } from "../chat/chat-view";
 import { ProjectFileLinks, useOpenedFile } from "../chat/file-link";
 import { ProjectHome } from "../chat/project-home";
-import { useSidebarProjects } from "../projects/use-listed-projects";
+import { projectChipStatus, useSidebarProjects } from "../projects/use-listed-projects";
 import { useUi } from "../shell/ui-store";
 import { BrainTab } from "../brain/brain-tab";
 import { Details } from "./details";
@@ -84,8 +85,14 @@ const SWITCHER_ITEM =
 function ProjectSwitcher(props: { project: Project }) {
   const open = useUi((state) => state.switcherOpen);
   const setOpen = useUi((state) => state.setSwitcher);
-  const { projects } = useSidebarProjects();
+  const { projects, summaries } = useSidebarProjects();
+  const status = useStatus();
   const others = useMemo(() => projects.filter((project) => project.id !== props.project.id), [projects, props.project.id]);
+  // The same status words as the sidebar (brief §6): icon + word, a lock for "Geen key" (P4, V2).
+  const chip = (project: Project) => {
+    const state = projectChipStatus(projectHasKey(status.data, project), summaries.get(project.id));
+    return <StatusChip status={state} label={state === "locked" ? copy.shell.status.locked : undefined} className="ms-2 shrink-0" />;
+  };
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen}>
       <MenuPrimitive.Trigger
@@ -103,12 +110,14 @@ function ProjectSwitcher(props: { project: Project }) {
             <MenuPrimitive.Item className={SWITCHER_ITEM} onClick={() => navigate({ name: "project", projectId: props.project.id, chatId: null })}>
               <ProjectIcon icon={props.project.icon} color={props.project.color} size="sm" />
               <span className="min-w-0 flex-1 truncate font-semibold">{props.project.name}</span>
+              {chip(props.project)}
               <Check />
             </MenuPrimitive.Item>
             {others.map((project) => (
               <MenuPrimitive.Item key={project.id} className={SWITCHER_ITEM} onClick={() => navigate({ name: "project", projectId: project.id, chatId: null })}>
                 <ProjectIcon icon={project.icon} color={project.color} size="sm" />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                {chip(project)}
               </MenuPrimitive.Item>
             ))}
             <MenuPrimitive.Separator className="mx-1 my-1 h-px bg-border" />
@@ -204,10 +213,13 @@ function ProjectFrame(props: { project: Project; tab: ProjectTab; children: Reac
     () => ({ files: files.data?.length, routines: routines.data?.filter((routine) => routine.state !== "archived").length }),
     [files.data, routines.data],
   );
+  useDocumentTitle(`${copy.project.tabs[props.tab]} · ${props.project.name}`);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <TopBar details actions={<div ref={setActions} className="flex items-center gap-1 empty:hidden" />}>
-        <h1 className="sr-only">{props.project.name}</h1>
+        <h1 tabIndex={-1} data-page-title="" className="sr-only outline-none">
+          {props.project.name}
+        </h1>
         <div ref={setLeading} className="flex items-center empty:hidden" />
         <ProjectSwitcher project={props.project} />
       </TopBar>
@@ -249,15 +261,15 @@ export function ProjectPage(props: { projectId: string; tab: ProjectTab; chatId:
         </div>
         {wide && sidecarPinned ? (
           <aside className={cn("hidden shrink-0 border-s border-border bg-background xl:flex xl:flex-col", reading ? "w-[clamp(20rem,36vw,40rem)]" : "w-80")} aria-label={copy.shell.details}>
-            <Details project={project} chatId={props.chatId} />
+            <Details project={project} chatId={props.chatId} tab={props.tab} />
           </aside>
         ) : null}
         {/* 1024–1279: a non-modal panel that stays open while navigating (brief §4); phones get a sheet. */}
         <Panel open={sheetOpen && desktop && !wide} onOpenChange={setSheet} label={copy.shell.details} className={reading ? "w-[min(calc(100vw-1rem),36rem)]" : undefined}>
-          <Details project={project} chatId={props.chatId} onClose={() => setSheet(false)} />
+          <Details project={project} chatId={props.chatId} tab={props.tab} onClose={() => setSheet(false)} />
         </Panel>
         <Sheet open={sheetOpen && !desktop} onOpenChange={setSheet} side="right" label={copy.shell.details} className={reading ? "w-[min(92vw,36rem)]" : undefined}>
-          <Details project={project} chatId={props.chatId} onClose={() => setSheet(false)} />
+          <Details project={project} chatId={props.chatId} tab={props.tab} onClose={() => setSheet(false)} />
         </Sheet>
       </div>
     </ProjectRuntimeProvider>

@@ -11,6 +11,7 @@ import { Disclosure } from "~/components/ui/disclosure";
 import { Skeleton } from "~/components/ui/misc";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { focusCard } from "~/lib/card-keys";
 import { errorText } from "~/lib/errors";
 import { folderOf } from "~/lib/file-links";
 import { relativeTime } from "~/lib/format";
@@ -26,6 +27,7 @@ import { DocumentRow } from "../project/details";
 import { useProjectState, useRuntime } from "../project/runtime";
 import { chatBlocked } from "./blocked";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
+import { sendFirstMessage } from "./first-message";
 import { useOpenProjectFile } from "./file-link";
 import { absoluteFilePath } from "./sidecar";
 
@@ -35,7 +37,7 @@ const MAX_CARDS = 5;
 /** A section of the Werk tab: a quiet heading, content under one hairline (S1); nothing renders for an empty one. */
 function WorkSection(props: { title: string; count?: number; children: ReactNode; testId?: string }) {
   return (
-    <section className="mt-8" aria-label={props.title} data-testid={props.testId}>
+    <section className="mt-8 first:mt-0" aria-label={props.title} data-testid={props.testId}>
       <h2 className="mb-1 flex items-baseline gap-2 text-sm font-semibold text-foreground">
         {props.title}
         {props.count ? <span className="text-xs font-medium text-subtle-foreground tabular-nums">{props.count}</span> : null}
@@ -86,7 +88,7 @@ function ProjectAttention(props: { project: Project }) {
     if (advanceTo === null) return;
     const target = items[Math.min(advanceTo, items.length - 1)];
     const element = target ? refs.current.get(attentionKey(target)) : undefined;
-    if (element) element.focus();
+    if (element) focusCard(element);
     else focusComposer(0);
     setAdvanceTo(null);
   }, [advanceTo, items]);
@@ -94,11 +96,12 @@ function ProjectAttention(props: { project: Project }) {
   if (!items.length) return null;
   const shown = items.slice(0, MAX_CARDS);
   const rest = items.slice(MAX_CARDS);
-  const card = (item: AttentionItem) => {
+  const card = (item: AttentionItem, index: number) => {
     const key = attentionKey(item);
     return (
       <AttentionCard
         key={key}
+        isFocal={index === 0}
         item={item}
         project={props.project}
         brain={brain}
@@ -118,7 +121,7 @@ function ProjectAttention(props: { project: Project }) {
     );
   };
   return (
-    <section className="mt-8" aria-label={copy.project.forYou} data-testid="work-attention">
+    <section className="mt-8 first:mt-0" aria-label={copy.project.forYou} data-testid="work-attention">
       <h2 className="mb-2 flex items-baseline gap-2 text-sm font-semibold text-foreground">
         {copy.project.forYou}
         <span className="text-xs font-medium text-subtle-foreground tabular-nums">{items.length}</span>
@@ -127,7 +130,7 @@ function ProjectAttention(props: { project: Project }) {
         {shown.map(card)}
         {rest.length ? (
           <Disclosure label={copy.attention.more(rest.length)} panelClassName="flex flex-col gap-3 ps-0 pt-2">
-            {rest.map(card)}
+            {rest.map((item) => card(item, MAX_CARDS))}
           </Disclosure>
         ) : null}
       </div>
@@ -290,13 +293,10 @@ export function ProjectHome(props: { project: Project }) {
     if (!effectiveModel) return false;
     try {
       const chat = await backend.chats.create(project.id, { model: effectiveModel });
-      runtime.upsertChat(chat);
-      runtime.addLocalMessage(chat.id, input.command ? `/${input.command} ${input.text}`.trim() : input.text, input.attachments);
-      // The chat is the object the person asked for: it opens with the message already sent (P11).
+      // The chat is the object the person asked for: it opens with the message already sent (P11);
+      // a send that fails keeps the words in that chat's composer.
+      sendFirstMessage(backend, chat, { text: input.text, model: effectiveModel, agent, attachments: input.attachments, command: input.command, skills: input.skills });
       navigate({ name: "project", projectId: project.id, chatId: chat.id });
-      void backend.chats
-        .send(project.id, chat.id, { text: input.text, model: effectiveModel, agent, attachments: input.attachments, command: input.command, skills: input.skills })
-        .catch((failure: unknown) => toast(`${copy.chat.sendFailed} ${errorText(failure)}`, { tone: "error" }));
       return true;
     } catch (failure) {
       toast(`${copy.chat.newChatFailed} ${errorText(failure)}`, { tone: "error" });

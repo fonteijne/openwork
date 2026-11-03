@@ -65,7 +65,6 @@ const LIMITS: Record<Group, { empty: number; typed: number }> = {
 
 /** How long the typed query rests before message text is searched (concept §6). */
 const CONTENT_SEARCH_DELAY = 300;
-const RECENT_LIMIT = 20;
 
 type Entry = {
   id: string;
@@ -154,7 +153,7 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
   const projects = useProjects();
   const { projects: listed, pinned } = useSidebarProjects();
   const attention = useAttention();
-  const recent = useRecentChats(RECENT_LIMIT);
+  const recent = useRecentChats();
   const routines = useRoutines(null);
   const refreshAttention = useRefreshAttention();
   const [query, setQuery] = useState("");

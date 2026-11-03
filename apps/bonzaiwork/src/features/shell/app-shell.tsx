@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { LoaderCircle } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { useStatus } from "~/backend/queries";
 import type { Backend } from "~/backend/types";
+import { PAGE_TITLE } from "~/components/top-bar";
 import { Sheet } from "~/components/ui/overlay";
 import { copy } from "~/copy";
 import { goBack, goForward, navigate, type Route } from "~/lib/router";
@@ -161,6 +162,24 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
     setDrawer(false);
     if (!desktop) setSidecarSheet(false);
   }, [routeKey, desktop, setDrawer, setSidecarSheet]);
+
+  // A route change that leaves focus nowhere (the drawer's trigger left with the old page) puts it
+  // on the new page's heading, so a screen reader hears where it landed. Focus someone placed on
+  // purpose (the composer, a card) is left alone (S5).
+  // The first route (and StrictMode's second run of this effect) moves nothing: only a change does.
+  const lastRoute = useRef(routeKey);
+  useEffect(() => {
+    if (lastRoute.current === routeKey) return;
+    lastRoute.current = routeKey;
+    // Checked twice: the closing drawer hands focus back (to a trigger that left) only once its exit ends.
+    const check = () => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected && !active.closest("[data-closed], [data-ending-style]")) return;
+      document.querySelector<HTMLElement>(PAGE_TITLE)?.focus({ preventScroll: true });
+    };
+    const timers = [window.setTimeout(check, 300), window.setTimeout(check, 700)];
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [routeKey]);
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">

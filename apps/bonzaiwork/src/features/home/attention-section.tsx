@@ -5,6 +5,7 @@ import { Disclosure } from "~/components/ui/disclosure";
 import { Skeleton } from "~/components/ui/misc";
 import { copy } from "~/copy";
 import { formatWhen } from "~/lib/format";
+import { focusCard } from "~/lib/card-keys";
 import { focusComposer } from "~/lib/shortcuts";
 
 import { trustDismissed } from "../brain/model";
@@ -13,10 +14,6 @@ import { attentionKey, attentionProjectId, MAX_CARDS } from "./model";
 
 /** A card that was answered stays gone until the poll agrees, or for this long when it does not. */
 const HIDE_MS = 20_000;
-
-function finePointer(): boolean {
-  return typeof window !== "undefined" && window.matchMedia("(pointer: fine)").matches;
-}
 
 export function SectionHeading(props: { title: string; count?: number; trailing?: React.ReactNode; id?: string }) {
   return (
@@ -33,8 +30,8 @@ export function SectionHeading(props: { title: string; count?: number; trailing?
 /**
  * "Voor jou" (brief §5): one Callout per open decision, in the backend's order; at most five, the
  * rest behind "Nog n". After an answer the card leaves, the page stays (P11, S5) and focus moves
- * to the next card, or to the composer when none is left. On the first settle the first card gets
- * focus (it is the focal element, T4/P7); without cards the composer does.
+ * to the next card, or to the composer when none is left. The first card is the focal element by
+ * weight only (P7: its action is the one filled primary); arriving moves no focus (S5).
  */
 export function AttentionSection(props: {
   items: readonly AttentionItem[] | undefined;
@@ -47,7 +44,6 @@ export function AttentionSection(props: {
   const refs = useRef(new Map<string, HTMLElement>());
   const [hidden, setHidden] = useState<Map<string, number>>(() => new Map());
   const [advanceTo, setAdvanceTo] = useState<number | null>(null);
-  const settled = useRef(false);
 
   const visible = useMemo(() => {
     const now = Date.now();
@@ -79,26 +75,18 @@ export function AttentionSection(props: {
   };
 
   // Focus moves to the card that took the answered one's place; the composer when none is left.
+  // Only after the person answered a card: arriving on the page moves no focus (S5), so a stray
+  // esc or ⏎ never answers a decision nobody looked at (brief §4).
   useEffect(() => {
     if (advanceTo === null) return;
     const target = visible[Math.min(advanceTo, visible.length - 1)];
     const element = target ? refs.current.get(attentionKey(target)) : undefined;
-    if (element) element.focus();
+    if (element) focusCard(element);
     else focusComposer(0);
     setAdvanceTo(null);
   }, [advanceTo, visible]);
 
-  useEffect(() => {
-    if (props.loading || settled.current) return;
-    settled.current = true;
-    if (!finePointer()) return;
-    const first = visible[0];
-    const element = first ? refs.current.get(attentionKey(first)) : undefined;
-    if (element) element.focus();
-    else focusComposer(0);
-  }, [props.loading, visible]);
-
-  const card = (item: AttentionItem) => {
+  const card = (item: AttentionItem, index: number) => {
     const key = attentionKey(item);
     const projectId = attentionProjectId(item);
     return (
@@ -108,6 +96,7 @@ export function AttentionSection(props: {
         project={projectId ? (props.projects.get(projectId) ?? null) : null}
         brain={projectId ? (props.brains.get(projectId) ?? null) : null}
         routine={item.kind === "routine" ? (props.routines.get(item.routineId) ?? null) : null}
+        isFocal={index === 0}
         onResolved={() => resolve(key)}
         cardRef={(element) => {
           if (element) refs.current.set(key, element);
@@ -137,7 +126,7 @@ export function AttentionSection(props: {
           {shown.map(card)}
           {more.length ? (
             <Disclosure label={copy.home.more(more.length)} panelClassName="flex flex-col gap-3 ps-0 pt-2">
-              {more.map(card)}
+              {more.map((item) => card(item, MAX_CARDS))}
             </Disclosure>
           ) : null}
         </div>

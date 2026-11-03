@@ -17,6 +17,7 @@ import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
 import { readLocal, writeLocal } from "~/lib/storage";
 
+import { sendFirstMessage } from "../chat/first-message";
 import { useUi } from "../shell/ui-store";
 import { dutchDuration, MAX_PERIOD_DAYS, periodFor, type PeriodKind } from "./format";
 
@@ -117,10 +118,9 @@ export function BookingExport(props: { open: boolean; onOpenChange: (open: boole
       const name = copy.agenda.export.fileName(period.from, period.to);
       const file = new File([text], name, { type: "text/markdown" });
       const chat = await backend.chats.create(project.id, { model, title: copy.agenda.export.chatTitle(periodLabel) });
-      // The chat is the person's object (P11): it opens at once, the document arrives in it.
-      void backend.chats
-        .send(project.id, chat.id, { text: copy.agenda.export.message, model, agent: null, attachments: [{ name, mime: "text/markdown", size: file.size, file }], command: null, skills: [] })
-        .catch((failure: unknown) => toast(`${copy.chat.sendFailed} ${errorText(failure)}`, { tone: "error" }));
+      // The chat is the person's object (P11): it opens with the message and document already in
+      // it; a send that fails offers "Opnieuw versturen" with the same file.
+      sendFirstMessage(backend, chat, { text: copy.agenda.export.message, model, agent: null, attachments: [{ name, mime: "text/markdown", size: file.size, file }], command: null, skills: [] });
       writeLocal(BOOK_PROJECT_KEY, project.id);
       if (backend.capabilities.agenda) void backend.agenda.reportPresence({ projectId: project.id, name: project.name });
       props.onBooked({ projectId: project.id, chatId: chat.id, projectName: project.name });

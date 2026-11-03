@@ -19,6 +19,7 @@ import { chordLabel } from "~/lib/platform";
 import { INSERT_COMPOSER_TEXT_EVENT, insertedText } from "~/lib/shortcuts";
 import { readLocal, writeLocal } from "~/lib/storage";
 
+import { draftKey, DRAFT_RESTORED_EVENT } from "./first-message";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -31,10 +32,6 @@ const RUN_MODE_SHORT: Record<RunMode, string> = {
   approve: "Altijd eerst vragen",
   "run-everything": "Alles zelf doen",
 };
-
-function draftKey(projectId: string, chatId: string | null) {
-  return `bonzaiwork.draft.${projectId}.${chatId ?? "nieuw"}`;
-}
 
 function RunModePill(props: { projectId: string }) {
   const backend = useBackend();
@@ -73,7 +70,8 @@ export const Composer = forwardRef<
     onStop: () => void;
     blocked?: ReactNode;
     /** A permission or question waits: esc belongs to that card, not to stop. */
-    decisionPending?: boolean;
+    /** A decision waits above the composer; its kind picks the words (T5). */
+    decisionPending?: false | "permission" | "question";
     autoFocus?: boolean;
     placeholder?: string;
     size?: "default" | "large";
@@ -110,6 +108,18 @@ export const Composer = forwardRef<
     setAttachments([]);
     setCommand(null);
     setSkills([]);
+  }, [props.project.id, props.chatId]);
+  // A first message sent from elsewhere (Vandaag, the agenda) that did not go out comes back here.
+  useEffect(() => {
+    const restored = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail: unknown = event.detail;
+      if (!detail || typeof detail !== "object" || !("chatId" in detail) || !("projectId" in detail)) return;
+      if (detail.chatId !== props.chatId || detail.projectId !== props.project.id) return;
+      setText(readLocal(draftKey(props.project.id, props.chatId)) ?? "");
+    };
+    window.addEventListener(DRAFT_RESTORED_EVENT, restored);
+    return () => window.removeEventListener(DRAFT_RESTORED_EVENT, restored);
   }, [props.project.id, props.chatId]);
   useEffect(() => {
     const timer = window.setTimeout(() => writeLocal(draftKey(props.project.id, props.chatId), text.trim() ? text : null), 250);
@@ -221,7 +231,7 @@ export const Composer = forwardRef<
 
   const showStop = props.running && !text.trim() && !command && !waiting;
   const large = props.size === "large";
-  const placeholder = props.placeholder ?? (waiting ? copy.chat.composer.decisionPending : props.running ? copy.chat.composer.steer : copy.chat.composerPlaceholder);
+  const placeholder = props.placeholder ?? (waiting ? (props.decisionPending === "permission" ? copy.chat.composer.permissionPending : copy.chat.composer.decisionPending) : props.running ? copy.chat.composer.steer : copy.chat.composerPlaceholder);
   const steerHints = props.running && !waiting && props.onQueue ? [{ keys: "⏎", label: copy.chat.composer.steerHint }, { keys: chordLabel("⏎"), label: copy.chat.composer.afterHint }] : null;
 
   return (
@@ -335,57 +345,59 @@ export const Composer = forwardRef<
       {steerHints ? <KbdRow hints={steerHints} className="px-4 pb-1.5" /> : null}
 
       <div className="flex items-center gap-1 px-2 pb-2">
-        {props.leading}
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          onChange={(event) => {
-            if (event.target.files) addFiles(event.target.files);
-            event.target.value = "";
-          }}
-        />
-        <Tooltip label={copy.chat.attach}>
-          <Button variant="quiet" size="icon-sm" aria-label={copy.chat.attach} onClick={() => fileInput.current?.click()} disabled={Boolean(props.blocked) || waiting}>
-            <Paperclip />
-          </Button>
-        </Tooltip>
-        {/* "/" as a labelled pill (brief §7, P3): the one entry point to skills; "/" in the field is the keyboard route (S6). */}
-        <Tooltip label={copy.chat.composer.skillsTitle} shortcut="/">
-          <Button
-            variant="quiet"
-            size="sm"
-            className="gap-1"
-            aria-label={copy.chat.composer.skillsTitle}
-            disabled={Boolean(props.blocked) || waiting}
-            data-testid="composer-skills"
-            onClick={() => {
-              setText("/");
-              textarea.current?.focus();
+        {/* The pills scroll sideways on a phone instead of being clipped; send/stop keeps its place at the end. */}
+        <div className="-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&>*]:shrink-0">
+          {props.leading}
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              if (event.target.files) addFiles(event.target.files);
+              event.target.value = "";
             }}
-          >
-            <BookOpen />
-            {copy.chat.composer.skills}
-          </Button>
-        </Tooltip>
-        {models.length ? (
-          <Select variant="pill" label={copy.chat.model} value={props.model} onValueChange={props.onModelChange} items={models.map((model) => ({ value: model.id, label: model.name }))} />
-        ) : (
-          <span className="px-2 text-xs text-muted-foreground">{status.data?.models.length ? copy.chat.noModelsChosen : copy.chat.noModels}</span>
-        )}
-        {agents.data && agents.data.length > 1 ? (
-          <Select
-            variant="pill"
-            label={copy.chat.agent}
-            value={props.agent ?? agents.data[0]?.id ?? null}
-            onValueChange={props.onAgentChange}
-            items={agents.data.map((agent) => ({ value: agent.id, label: agent.name, hint: agent.description }))}
-            className="max-sm:hidden"
           />
-        ) : null}
-        <RunModePill projectId={props.project.id} />
-        <div className="flex-1" />
+          <Tooltip label={copy.chat.attach}>
+            <Button variant="quiet" size="icon-sm" aria-label={copy.chat.attach} onClick={() => fileInput.current?.click()} disabled={Boolean(props.blocked) || waiting}>
+              <Paperclip />
+            </Button>
+          </Tooltip>
+          {/* "/" as a labelled pill (brief §7, P3): the one entry point to skills; "/" in the field is the keyboard route (S6). */}
+          <Tooltip label={copy.chat.composer.skillsTitle} shortcut="/">
+            <Button
+              variant="quiet"
+              size="sm"
+              className="gap-1"
+              aria-label={copy.chat.composer.skillsTitle}
+              disabled={Boolean(props.blocked) || waiting}
+              data-testid="composer-skills"
+              onClick={() => {
+                setText("/");
+                textarea.current?.focus();
+              }}
+            >
+              <BookOpen />
+              {copy.chat.composer.skills}
+            </Button>
+          </Tooltip>
+          {models.length ? (
+            <Select variant="pill" label={copy.chat.model} value={props.model} onValueChange={props.onModelChange} items={models.map((model) => ({ value: model.id, label: model.name }))} />
+          ) : (
+            <span className="px-2 text-xs text-muted-foreground">{status.data?.models.length ? copy.chat.noModelsChosen : copy.chat.noModels}</span>
+          )}
+          {agents.data && agents.data.length > 1 ? (
+            <Select
+              variant="pill"
+              label={copy.chat.agent}
+              value={props.agent ?? agents.data[0]?.id ?? null}
+              onValueChange={props.onAgentChange}
+              items={agents.data.map((agent) => ({ value: agent.id, label: agent.name, hint: agent.description }))}
+              className="max-sm:hidden"
+            />
+          ) : null}
+          <RunModePill projectId={props.project.id} />
+        </div>
         {showStop ? (
           <Tooltip label={copy.chat.stop} shortcut="esc">
             <Button variant="primary" size="icon" className="rounded-full" aria-label={copy.chat.stop} onClick={props.onStop}>
