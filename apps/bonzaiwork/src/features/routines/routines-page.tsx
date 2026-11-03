@@ -42,6 +42,7 @@ function useRoutineActions() {
   const client = useQueryClient();
   const refresh = async (routine: Routine) => {
     await client.invalidateQueries({ queryKey: keys.allRoutines });
+    await client.invalidateQueries({ queryKey: keys.attention });
     await client.invalidateQueries({ queryKey: keys.runs(routine.id) });
     await client.invalidateQueries({ queryKey: keys.summary(routine.projectId) });
   };

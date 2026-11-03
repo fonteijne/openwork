@@ -11,7 +11,7 @@ const tool = (name: string, input: Record<string, unknown>, status: ToolPart["st
 const message = (role: Message["role"], parts: Message["parts"]): Message => ({
   id: `${role}-${parts.length}`, chatId: "c", role, createdAt: 0, completedAt: null, parts, model: null, tokens: null, error: null,
 });
-const request: PermissionRequest = { id: "p", chatId: "c", action: "breinen_brein_lezen", resources: ["*"], canAlways: true, message: null };
+const request: PermissionRequest = { id: "p", chatId: "c", action: "breinen_brein_lezen", resources: ["*"], canAlways: true, message: null, scope: null };
 
 describe("reading another brain", () => {
   it("is recognised by the engine action, not the personal brain", () => {

@@ -10,7 +10,8 @@ const VARIANTS: Record<ButtonVariant, string> = {
   secondary: "bg-transparent text-foreground ring-1 ring-inset ring-border-strong hover:bg-hover",
   ghost: "text-foreground hover:bg-hover",
   quiet: "text-muted-foreground hover:bg-hover hover:text-foreground",
-  danger: "bg-red-9 text-white hover:brightness-95",
+  // AA at 13px: deep red with page-white text on light; solid red with near-black (`ink-1`) on dark (assessment P-6).
+  danger: "bg-red-11 text-ink-1 hover:brightness-95 dark:bg-red-9",
 };
 
 const SIZES: Record<ButtonSize, string> = {

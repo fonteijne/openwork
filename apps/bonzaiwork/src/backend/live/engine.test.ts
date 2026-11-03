@@ -79,9 +79,11 @@ describe("createTranslator", () => {
   it("turns permission and question events into requests, and ignores other folders", () => {
     const translate = createTranslator(DIR);
     const asked = translate(at("permission.v2.asked", { id: "p1", sessionID: "s", action: "edit", resources: ["a.md"] }));
-    expect(asked.events[0]).toEqual({ type: "permission.asked", request: { id: "p1", chatId: "s", action: "edit", resources: ["a.md"], canAlways: true, message: null } });
+    expect(asked.events[0]).toEqual({ type: "permission.asked", request: { id: "p1", chatId: "s", action: "edit", resources: ["a.md"], canAlways: true, message: null, scope: null } });
     const draft = translate(at("permission.v2.asked", { id: "p2", sessionID: "s", action: "gmail_create_draft_with_attachments", resources: ["offerte.pdf"], save: [] }));
-    expect(draft.events[0]).toEqual({ type: "permission.asked", request: expect.objectContaining({ id: "p2", canAlways: false }) });
+    expect(draft.events[0]).toEqual({ type: "permission.asked", request: expect.objectContaining({ id: "p2", canAlways: false, scope: null }) });
+    const scoped = translate(at("permission.v2.asked", { id: "p3", sessionID: "s", action: "bash", resources: ["pnpm test"], save: ["pnpm *"] }));
+    expect(scoped.events[0]).toEqual({ type: "permission.asked", request: expect.objectContaining({ id: "p3", canAlways: true, scope: "pnpm *" }) });
     expect(asked.events[1]).toEqual({ type: "chat.status", chatId: "s", status: "waiting" });
     const form = translate(at("form.created", { form: { id: "f1", sessionID: "s", metadata: { kind: "question" }, fields: [{ key: "k", type: "string", title: "Toon", options: [{ label: "Zakelijk", value: "formal" }] }] } }));
     expect(form.events[0]?.type).toBe("question.asked");

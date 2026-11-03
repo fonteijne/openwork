@@ -7,6 +7,7 @@ import { useBackend } from "~/backend/context";
 import { keys, projectModels, useAgents, useComposerEntries, useStatus } from "~/backend/queries";
 import type { Attachment, ComposerEntry, Project, RunMode } from "~/backend/types";
 import { Button } from "~/components/ui/button";
+import { KbdRow } from "~/components/ui/misc";
 import { Select } from "~/components/ui/select";
 import { Tooltip } from "~/components/ui/tooltip";
 import { toast } from "~/components/ui/toast";
@@ -14,7 +15,10 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatBytes } from "~/lib/format";
+import { chordLabel } from "~/lib/platform";
 import { readLocal, writeLocal } from "~/lib/storage";
+
+import { chatCopy } from "./copy";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -75,6 +79,13 @@ export const Composer = forwardRef<
     size?: "default" | "large";
     /** Keep the words in the composer until onSubmit succeeds: there is no chat yet to show them in. */
     keepUntilSent?: boolean;
+    /** Rendered first in the pill row: the project pill on Vandaag (brief §5). */
+    leading?: ReactNode;
+    /**
+     * ⌘⏎ while the agent runs: the message waits until the turn ends instead of steering it
+     * (brief §7, T5). Without it ⌘⏎ sends like ⏎.
+     */
+    onQueue?: (input: ComposerSubmit) => void;
   }
 >(function Composer(props, ref) {
   const status = useStatus();
@@ -156,7 +167,22 @@ export const Composer = forwardRef<
     textarea.current?.focus();
   };
 
-  const canSend = (text.trim().length > 0 || command !== null) && Boolean(props.model) && !props.blocked && !sending;
+  // A pending decision belongs to the card above (T4): the field waits, esc and ⏎ go there.
+  const waiting = Boolean(props.decisionPending);
+  const canSend = (text.trim().length > 0 || command !== null) && Boolean(props.model) && !props.blocked && !waiting && !sending;
+  const clear = () => {
+    setText("");
+    setAttachments([]);
+    setCommand(null);
+    setSkills([]);
+  };
+  /** ⌘⏎ while running: hand the message to the chat, which sends it when the turn ends. */
+  const queue = () => {
+    if (!canSend || !props.running || !props.onQueue) return false;
+    props.onQueue({ text: text.trim(), attachments, command, skills });
+    clear();
+    return true;
+  };
   const submit = async () => {
     if (!canSend) return;
     const input: ComposerSubmit = { text: text.trim(), attachments, command, skills };
@@ -164,12 +190,6 @@ export const Composer = forwardRef<
     // Keep the person's words in view while the engine takes them (P11): in
     // the chat as a pending message, or here until the chat exists. They come
     // back here if sending fails.
-    const clear = () => {
-      setText("");
-      setAttachments([]);
-      setCommand(null);
-      setSkills([]);
-    };
     if (!props.keepUntilSent) clear();
     const ok = await props.onSubmit(input).catch(() => false);
     setSending(false);
@@ -182,8 +202,10 @@ export const Composer = forwardRef<
     }
   };
 
-  const showStop = props.running && !text.trim() && !command;
+  const showStop = props.running && !text.trim() && !command && !waiting;
   const large = props.size === "large";
+  const placeholder = props.placeholder ?? (waiting ? chatCopy.composer.decisionPending : props.running ? chatCopy.composer.steer : copy.chat.composerPlaceholder);
+  const steerHints = props.running && !waiting && props.onQueue ? [{ keys: "⏎", label: chatCopy.composer.steerHint }, { keys: chordLabel("⏎"), label: chatCopy.composer.afterHint }] : null;
 
   return (
     <div
@@ -276,22 +298,27 @@ export const Composer = forwardRef<
           }
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
+            if ((event.metaKey || event.ctrlKey) && queue()) return;
             void submit();
           }
         }}
-        placeholder={props.placeholder ?? (props.running ? copy.chat.composerPlaceholderBusy : copy.chat.composerPlaceholder)}
+        placeholder={placeholder}
         aria-label={copy.chat.composerPlaceholder}
         aria-autocomplete="list"
         aria-controls={menuOpen && filtered.length ? listId : undefined}
         aria-activedescendant={menuOpen && filtered.length ? `${listId}-${highlight}` : undefined}
-        disabled={Boolean(props.blocked)}
+        disabled={Boolean(props.blocked) || waiting}
         className={cn(
           "w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base leading-relaxed text-foreground placeholder:text-subtle-foreground focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed max-sm:text-[16px]",
           large ? "min-h-24" : "min-h-11",
         )}
       />
 
+      {/* Queue and steer as chords only (T5), on a line of their own so the pills keep their room. */}
+      {steerHints ? <KbdRow hints={steerHints} className="px-4 pb-1.5" /> : null}
+
       <div className="flex items-center gap-1 px-2 pb-2">
+        {props.leading}
         <input
           ref={fileInput}
           type="file"
@@ -303,22 +330,26 @@ export const Composer = forwardRef<
           }}
         />
         <Tooltip label={copy.chat.attach}>
-          <Button variant="quiet" size="icon-sm" aria-label={copy.chat.attach} onClick={() => fileInput.current?.click()} disabled={Boolean(props.blocked)}>
+          <Button variant="quiet" size="icon-sm" aria-label={copy.chat.attach} onClick={() => fileInput.current?.click()} disabled={Boolean(props.blocked) || waiting}>
             <Paperclip />
           </Button>
         </Tooltip>
-        <Tooltip label={copy.chat.commandsTitle} shortcut="/">
+        {/* "/" as a labelled pill (brief §7, P3): the one entry point to skills; "/" in the field is the keyboard route (S6). */}
+        <Tooltip label={chatCopy.composer.skillsTitle} shortcut="/">
           <Button
             variant="quiet"
-            size="icon-sm"
-            aria-label={copy.chat.commandsTitle}
-            disabled={Boolean(props.blocked)}
+            size="sm"
+            className="gap-1"
+            aria-label={chatCopy.composer.skillsTitle}
+            disabled={Boolean(props.blocked) || waiting}
+            data-testid="composer-skills"
             onClick={() => {
               setText("/");
               textarea.current?.focus();
             }}
           >
-            <Slash />
+            <BookOpen />
+            {chatCopy.composer.skills}
           </Button>
         </Tooltip>
         {models.length ? (
@@ -359,9 +390,9 @@ export const Composer = forwardRef<
         <Popover.Portal>
           <Popover.Positioner anchor={container} side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
             <Popover.Popup initialFocus={false} finalFocus={false} className="w-[min(var(--anchor-width),28rem)] max-h-[min(var(--available-height),20rem)] overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-popover outline-none">
-              <p className="px-2 pt-1 pb-1.5 text-xs text-subtle-foreground">{copy.chat.commandsTitle}</p>
+              <p className="px-2 pt-1 pb-1.5 text-xs text-subtle-foreground">{chatCopy.composer.skillsTitle}</p>
               {filtered.length ? (
-                <ul id={listId} role="listbox" aria-label={copy.chat.commandsTitle}>
+                <ul id={listId} role="listbox" aria-label={chatCopy.composer.skillsTitle}>
                   {filtered.map((entry, index) => (
                     <li
                       key={`${entry.kind}-${entry.name}`}
@@ -385,8 +416,9 @@ export const Composer = forwardRef<
                   ))}
                 </ul>
               ) : (
-                <p className="px-2 py-2 text-sm text-muted-foreground">{copy.chat.noCommands}</p>
+                <p className="px-2 py-2 text-sm text-muted-foreground">{chatCopy.composer.noSkills}</p>
               )}
+              {filtered.length ? <p className="px-2 pt-1.5 pb-1 text-[11px] text-subtle-foreground">{copy.chat.commandHint}</p> : null}
             </Popover.Popup>
           </Popover.Positioner>
         </Popover.Portal>

@@ -151,6 +151,7 @@ function Proposal(props: { proposal: PreferenceProposal }) {
     } finally {
       setBusy(false);
       await client.invalidateQueries({ queryKey: keys.proposals });
+      await client.invalidateQueries({ queryKey: keys.attention });
     }
   };
   return (

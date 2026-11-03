@@ -1,17 +1,22 @@
 import {
   BackendError,
   PROJECT_COLORS,
+  sortAttention,
   type AppStatus,
+  type AttentionItem,
   type AuditEntry,
   type Backend,
   type Capabilities,
   type Chat,
+  type ChatError,
   type ChatStatus,
   type Connection as ConnectionEntry,
   type KeyState,
+  type PermissionRequest,
   type Project,
   type ProjectEvent,
   type ProjectSummary,
+  type QuestionRequest,
   type Routine,
   type RoutineRun,
   type RoutineSchedule,
@@ -28,7 +33,7 @@ import { enc, probe, request, type Connection } from "./http";
 import { deviceMetaStore, EMPTY_META, serverMetaStore, type MetaStore, type ProjectMeta } from "./meta";
 import { encodePrompt, type PromptAttachment } from "./prompt";
 import { bool, data, field, items, list, num, rec, str, strings } from "./read";
-import { readLocal } from "~/lib/storage";
+import { readLocal, readLocalJson, writeLocalJson } from "~/lib/storage";
 
 /**
  * The live backend: the local OpenWork server the desktop shell starts, its
@@ -166,6 +171,44 @@ function readRoutine(value: unknown): Routine | null {
   };
 }
 
+type FailedChat = { projectId: string; at: number; error: ChatError | null };
+
+const ERROR_KINDS: readonly ChatError["kind"][] = ["key_missing", "key_rejected", "budget_exceeded", "rate_limited", "litellm_unreachable", "model_unavailable", "unknown"];
+
+/**
+ * Chats whose last turn failed, remembered on this device per server. The engine's session
+ * list says nothing about failures, so without this a failed chat reads as idle after a restart
+ * and Vandaag cannot list it (assessment P-2). An entry goes when the chat runs again, is
+ * deleted, or its history no longer ends in a failure.
+ */
+function failedChatStore(host: string) {
+  const key = `bonzaiwork.failedChats.${host}`;
+  const read = (): Record<string, FailedChat> =>
+    Object.fromEntries(
+      Object.entries(rec(readLocalJson(key)) ?? {}).flatMap(([chatId, entry]): [string, FailedChat][] => {
+        const projectId = str(entry, "projectId");
+        const at = num(entry, "at");
+        const kind = ERROR_KINDS.find((candidate) => candidate === str(field(entry, "error"), "kind"));
+        return projectId && at !== undefined ? [[chatId, { projectId, at, error: kind ? { kind, detail: str(field(entry, "error"), "detail") ?? null } : null }]] : [];
+      }),
+    );
+  const entries = read();
+  const write = () => writeLocalJson(key, entries);
+  return {
+    has: (chatId: string) => chatId in entries,
+    ofProject: (projectId: string) => Object.entries(entries).filter(([, entry]) => entry.projectId === projectId),
+    set(chatId: string, projectId: string, error: ChatError | null) {
+      entries[chatId] = { projectId, at: entries[chatId]?.at ?? Date.now(), error: error ?? entries[chatId]?.error ?? null };
+      write();
+    },
+    remove(chatId: string) {
+      if (!(chatId in entries)) return;
+      delete entries[chatId];
+      write();
+    },
+  };
+}
+
 const AGENT_NAMES: Record<string, { name: string; description: string }> = {
   build: { name: "Uitvoeren", description: "Werkt direct in je bestanden" },
   plan: { name: "Plannen", description: "Denkt mee en maakt een plan, zonder iets te wijzigen" },
@@ -197,6 +240,13 @@ export async function createLiveBackend(): Promise<Backend> {
   /** Live run state per chat, from the event stream; list reads fill it in. */
   const liveStatus = new Map<string, ChatStatus>();
   const assignmentsByProject = new Map<string, Record<string, string>>();
+  const failed = failedChatStore(new URL(connection.baseUrl).host);
+  /** The last known status of a chat outside a list read: the stream's, else a remembered failure. */
+  const knownStatus = (chatId: string): ChatStatus => {
+    const live = liveStatus.get(chatId);
+    if (live && live !== "idle") return live;
+    return failed.has(chatId) ? "failed" : "idle";
+  };
   let lastStatus: ServerStatus | null = null;
 
   const host = { host: true };
@@ -369,20 +419,128 @@ export async function createLiveBackend(): Promise<Backend> {
       status,
       revertMessageId: session.revertMessageId,
       routineId: null,
+      // The engine's session carries no text; reading every history would cost a request per chat.
+      preview: null,
     };
   }
 
-  /** Running chats; those with an open permission or question wait on the person. */
-  async function runStates(engineTarget: EngineTarget): Promise<Map<string, ChatStatus>> {
+  type ActiveRequests = { states: Map<string, ChatStatus>; permissions: PermissionRequest[]; questions: QuestionRequest[] };
+
+  /** Running chats with their open permissions and questions; a chat with one waits on the person. */
+  async function activeRequests(engineTarget: EngineTarget): Promise<ActiveRequests> {
     const active = await engine.activeSessions(engineTarget).catch(() => new Set<string>());
-    const states = new Map<string, ChatStatus>();
+    const result: ActiveRequests = { states: new Map(), permissions: [], questions: [] };
     await Promise.all(
       [...active].map(async (id) => {
         const [permissions, questions] = await Promise.all([engine.permissions(engineTarget, id).catch(() => []), engine.questions(engineTarget, id).catch(() => [])]);
-        states.set(id, permissions.length || questions.length ? "waiting" : "running");
+        result.permissions.push(...permissions);
+        result.questions.push(...questions);
+        result.states.set(id, permissions.length || questions.length ? "waiting" : "running");
       }),
     );
-    return states;
+    return result;
+  }
+
+  async function runStates(engineTarget: EngineTarget): Promise<Map<string, ChatStatus>> {
+    return (await activeRequests(engineTarget)).states;
+  }
+
+  /** Projects as the overview and Vandaag see them: every unarchived workspace with its metadata. */
+  async function liveProjects(): Promise<{ entry: Workspace; projectMeta: ProjectMeta }[]> {
+    const [entries, metas] = await Promise.all([listWorkspaces(), meta.all()]);
+    return entries.flatMap((entry) => {
+      const projectMeta = metas.get(entry.id) ?? EMPTY_META;
+      return projectMeta.archivedAt === null ? [{ entry, projectMeta }] : [];
+    });
+  }
+
+  /**
+   * What waits in one project: the open permissions and questions of its running chats, and
+   * the chats this device remembers as failed. Each chat is read once for its title; a failed
+   * chat's error is read from its history the first time and remembered.
+   */
+  async function attentionOf(entry: Workspace, projectMeta: ProjectMeta): Promise<AttentionItem[]> {
+    const engineTarget: EngineTarget = { connection, workspaceId: entry.id, directory: entry.path };
+    const requests = await activeRequests(engineTarget);
+    const titles = new Map<string, string>();
+    const title = async (chatId: string): Promise<string | null> => {
+      const known = titles.get(chatId);
+      if (known !== undefined) return known;
+      const session = await engine.getSession(engineTarget, chatId).catch(() => null);
+      if (!session) return null;
+      titles.set(chatId, session.title || "Nieuwe chat");
+      return session.title || "Nieuwe chat";
+    };
+    const items: AttentionItem[] = [];
+    const waiting = [...requests.permissions.map((request) => ({ kind: "permission" as const, request })), ...requests.questions.map((request) => ({ kind: "question" as const, request }))];
+    await Promise.all(
+      waiting.map(async ({ kind, request }) => {
+        if (projectMeta.archivedChatIds.includes(request.chatId)) return;
+        const chatTitle = await title(request.chatId);
+        if (chatTitle === null) return;
+        const at = Date.now();
+        if (kind === "permission") items.push({ kind, projectId: entry.id, chatId: request.chatId, chatTitle, request, at });
+        else items.push({ kind, projectId: entry.id, chatId: request.chatId, chatTitle, request, at });
+      }),
+    );
+    await Promise.all(
+      failed.ofProject(entry.id).map(async ([chatId, remembered]) => {
+        if (projectMeta.archivedChatIds.includes(chatId)) return;
+        if (requests.states.has(chatId)) {
+          failed.remove(chatId);
+          return;
+        }
+        const session = await engine.getSession(engineTarget, chatId).catch(() => null);
+        if (!session) {
+          failed.remove(chatId);
+          return;
+        }
+        let error = remembered.error;
+        if (!error) {
+          const last = (await engine.messages(engineTarget, chatId).catch(() => [])).at(-1);
+          if (last?.role !== "assistant" || !last.error) {
+            // Retried elsewhere, or never failed: not ours to show.
+            failed.remove(chatId);
+            return;
+          }
+          error = last.error;
+          failed.set(chatId, entry.id, error);
+        }
+        items.push({ kind: "chat_failed", projectId: entry.id, chatId, chatTitle: session.title || "Nieuwe chat", error, at: Math.max(remembered.at, session.updatedAt) });
+      }),
+    );
+    return items;
+  }
+
+  /** Vandaag's list across projects: a project that fails to answer leaves its items out. */
+  async function attentionList(): Promise<AttentionItem[]> {
+    const projects = await liveProjects();
+    const live = new Set(projects.map(({ entry }) => entry.id));
+    const [perProject, routines, brainList, proposals] = await Promise.all([
+      Promise.all(projects.map(({ entry, projectMeta }) => attentionOf(entry, projectMeta).catch((): AttentionItem[] => []))),
+      routinesList(null).catch((): Routine[] => []),
+      capabilities.brains ? brains.list().catch(() => []) : Promise.resolve([]),
+      capabilities.brains ? brains.proposals().catch(() => []) : Promise.resolve([]),
+    ]);
+    const items = perProject.flat();
+    for (const routine of routines) {
+      if (!live.has(routine.projectId) || routine.state === "archived") continue;
+      const run = routine.lastRun;
+      if (routine.state === "needs_attention") {
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "needs_attention", detail: routine.needsAttentionReason, at: routine.updatedAt });
+      } else if (run?.status === "failed") {
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "failed", detail: run.error, at: run.finishedAt ?? run.scheduledAt });
+      } else if (run?.status === "skipped" && run.skippedReason === "app_closed") {
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "missed", detail: null, at: run.scheduledAt });
+      }
+    }
+    for (const brain of brainList) {
+      const state = brain.status.state;
+      if (!live.has(brain.projectId) || (state !== "conflict" && state !== "needs_trust" && state !== "error")) continue;
+      items.push({ kind: "brain", projectId: brain.projectId, state, at: brain.status.lastSyncAt ?? Date.now() });
+    }
+    for (const proposal of proposals) items.push({ kind: "proposal", proposal, at: proposal.at });
+    return sortAttention(items);
   }
 
   /**
@@ -498,6 +656,7 @@ export async function createLiveBackend(): Promise<Backend> {
               lastActivityAt: num(payload, "lastActivityAt") ?? null,
               runningCount: num(payload, "runningCount") ?? 0,
               waitingCount: num(payload, "waitingCount") ?? 0,
+              failedCount: num(payload, "failedCount") ?? 0,
               tokens: tokens ? { input: num(tokens, "input") ?? 0, output: num(tokens, "output") ?? 0 } : null,
               nextRoutineAt: num(payload, "nextRoutineAt") ?? null,
             };
@@ -512,6 +671,7 @@ export async function createLiveBackend(): Promise<Backend> {
           lastActivityAt: page.sessions.length ? Math.max(...page.sessions.map((session) => session.updatedAt)) : null,
           runningCount: [...states.values()].filter((state) => state === "running").length,
           waitingCount: [...states.values()].filter((state) => state === "waiting").length,
+          failedCount: top.filter((session) => !states.has(session.id) && failed.has(session.id)).length,
           tokens: null,
           nextRoutineAt: nextRuns.length ? Math.min(...nextRuns) : null,
         };
@@ -549,7 +709,7 @@ export async function createLiveBackend(): Promise<Backend> {
           for (const [id, state] of liveStatus) if ((state === "running" || state === "waiting") && !states.has(id)) liveStatus.delete(id);
           for (const [id, state] of states) liveStatus.set(id, state);
         }
-        return { items: page.sessions.map((session) => toChat(projectId, session, projectMeta, states.get(session.id) ?? liveStatus.get(session.id) ?? "idle")), nextCursor: page.next };
+        return { items: page.sessions.map((session) => toChat(projectId, session, projectMeta, states.get(session.id) ?? knownStatus(session.id))), nextCursor: page.next };
       },
       async create(projectId, input) {
         const engineTarget = await target(projectId);
@@ -559,10 +719,12 @@ export async function createLiveBackend(): Promise<Backend> {
       async rename(projectId, chatId, title) {
         const engineTarget = await target(projectId);
         const session = (await engine.renameSession(engineTarget, chatId, title)) ?? (await engine.getSession(engineTarget, chatId));
-        return toChat(projectId, session, await meta.get(projectId), liveStatus.get(chatId) ?? "idle");
+        return toChat(projectId, session, await meta.get(projectId), knownStatus(chatId));
       },
       async remove(projectId, chatId) {
         await engine.deleteSession(await target(projectId), chatId);
+        failed.remove(chatId);
+        liveStatus.delete(chatId);
         const projectMeta = await meta.get(projectId);
         const { [chatId]: _note, ...chatNotes } = projectMeta.chatNotes;
         await meta.patch(projectId, { pinnedChatIds: projectMeta.pinnedChatIds.filter((id) => id !== chatId), archivedChatIds: projectMeta.archivedChatIds.filter((id) => id !== chatId), chatNotes });
@@ -600,6 +762,7 @@ export async function createLiveBackend(): Promise<Backend> {
         if (input.command) await engine.command(engineTarget, chatId, input.command, text);
         else await engine.prompt(engineTarget, chatId, text, input.skills);
         liveStatus.set(chatId, "running");
+        failed.remove(chatId);
       },
       abort: async (projectId, chatId) => void (await engine.interrupt(await target(projectId), chatId)),
       async fork(projectId, chatId, beforeMessageId) {
@@ -616,6 +779,23 @@ export async function createLiveBackend(): Promise<Backend> {
           return chatId ? [{ chatId, title: str(entry, "title") ?? "", snippet: str(entry, "snippet") ?? null }] : [];
         });
       },
+      async recent(limit) {
+        if (limit <= 0) return [];
+        const pages = await Promise.all(
+          (await liveProjects()).map(async ({ entry, projectMeta }) => {
+            // The newest page per project, without run states or groups: one request per project.
+            const page = await engine.listSessions({ connection, workspaceId: entry.id, directory: entry.path }, null, limit).catch(() => ({ sessions: [], next: null }));
+            return page.sessions
+              .filter((session) => !session.parentId && !projectMeta.archivedChatIds.includes(session.id))
+              .map((session) => toChat(entry.id, session, projectMeta, knownStatus(session.id)));
+          }),
+        );
+        return pages.flat().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit);
+      },
+    },
+
+    attention: {
+      list: attentionList,
     },
 
     groups: {
@@ -656,7 +836,12 @@ export async function createLiveBackend(): Promise<Backend> {
       let stop: (() => void) | null = null;
       let cancelled = false;
       const emit = (event: ProjectEvent) => {
-        if (event.type === "chat.status") liveStatus.set(event.chatId, event.status);
+        if (event.type === "chat.status") {
+          liveStatus.set(event.chatId, event.status);
+          if (event.status === "failed") failed.set(event.chatId, projectId, null);
+          else if (event.status !== "idle") failed.remove(event.chatId);
+        }
+        if (event.type === "chat.deleted") failed.remove(event.chatId);
         try {
           listener(event);
         } catch {
@@ -674,7 +859,7 @@ export async function createLiveBackend(): Promise<Backend> {
               for (const event of events) emit(event);
               for (const chatId of refresh) {
                 void Promise.all([engine.getSession(engineTarget, chatId), meta.get(projectId)]).then(
-                  ([session, projectMeta]) => emit({ type: "chat.upserted", chat: toChat(projectId, session, projectMeta, liveStatus.get(chatId) ?? "idle") }),
+                  ([session, projectMeta]) => emit({ type: "chat.upserted", chat: toChat(projectId, session, projectMeta, knownStatus(chatId)) }),
                   () => {},
                 );
               }

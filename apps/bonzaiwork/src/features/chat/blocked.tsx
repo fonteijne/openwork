@@ -5,7 +5,7 @@ import type { AppStatus, Project } from "~/backend/types";
 import { copy } from "~/copy";
 import { href } from "~/lib/router";
 
-/** C5: blocked is not an error. Neutral, with what to do and where. */
+/** C5: blocked is not an error. Neutral, with what to do and where: the key lives in "Toegang" (brief §6). */
 export function KeyBlocked(props: { projectId: string }) {
   const status = useStatus();
   const userMode = status.data?.keyMode === "user";
@@ -15,7 +15,7 @@ export function KeyBlocked(props: { projectId: string }) {
       <span>{userMode ? copy.keys.userMissing : copy.keys.projectMissing}</span>
       <a
         className="font-medium text-foreground underline underline-offset-2"
-        href={userMode ? href({ name: "settings" }) : href({ name: "project-settings", projectId: props.projectId, section: "key" })}
+        href={userMode ? href({ name: "settings", group: "toegang" }) : href({ name: "project-settings", projectId: props.projectId, group: "toegang" })}
       >
         {copy.keys.link}
       </a>
@@ -29,7 +29,7 @@ export function ModelsBlocked(props: { projectId: string }) {
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
       <Boxes className="size-4 shrink-0" />
       <span>{copy.chat.modelsMissing}</span>
-      <a className="font-medium text-foreground underline underline-offset-2" href={href({ name: "project-settings", projectId: props.projectId, section: "key" })}>
+      <a className="font-medium text-foreground underline underline-offset-2" href={href({ name: "project-settings", projectId: props.projectId, group: "agent" })}>
         {copy.chat.modelsPick}
       </a>
     </span>

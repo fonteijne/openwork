@@ -1,41 +1,43 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { CalendarClock, FolderPlus, LayoutGrid, Megaphone, MessageSquare, MessageSquarePlus, Moon, Search, Settings } from "lucide-react";
+import { CalendarClock, FolderPlus, Inbox, LayoutGrid, Megaphone, MessageSquare, MessageSquarePlus, Moon, Search, Settings } from "lucide-react";
 
-import { useProjects } from "~/backend/queries";
+import { useProjects, useRecentChats } from "~/backend/queries";
 import { ProjectIcon } from "~/components/project-icon";
+import { Kbd } from "~/components/ui/misc";
 import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { navigate, type Route } from "~/lib/router";
+import { chord, focusComposer } from "~/lib/shortcuts";
 import { setTheme } from "~/lib/theme";
 
-import { useOptionalRuntime } from "../project/runtime";
-import { FOCUS_COMPOSER_EVENT } from "./sidebar";
+import { shellCopy } from "./copy";
 import { useUi } from "./ui-store";
 
-type Entry = { id: string; group: string; label: string; hint?: string; icon: ReactNode; run: () => void };
+/** `shortcut`: the chord from the shortcuts table, so rows show what tooltips and menus show (S6). */
+type Entry = { id: string; group: string; label: string; hint?: string; shortcut?: string; icon: ReactNode; run: () => void };
 
+/**
+ * The newest chats across projects (`chats.recent`, brief §9): the palette sits outside any
+ * project runtime since the runtime moved into the project page, and a jump is to any chat.
+ * The open project's chats come first.
+ */
 function useChatEntries(projectId: string | null): Entry[] {
-  const runtime = useOptionalRuntime();
-  const [chats, setChats] = useState(() => (runtime ? Object.values(runtime.store.getState().chats) : []));
-  useEffect(() => {
-    if (!runtime) {
-      setChats([]);
-      return;
-    }
-    setChats(Object.values(runtime.store.getState().chats));
-    return runtime.store.subscribe((state) => setChats(Object.values(state.chats)));
-  }, [runtime]);
-  return chats
-    .filter((chat) => !chat.parentId && projectId)
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .map((chat) => ({
-      id: `chat-${chat.id}`,
-      group: copy.palette.chats,
-      label: chat.untitled ? copy.chat.untitled : chat.title,
-      icon: <MessageSquare />,
-      run: () => navigate({ name: "project", projectId: chat.projectId, chatId: chat.id }),
-    }));
+  const recent = useRecentChats(12);
+  const projects = useProjects();
+  return useMemo(() => {
+    const names = new Map((projects.data ?? []).map((project) => [project.id, project.name] as const));
+    return [...(recent.data ?? [])]
+      .sort((a, b) => Number(b.projectId === projectId) - Number(a.projectId === projectId) || b.updatedAt - a.updatedAt)
+      .map((chat) => ({
+        id: `chat-${chat.id}`,
+        group: copy.palette.chats,
+        label: chat.untitled ? copy.chat.untitled : chat.title,
+        hint: names.get(chat.projectId),
+        icon: <MessageSquare />,
+        run: () => navigate({ name: "project", projectId: chat.projectId, chatId: chat.id }),
+      }));
+  }, [recent.data, projects.data, projectId]);
 }
 
 /** ⌘K: jump to any project, chat or action (DESIGN.md S6). */
@@ -65,18 +67,22 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
               id: "new-chat",
               group: copy.palette.actions,
               label: copy.palette.newChat,
+              shortcut: chord("newChat"),
               icon: <MessageSquarePlus />,
               run: () => {
                 navigate({ name: "project", projectId: props.projectId ?? "", chatId: null });
-                window.setTimeout(() => window.dispatchEvent(new Event(FOCUS_COMPOSER_EVENT)), 60);
+                focusComposer(60);
               },
             },
           ]
         : []),
-      { id: "new-project", group: copy.palette.actions, label: copy.palette.newProject, icon: <FolderPlus />, run: () => setNewProject(true) },
+      { id: "new-project", group: copy.palette.actions, label: copy.palette.newProject, shortcut: chord("newProject"), icon: <FolderPlus />, run: () => setNewProject(true) },
+      ...(props.route.name !== "home"
+        ? [{ id: "go-home", group: copy.palette.actions, label: shellCopy.palette.goHome, shortcut: chord("home"), icon: <Inbox />, run: () => navigate({ name: "home" }) }]
+        : []),
       { id: "go-projects", group: copy.palette.actions, label: copy.palette.goProjects, icon: <LayoutGrid />, run: () => navigate({ name: "projects" }) },
       { id: "go-routines", group: copy.palette.actions, label: copy.palette.goRoutines, icon: <CalendarClock />, run: () => navigate({ name: "routines", routineId: null }) },
-      { id: "go-settings", group: copy.palette.actions, label: copy.palette.goSettings, icon: <Settings />, run: () => navigate({ name: "settings" }) },
+      { id: "go-settings", group: copy.palette.actions, label: copy.palette.goSettings, shortcut: chord("settings"), icon: <Settings />, run: () => navigate({ name: "settings" }) },
       { id: "feedback", group: copy.palette.actions, label: copy.palette.feedback, icon: <Megaphone />, run: () => setFeedback(true) },
       {
         id: "theme",
@@ -100,7 +106,7 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
     const needle = query.trim().toLowerCase();
     if (!needle) return [...chatEntries.slice(0, 5), ...projectEntries, ...actions];
     return all.filter((entry) => entry.label.toLowerCase().includes(needle) || entry.hint?.toLowerCase().includes(needle)).slice(0, 30);
-  }, [projects.data, chatEntries, query, props.projectId, setNewProject, setFeedback]);
+  }, [projects.data, chatEntries, query, props.projectId, props.route.name, setNewProject, setFeedback]);
 
   useEffect(() => {
     list.current?.querySelector(`[data-index="${highlight}"]`)?.scrollIntoView({ block: "nearest" });
@@ -167,6 +173,7 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
                     {entry.icon}
                     <span className="min-w-0 flex-1 truncate">{entry.label}</span>
                     {entry.hint ? <span className="max-w-[40%] truncate text-xs text-subtle-foreground">{entry.hint}</span> : null}
+                    {entry.shortcut ? <Kbd className="text-subtle-foreground pointer-coarse:hidden">{entry.shortcut}</Kbd> : null}
                   </div>
                 </li>
               );

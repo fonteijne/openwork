@@ -1,32 +1,87 @@
-import type { ReactNode } from "react";
-import { Menu as MenuIcon } from "lucide-react";
+import { createContext, useContext, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Menu as MenuIcon, PanelRight } from "lucide-react";
 
 import { copy } from "~/copy";
-import { AgendaPill } from "~/features/agenda/agenda-pill";
 import { useUi } from "~/features/shell/ui-store";
 import { cn } from "~/lib/cn";
+import { chord } from "~/lib/shortcuts";
+import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { Button } from "./ui/button";
+import { Tooltip } from "./ui/tooltip";
 
-/** The 48px bar on top of every page. On phones it carries the menu button; the agenda pill sits on the right of every page. */
-export function TopBar(props: { children?: ReactNode; actions?: ReactNode; className?: string; leading?: ReactNode }) {
+/**
+ * A page rendered inside another page's header (a project tab) has no bar of its own: its leading
+ * control and actions go into the host's slots instead, so the screen keeps one 48px bar.
+ */
+export type TopBarHostSlots = { leading: HTMLElement | null; actions: HTMLElement | null };
+export const TopBarHost = createContext<TopBarHostSlots | null>(null);
+
+/**
+ * The 48px bar on top of every page (brief §4). The title is the focal element (P7); on the right at
+ * most two page actions and, on project pages, the labelled "Details" toggle. Phones get the menu
+ * button on the left; a collapsed desktop sidebar gets the same button to bring it back.
+ */
+export function TopBar(props: { children?: ReactNode; actions?: ReactNode; className?: string; leading?: ReactNode; details?: boolean }) {
+  const host = useContext(TopBarHost);
+  const desktop = useMediaQuery(DESKTOP);
+  const collapsed = useUi((state) => state.sidebarCollapsed);
   const setDrawer = useUi((state) => state.setDrawer);
+  const toggleSidebar = useUi((state) => state.toggleSidebar);
+
+  if (host) {
+    return (
+      <>
+        {host.leading && props.leading ? createPortal(props.leading, host.leading) : null}
+        {host.actions && props.actions ? createPortal(props.actions, host.actions) : null}
+      </>
+    );
+  }
+
+  const menuButton = (
+    <Button
+      variant="quiet"
+      size="icon"
+      className="-ms-1"
+      aria-label={desktop ? copy.shell.sidebarExpand : copy.nav.openMenu}
+      onClick={() => (desktop ? toggleSidebar() : setDrawer(true))}
+    >
+      <MenuIcon />
+    </Button>
+  );
+
   return (
     <header className={cn("flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 pt-[env(safe-area-inset-top)] lg:px-4", props.className)} data-titlebar="page">
-      {props.leading ?? (
-        <Button variant="quiet" size="icon" className="-ms-1 lg:hidden" aria-label={copy.nav.openMenu} onClick={() => setDrawer(true)}>
-          <MenuIcon />
-        </Button>
-      )}
+      {props.leading ?? (!desktop ? menuButton : null)}
+      {desktop && collapsed ? menuButton : null}
       <div className="flex min-w-0 flex-1 items-center gap-2">{props.children}</div>
       <div className="flex shrink-0 items-center gap-1">
-        <AgendaPill />
         {props.actions}
+        {props.details ? <DetailsToggle /> : null}
       </div>
     </header>
   );
 }
 
+/** "Details" (⌘\): the column on a wide screen, the panel or sheet below that (brief §6). */
+export function DetailsToggle() {
+  const wide = useMediaQuery(WIDE);
+  const pinned = useUi((state) => state.sidecarPinned);
+  const sheetOpen = useUi((state) => state.sidecarSheetOpen);
+  const toggle = useUi((state) => state.toggleDetails);
+  const open = wide ? pinned : sheetOpen;
+  return (
+    <Tooltip label={open ? copy.shell.detailsHide : copy.shell.detailsShow} shortcut={chord("details")} side="bottom">
+      <Button variant="quiet" size="sm" aria-pressed={open} aria-label={open ? copy.shell.detailsHide : copy.shell.detailsShow} onClick={() => toggle(wide)} className={cn("gap-1.5", open && "bg-active text-foreground")}>
+        <PanelRight />
+        <span className="max-sm:sr-only">{copy.shell.details}</span>
+      </Button>
+    </Tooltip>
+  );
+}
+
+/** 16px/600: the title owns the bar (V1 allows ≤ 20px). */
 export function PageTitle(props: { children: ReactNode }) {
-  return <h1 className="truncate text-sm font-semibold text-foreground">{props.children}</h1>;
+  return <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{props.children}</h1>;
 }

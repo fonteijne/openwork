@@ -191,7 +191,7 @@ export function BrainsAppSection() {
         <Row
           label={copy.brain.personalTitle}
           hint={personal.path}
-          action={<Button variant="secondary" size="sm" onClick={() => navigate({ name: "project", projectId: personal.projectId, chatId: null })}>{copy.brain.personalOpen}</Button>}
+          action={<Button variant="secondary" size="sm" onClick={() => navigate({ name: "brain" })}>{copy.brain.personalOpen}</Button>}
         />
       ) : (
         <div className="border-b border-border py-3">

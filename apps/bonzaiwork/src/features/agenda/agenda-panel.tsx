@@ -12,10 +12,10 @@ import { Panel, Sheet } from "~/components/ui/overlay";
 import { Switch } from "~/components/ui/switch";
 import { Tooltip } from "~/components/ui/tooltip";
 import { copy } from "~/copy";
-import { MOD } from "~/features/shell/sidebar";
 import { peekAgendaReturnFocus, takeAgendaReturnFocus, useUi } from "~/features/shell/ui-store";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
+import { chord } from "~/lib/shortcuts";
 import { SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { BookingExport } from "./booking-export";
@@ -65,14 +65,14 @@ function PanelNotice(props: { notice: Notice | null; onUndo: (undoId: string) =>
   return (
     <div role="status" aria-live="polite" className="px-3 pb-3 empty:hidden">
       {notice ? (
-        <div className="flex items-center gap-2 rounded-2xl bg-ink-12 py-1.5 ps-3.5 pe-1.5 text-sm text-ink-1 shadow-shell dark:bg-ink-5 dark:text-ink-12" data-testid="agenda-notice">
+        <div className="flex items-center gap-2 rounded-2xl bg-inverse py-1.5 ps-3.5 pe-1.5 text-sm text-inverse-foreground shadow-shell" data-testid="agenda-notice">
           <span className="min-w-0 flex-1 truncate">{notice.text}</span>
           {notice.undoId ? (
-            <button type="button" className="h-7 shrink-0 rounded-full px-3 text-sm font-semibold text-electric-on-ink hover:bg-white/10" onClick={() => notice.undoId && props.onUndo(notice.undoId)}>
+            <button type="button" className="h-7 shrink-0 rounded-full px-3 text-sm font-semibold text-inverse-accent hover:bg-inverse-hover" onClick={() => notice.undoId && props.onUndo(notice.undoId)}>
               {copy.common.undo}
             </button>
           ) : null}
-          <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-9 hover:bg-white/10 hover:text-ink-1 dark:hover:text-ink-12" aria-label={copy.common.close} onClick={onDismiss}>
+          <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded-full text-inverse-muted-foreground hover:bg-inverse-hover hover:text-inverse-foreground" aria-label={copy.common.close} onClick={onDismiss}>
             <X className="size-4" />
           </button>
         </div>
@@ -211,7 +211,7 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
             </Button>
           </Tooltip>
         ) : null}
-        <Tooltip label={copy.agenda.close} shortcut={`${MOD} J`}>
+        <Tooltip label={copy.agenda.close} shortcut={chord("agenda")}>
           <Button variant="quiet" size="icon-sm" aria-label={copy.agenda.close} onClick={close} data-testid="agenda-close">
             <X />
           </Button>

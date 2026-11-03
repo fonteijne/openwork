@@ -38,6 +38,7 @@ export function useBrainAction(projectId: string) {
       await Promise.all([
         client.invalidateQueries({ queryKey: keys.brains }),
         client.invalidateQueries({ queryKey: keys.brainHistory(projectId) }),
+        client.invalidateQueries({ queryKey: keys.attention }),
       ]);
     }
   };

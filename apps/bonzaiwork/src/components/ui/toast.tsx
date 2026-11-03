@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 
 import { copy } from "~/copy";
 import { useIdleReady } from "~/lib/idle";
@@ -54,11 +54,13 @@ function ToastList(props: { api: ToastApi }) {
     <ToastPrimitive.Root
       key={item.id}
       toast={item}
-      className="pointer-events-auto flex w-full items-center gap-3 rounded-2xl bg-ink-12 py-2 ps-4 pe-1.5 text-sm text-ink-1 shadow-shell transition-[opacity,transform] duration-180 ease-soft data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[ending-style]:duration-100 data-[type=error]:bg-red-11 sm:w-auto sm:min-w-72 dark:bg-ink-5 dark:text-ink-12"
+      // Inverse tokens (brief §11): one surface in both themes, no dark: overrides. A failure gets a red glyph, not a red bar (C5).
+      className="pointer-events-auto flex w-full items-center gap-3 rounded-2xl bg-inverse py-2 ps-4 pe-1.5 text-sm text-inverse-foreground shadow-shell transition-[opacity,transform] duration-180 ease-soft data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[ending-style]:duration-100 sm:w-auto sm:min-w-72"
     >
+      {item.type === "error" ? <CircleAlert aria-hidden="true" className="-ms-1 size-4 shrink-0 text-red-9" /> : null}
       <ToastPrimitive.Title className="min-w-0 flex-1" />
-      <ToastPrimitive.Action className="h-7 shrink-0 rounded-full px-3 text-sm font-semibold text-electric-on-ink hover:bg-white/10" />
-      <ToastPrimitive.Close className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-9 hover:bg-white/10 hover:text-ink-1 dark:hover:text-ink-12" aria-label={copy.common.close}>
+      <ToastPrimitive.Action className="h-7 shrink-0 rounded-full px-3 text-sm font-semibold text-inverse-accent hover:bg-inverse-hover" />
+      <ToastPrimitive.Close className="flex size-7 shrink-0 items-center justify-center rounded-full text-inverse-muted-foreground hover:bg-inverse-hover hover:text-inverse-foreground" aria-label={copy.common.close}>
         <X className="size-4" />
       </ToastPrimitive.Close>
     </ToastPrimitive.Root>

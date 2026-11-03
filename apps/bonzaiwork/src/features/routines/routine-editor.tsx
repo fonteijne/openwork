@@ -259,6 +259,7 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
     try {
       const saved = props.routine ? await backend.routines.update(props.routine.id, input) : await backend.routines.create(input);
       await client.invalidateQueries({ queryKey: keys.allRoutines });
+      await client.invalidateQueries({ queryKey: keys.attention });
       await client.invalidateQueries({ queryKey: keys.summary(projectId) });
       toast(props.routine ? copy.routines.saved : copy.routines.created);
       props.onOpenChange(false);

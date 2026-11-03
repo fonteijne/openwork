@@ -104,6 +104,8 @@ export type ProjectSummary = {
   lastActivityAt: number | null;
   runningCount: number;
   waitingCount: number;
+  /** Chats whose last turn failed and nobody retried (ui-ux-overhaul §9). */
+  failedCount: number;
   /** null when the backend cannot total them cheaply. */
   tokens: { input: number; output: number } | null;
   nextRoutineAt: number | null;
@@ -160,6 +162,13 @@ export type Chat = {
   revertMessageId: string | null;
   /** The routine whose run started this chat. */
   routineId: string | null;
+  /**
+   * The last assistant text as one plain line (~120 characters, markdown stripped), so a row
+   * reads as a result ("Week 44: 4 offertes verstuurd, 1 akkoord"). Null when the backend cannot
+   * say it cheaply: the live engine's session list carries no text, and reading every chat's
+   * history for a list would cost a request per chat (ui-ux-overhaul §9).
+   */
+  preview: string | null;
 };
 
 export type ChatGroup = { id: string; label: string };
@@ -220,6 +229,12 @@ export type PermissionRequest = {
   resources: string[];
   canAlways: boolean;
   message: string | null;
+  /**
+   * What "Altijd in dit project" would allow from now on, as the engine words it (a path
+   * pattern, a command). Null when the engine gives no pattern: the card then offers no
+   * "always" (ui-ux-overhaul §7; DESIGN.md P9: name the risk before asking for consent).
+   */
+  scope: string | null;
 };
 
 export type QuestionField = {
@@ -234,6 +249,51 @@ export type QuestionField = {
 export type QuestionRequest = { id: string; chatId: string; fields: QuestionField[] };
 
 export type Attachment = { name: string; mime: string; size: number; file: File };
+
+// ---------------------------------------------------------------------------
+// Attention: everything that waits on the person, across projects (ui-ux-overhaul §5, §9)
+// ---------------------------------------------------------------------------
+
+/**
+ * One open decision or failure, as "Voor jou" on Vandaag shows it. `at` is when it started
+ * waiting (the chat's last activity, the run's time, the proposal's time), for ordering only.
+ */
+export type AttentionItem =
+  | { kind: "permission"; projectId: string; chatId: string; chatTitle: string; request: PermissionRequest; at: number }
+  | { kind: "question"; projectId: string; chatId: string; chatTitle: string; request: QuestionRequest; at: number }
+  | { kind: "chat_failed"; projectId: string; chatId: string; chatTitle: string; error: ChatError; at: number }
+  | {
+      kind: "routine";
+      projectId: string;
+      routineId: string;
+      name: string;
+      /** needs_attention: the routine cannot run (fix on the row); failed: its last run failed; missed: the app was closed when it was due. */
+      reason: "needs_attention" | "failed" | "missed";
+      /** The reason or error in the server's own words (Dutch), when it has one. */
+      detail: string | null;
+      at: number;
+    }
+  | { kind: "brain"; projectId: string; state: "conflict" | "needs_trust" | "error"; at: number }
+  | { kind: "proposal"; proposal: PreferenceProposal; at: number };
+
+/** The order "Voor jou" lists the kinds in: what stops an agent first, then what stops a routine, then knowledge. */
+export const ATTENTION_ORDER: readonly AttentionItem["kind"][] = ["permission", "question", "chat_failed", "routine", "brain", "proposal"];
+const ROUTINE_REASON_ORDER: readonly Extract<AttentionItem, { kind: "routine" }>["reason"][] = ["needs_attention", "failed", "missed"];
+
+/**
+ * Sorts items as the brief lists them: permissions and questions, failed chats, routines that
+ * need attention, failed runs, missed runs, brain conflict/trust/error, proposals; newest first
+ * within a group. Both backends sort with this so screens never re-sort.
+ */
+export function sortAttention(items: AttentionItem[]): AttentionItem[] {
+  const rank = (item: AttentionItem) => {
+    // Permissions and questions share one group: both stop an agent, newest first.
+    if (item.kind === "permission" || item.kind === "question") return 0;
+    const base = ATTENTION_ORDER.indexOf(item.kind) * 10;
+    return item.kind === "routine" ? base + ROUTINE_REASON_ORDER.indexOf(item.reason) : base;
+  };
+  return [...items].sort((a, b) => rank(a) - rank(b) || b.at - a.at);
+}
 
 export type SendInput = {
   text: string;
@@ -512,6 +572,21 @@ export interface Backend {
     revert(projectId: string, chatId: string, messageId: string): Promise<void>;
     unrevert(projectId: string, chatId: string): Promise<void>;
     search(projectId: string, query: string): Promise<ChatSearchHit[]>;
+    /**
+     * The newest top-level, unarchived chats across every unarchived project, newest first
+     * (the palette, "Terwijl je weg was"). Cheaper than `list` per project: no run states or
+     * groups are read, so `status` is the last known one.
+     */
+    recent(limit: number): Promise<Chat[]>;
+  };
+
+  attention: {
+    /**
+     * Everything that waits on the person, across projects, already sorted (`sortAttention`).
+     * One poll of this replaces the separate summary, routine, brain and proposal clocks.
+     * A project that fails to answer leaves its items out; the list itself never fails on it.
+     */
+    list(): Promise<AttentionItem[]>;
   };
 
   groups: {
