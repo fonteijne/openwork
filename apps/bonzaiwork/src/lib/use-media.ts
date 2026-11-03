@@ -18,3 +18,11 @@ export const SMALL_UP = "(min-width: 640px)";
 export const WIDE = "(min-width: 1280px)";
 /** ≥1024px: the sidebar is a column, not a drawer. */
 export const DESKTOP = "(min-width: 1024px)";
+
+/**
+ * The behavior for a script scroll: an explicit "smooth" overrides the CSS reduced-motion rule,
+ * so ask first (DESIGN.md V6).
+ */
+export function scrollBehavior(): ScrollBehavior {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}

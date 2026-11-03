@@ -2,7 +2,9 @@ import { PREFERRED_MODEL_IDS } from "@bonzaiwork/policy";
 
 import {
   BackendError,
+  sortAttention,
   type AppStatus,
+  type AttentionItem,
   type Backend,
   type Capabilities,
   type Chat,
@@ -26,6 +28,7 @@ import { createDemoAgenda } from "./agenda";
 import { createDemoBrains } from "./brains";
 import { planReply, titleFrom, type Step } from "./replies";
 import { createSeed, type DemoState } from "./seed";
+import { chatPreview } from "../preview";
 
 /**
  * The browser-only backend for development and design reviews. It
@@ -126,10 +129,10 @@ export function readDemoOptions(search: string): DemoOptions {
 }
 
 export function createDemoBackend(options: DemoOptions): Backend & { reset(): void } {
-  const storageKey = `bonzaiwork.demo.v4.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
+  const storageKey = `bonzaiwork.demo.v5.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
   const stored = readLocalJson(storageKey);
   const isState = (value: unknown): value is DemoState =>
-    typeof value === "object" && value !== null && Reflect.get(value, "version") === 4 && Array.isArray(Reflect.get(value, "projects"));
+    typeof value === "object" && value !== null && Reflect.get(value, "version") === 5 && Array.isArray(Reflect.get(value, "projects"));
   let state: DemoState = isState(stored) ? stored : createSeed(Date.now(), options);
   const freshSeed = !isState(stored);
 
@@ -201,6 +204,13 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
   };
   const projectHasKey = (projectId: string) =>
     state.keyMode === "user" ? Boolean(state.userKey) : Boolean(projectEntry(projectId).keyValue);
+  /** A chat as screens get it: a copy, with its preview read from the history. */
+  const chatView = (chat: Chat): Chat => ({ ...clone(chat), preview: chatPreview(state.messages[chat.id] ?? []) });
+  /** The last assistant turn failed and nobody has sent anything since. */
+  const lastTurnFailed = (chatId: string) => {
+    const last = (state.messages[chatId] ?? []).at(-1);
+    return last?.role === "assistant" && last.error !== null;
+  };
 
   const status = (): AppStatus => ({
     litellmBaseUrl: "https://litellm.bonzaiwork.nl",
@@ -215,14 +225,14 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
 
   const touchChat = (chat: Chat, patch: Partial<Chat> = {}) => {
     Object.assign(chat, patch, { updatedAt: Date.now() });
-    emit(chat.projectId, { type: "chat.upserted", chat: clone(chat) });
+    emit(chat.projectId, { type: "chat.upserted", chat: chatView(chat) });
     save();
   };
 
   const setStatus = (chat: Chat, status: Chat["status"]) => {
     chat.status = status;
     emit(chat.projectId, { type: "chat.status", chatId: chat.id, status });
-    emit(chat.projectId, { type: "chat.upserted", chat: clone(chat) });
+    emit(chat.projectId, { type: "chat.upserted", chat: chatView(chat) });
   };
 
   // -------------------------------------------------------------------------
@@ -244,7 +254,8 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
 
   async function askPermission(chat: Chat, action: string, resources: string[], signal: AbortSignal): Promise<PermissionReply> {
     if (state.runModes[chat.projectId] === "run-everything" || alwaysAllowed.get(chat.projectId)?.has(action)) return "once";
-    const request = { id: newId("perm"), chatId: chat.id, action, resources, canAlways: true, message: null };
+    // The scope is what "Altijd" would allow from now on; the demo words it as the resources.
+    const request = { id: newId("perm"), chatId: chat.id, action, resources, canAlways: true, message: null, scope: resources.length ? resources.join(", ") : null };
     state.permissions.push(request);
     setStatus(chat, "waiting");
     emit(chat.projectId, { type: "permission.asked", request: clone(request) });
@@ -426,7 +437,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
     run.chatId = chat.id;
     recordRun(run);
     messagesOf(chat.id).push({ id: newId("msg"), chatId: chat.id, role: "user", createdAt: now, completedAt: now, parts: [{ type: "text", id: newId("part"), text: routine.prompt }], model: null, tokens: null, error: null });
-    emit(chat.projectId, { type: "chat.upserted", chat: clone(chat) });
+    emit(chat.projectId, { type: "chat.upserted", chat: chatView(chat) });
     void reply(chat, routine.prompt, model).then((outcome) => {
       Object.assign(run, { status: outcome === "succeeded" ? "succeeded" : outcome === "cancelled" ? "cancelled" : "failed", finishedAt: Date.now(), error: outcome === "failed" ? "Het antwoord is mislukt." : null });
       recordRun(run);
@@ -484,6 +495,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       status: "idle",
       revertMessageId: null,
       routineId: null,
+      preview: null,
     };
     state.chats.push(chat);
     state.messages[chat.id] = [];
@@ -510,6 +522,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       lastActivityAt: chats.length ? Math.max(...chats.map((chat) => chat.updatedAt)) : null,
       runningCount: visible.filter((chat) => chat.status === "running").length,
       waitingCount: visible.filter((chat) => chat.status === "waiting").length,
+      failedCount: visible.filter((chat) => chat.status === "failed" || lastTurnFailed(chat.id)).length,
       tokens: { input, output },
       nextRoutineAt: next.length ? Math.min(...next) : null,
     };
@@ -531,6 +544,60 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
     for (const chat of state.chats) {
       if (chat.status === "running" && !state.permissions.some((entry) => entry.chatId === chat.id)) chat.status = "idle";
     }
+  }
+
+  const brains = createDemoBrains({
+    now: Date.now(),
+    home: state.defaultFolder,
+    storageKey,
+    search: typeof window === "undefined" ? "" : window.location.search,
+    projectPath: (projectId) => state.projects.find((entry) => entry.id === projectId)?.path ?? null,
+  });
+
+  // -------------------------------------------------------------------------
+  // Attention: what waits on the person (ui-ux-overhaul §5, §9)
+  // -------------------------------------------------------------------------
+
+  /** Everything open, from the state the other calls read: permissions, questions, failed chats, routines, brains, proposals. */
+  async function attention(): Promise<AttentionItem[]> {
+    const items: AttentionItem[] = [];
+    const live = new Set(state.projects.filter((entry) => entry.archivedAt === null).map((entry) => entry.id));
+    const chatById = new Map(state.chats.map((chat) => [chat.id, chat]));
+    for (const request of state.permissions) {
+      const chat = chatById.get(request.chatId);
+      if (chat && live.has(chat.projectId)) items.push({ kind: "permission", projectId: chat.projectId, chatId: chat.id, chatTitle: chat.title, request: clone(request), at: chat.updatedAt });
+    }
+    for (const request of state.questions) {
+      const chat = chatById.get(request.chatId);
+      if (chat && live.has(chat.projectId)) items.push({ kind: "question", projectId: chat.projectId, chatId: chat.id, chatTitle: chat.title, request: clone(request), at: chat.updatedAt });
+    }
+    for (const chat of state.chats) {
+      if (!live.has(chat.projectId) || chat.archived || chat.parentId) continue;
+      const last = (state.messages[chat.id] ?? []).at(-1);
+      if (chat.status !== "failed" && !(last?.role === "assistant" && last.error)) continue;
+      const error = last?.role === "assistant" && last.error ? clone(last.error) : { kind: "unknown" as const, detail: null };
+      items.push({ kind: "chat_failed", projectId: chat.projectId, chatId: chat.id, chatTitle: chat.title, error, at: chat.updatedAt });
+    }
+    for (const routine of state.routines) {
+      if (!live.has(routine.projectId) || routine.state === "archived") continue;
+      const run = routine.lastRun;
+      if (routine.state === "needs_attention") {
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "needs_attention", detail: routine.needsAttentionReason, model: routine.model, at: routine.updatedAt });
+      } else if (run?.status === "failed") {
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "failed", detail: run.error, model: routine.model, at: run.finishedAt ?? run.scheduledAt });
+      } else if (run?.status === "skipped" && run.skippedReason === "app_closed") {
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "missed", detail: null, model: routine.model, at: run.scheduledAt });
+      }
+    }
+    // The brains keep their own state (demo/brains.ts): read them through the same calls screens use.
+    const [brainList, proposals] = await Promise.all([brains.list().catch(() => []), brains.proposals().catch(() => [])]);
+    for (const brain of brainList) {
+      const brainState = brain.status.state;
+      if (!live.has(brain.projectId) || (brainState !== "conflict" && brainState !== "needs_trust" && brainState !== "error")) continue;
+      items.push({ kind: "brain", projectId: brain.projectId, state: brainState, at: brain.status.lastSyncAt ?? Date.now() });
+    }
+    for (const proposal of proposals) items.push({ kind: "proposal", proposal, at: proposal.at });
+    return items;
   }
 
   // -------------------------------------------------------------------------
@@ -686,20 +753,20 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
         await latency();
         projectEntry(projectId);
         const items = state.chats.filter((chat) => chat.projectId === projectId).sort((a, b) => b.updatedAt - a.updatedAt);
-        return { items: clone(items), nextCursor: null };
+        return { items: items.map(chatView), nextCursor: null };
       },
       async create(projectId, input) {
         await latency("write");
         projectEntry(projectId);
         const chat = createChat(projectId, input.model, input.title);
-        emit(projectId, { type: "chat.upserted", chat: clone(chat) });
-        return clone(chat);
+        emit(projectId, { type: "chat.upserted", chat: chatView(chat) });
+        return chatView(chat);
       },
       async rename(projectId, chatId, title) {
         await latency("write");
         const chat = chatEntry(chatId);
         touchChat(chat, { title: title.trim() || chat.title, untitled: false });
-        return clone(chat);
+        return chatView(chat);
       },
       async remove(projectId, chatId) {
         await latency("write");
@@ -724,7 +791,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
         await latency("write");
         const chat = chatEntry(chatId);
         chat.note = note?.trim() || null;
-        emit(projectId, { type: "chat.upserted", chat: clone(chat) });
+        emit(projectId, { type: "chat.upserted", chat: chatView(chat) });
         save();
       },
       async messages(projectId, chatId) {
@@ -773,9 +840,9 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
         const chat = createChat(projectId, source.model ?? state.defaultModel, `Kopie van ${source.title}`);
         chat.groupId = source.groupId;
         state.messages[chat.id] = copied.map((message) => ({ ...clone(message), id: newId("msg"), chatId: chat.id }));
-        emit(projectId, { type: "chat.upserted", chat: clone(chat) });
+        emit(projectId, { type: "chat.upserted", chat: chatView(chat) });
         save();
-        return clone(chat);
+        return chatView(chat);
       },
       async revert(projectId, chatId, messageId) {
         await latency("write");
@@ -806,6 +873,22 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
           }
         }
         return hits;
+      },
+      async recent(limit) {
+        await latency();
+        const archived = new Set(state.projects.filter((entry) => entry.archivedAt !== null).map((entry) => entry.id));
+        return state.chats
+          .filter((chat) => !chat.parentId && !chat.archived && !archived.has(chat.projectId))
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, Math.max(0, limit))
+          .map(chatView);
+      },
+    },
+
+    attention: {
+      async list() {
+        await latency();
+        return sortAttention(await attention());
       },
     },
 
@@ -1179,13 +1262,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       },
     },
 
-    brains: createDemoBrains({
-      now: Date.now(),
-      home: state.defaultFolder,
-      storageKey,
-      search: typeof window === "undefined" ? "" : window.location.search,
-      projectPath: (projectId) => state.projects.find((entry) => entry.id === projectId)?.path ?? null,
-    }),
+    brains,
 
     settings: {
       async env() {

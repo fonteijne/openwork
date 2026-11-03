@@ -171,11 +171,11 @@ describe("OKF in de sync", () => {
     const a = await world.user("Anna");
     await a.write("knowledge/kapot.md", "# Geen kop\n");
     const blocked = await a.sync.finishTurn({ title: "x", chatId: "s" });
-    expect(blocked.status).toMatchObject({ state: "error", repairable: false });
+    expect(blocked.status).toMatchObject({ state: "error", repairable: false, fixInNotes: true });
     // Fixed in Obsidian: no turn follows, only the button.
     await a.write("knowledge/kapot.md", concept("Decision", "Kapot"));
     const status = await a.sync.share();
-    expect(status).toMatchObject({ state: "synced", error: null, repairable: false });
+    expect(status).toMatchObject({ state: "synced", error: null, repairable: false, fixInNotes: false });
     expect(await world.git.ok(["show", "main:knowledge/kapot.md"], { cwd: world.bare })).toContain("type: Decision");
   });
 

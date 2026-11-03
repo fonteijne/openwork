@@ -1,41 +1,68 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, Download, FolderOpen } from "lucide-react";
+import { Check, Copy, Download, FolderOpen, MessageSquare } from "lucide-react";
 import { datesBetween, isDate, proposal } from "@bonzaiwork/agenda/model";
 
 import { useBackend } from "~/backend/context";
-import { keys } from "~/backend/queries";
+import { hasNoModels, startModel } from "~/backend/models";
+import { keys, projectHasKey, useProjects, useStatus } from "~/backend/queries";
+import type { Project } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Field, Input } from "~/components/ui/field";
-import { Row, Skeleton } from "~/components/ui/misc";
+import { Locked, Row, Skeleton } from "~/components/ui/misc";
 import { Dialog } from "~/components/ui/overlay";
 import { Select } from "~/components/ui/select";
+import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
+import { readLocal, writeLocal } from "~/lib/storage";
 
+import { sendFirstMessage } from "../chat/first-message";
+import { useUi } from "../shell/ui-store";
 import { dutchDuration, MAX_PERIOD_DAYS, periodFor, type PeriodKind } from "./format";
 
 /**
- * "Exporteer voor Bridge" (plan §7.4): a period, what the document will propose, and the two ways out:
- * the Markdown on the clipboard for a chat, or a file in Downloads. Nothing blocks: time without a
- * post is a point of attention in the document, not an error here. Confirmations stay in this dialog
- * (plan §7.6: no toast outside the panel).
+ * "Boeken" (brief §8; assessment I4): a period, what the document will propose, and the way out
+ * that is the product itself: **Boek in een chat** makes a chat in a remembered project and
+ * sends the booking document as an `.md` attachment with one opening line; the chat is the
+ * person's object and opens at once (P11). Copying for another chat and saving in Downloads stay
+ * as secondary ways. Nothing blocks: time without a post is a point of attention in the document,
+ * not an error here. Failures stay in this dialog with the fix.
  */
 
 type Done = { kind: "copied" } | { kind: "saved"; path: string } | { kind: "failed"; text: string };
 
-export function BookingExport(props: { open: boolean; onOpenChange: (open: boolean) => void; today: string; onShowDate: (date: string) => void }) {
+/** The project the last booking chat went to, per device. */
+const BOOK_PROJECT_KEY = "bonzaiwork.agenda.bookProject";
+
+export type Booked = { projectId: string; chatId: string; projectName: string };
+
+export function BookingExport(props: { open: boolean; onOpenChange: (open: boolean) => void; today: string; onShowDate: (date: string) => void; onBooked: (booked: Booked) => void }) {
   const backend = useBackend();
+  const status = useStatus();
+  const projects = useProjects();
+  const lastProjectId = useUi((state) => state.lastProjectId);
   const [kind, setKind] = useState<PeriodKind>("today");
   const [custom, setCustom] = useState({ from: props.today, to: props.today });
-  const [busy, setBusy] = useState<"copy" | "save" | null>(null);
+  const [busy, setBusy] = useState<"copy" | "save" | "book" | null>(null);
   const [done, setDone] = useState<Done | null>(null);
+  const [chosenId, setChosenId] = useState<string | null>(null);
 
   const period = kind === "custom" ? custom : periodFor(kind, props.today);
   const valid = isDate(period.from) && isDate(period.to) && period.to >= period.from;
   const dates = valid ? datesBetween(period.from, period.to) : [];
   const tooLong = dates.length > MAX_PERIOD_DAYS;
   const ready = valid && !tooLong;
+  const periodLabel = kind === "custom" ? (period.from === period.to ? period.from : `${period.from} – ${period.to}`) : copy.agenda.exportDialog.periods[kind];
+
+  // Projects a booking chat can start in: a key and a model (P4: the others stay listed, locked).
+  const candidates = (projects.data ?? []).filter((project) => !project.archivedAt);
+  const usable = (project: Project) => projectHasKey(status.data, project) && !hasNoModels(status.data, project) && startModel(status.data, project) !== null;
+  const firstUsable = [readLocal(BOOK_PROJECT_KEY), lastProjectId, ...candidates.map((project) => project.id)]
+    .map((id) => candidates.find((project) => project.id === id) ?? null)
+    .find((project) => project !== null && usable(project));
+  const project = (chosenId ? candidates.find((entry) => entry.id === chosenId) : undefined) ?? firstUsable ?? null;
+  const bookable = project !== null && usable(project);
 
   const summary = useQuery({
     queryKey: [...keys.agenda, "period", period.from, period.to],
@@ -80,6 +107,30 @@ export function BookingExport(props: { open: boolean; onOpenChange: (open: boole
     }
   }
 
+  async function book() {
+    if (!project) return;
+    const model = startModel(status.data, project);
+    if (!model) return;
+    setBusy("book");
+    setDone(null);
+    try {
+      const text = await backend.agenda.bookingDocument(period.from, period.to);
+      const name = copy.agenda.export.fileName(period.from, period.to);
+      const file = new File([text], name, { type: "text/markdown" });
+      const chat = await backend.chats.create(project.id, { model, title: copy.agenda.export.chatTitle(periodLabel) });
+      // The chat is the person's object (P11): it opens with the message and document already in
+      // it; a send that fails offers "Opnieuw versturen" with the same file.
+      sendFirstMessage(backend, chat, { text: copy.agenda.export.message, model, agent: null, attachments: [{ name, mime: "text/markdown", size: file.size, file }], command: null, skills: [] });
+      writeLocal(BOOK_PROJECT_KEY, project.id);
+      if (backend.capabilities.agenda) void backend.agenda.reportPresence({ projectId: project.id, name: project.name });
+      props.onBooked({ projectId: project.id, chatId: chat.id, projectName: project.name });
+    } catch (error) {
+      setDone({ kind: "failed", text: `${copy.agenda.export.bookFailed} ${errorText(error)}` });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const result = summary.data;
   const firstMissing = result?.missing[0]?.date ?? null;
 
@@ -87,18 +138,12 @@ export function BookingExport(props: { open: boolean; onOpenChange: (open: boole
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={copy.agenda.exportDialog.title}
+      title={copy.agenda.export.title}
       footer={
-        <>
-          <Button variant="secondary" onClick={() => void saveDocument()} disabled={!ready || busy !== null} data-testid="agenda-export-save">
-            <Download />
-            {copy.agenda.exportDialog.save}
-          </Button>
-          <Button variant="primary" onClick={() => void copyDocument()} disabled={!ready || busy !== null} data-testid="agenda-export-copy">
-            <Copy />
-            {copy.agenda.exportDialog.copy}
-          </Button>
-        </>
+        <Button variant="primary" onClick={() => void book()} disabled={!ready || !bookable || busy !== null} data-testid="agenda-export-book">
+          <MessageSquare />
+          {copy.agenda.export.book}
+        </Button>
       }
     >
       <div className="flex flex-col gap-4" data-testid="agenda-export">
@@ -124,6 +169,32 @@ export function BookingExport(props: { open: boolean; onOpenChange: (open: boole
           </div>
         ) : null}
 
+        <Field label={copy.agenda.export.project}>
+          {(id) =>
+            candidates.length && !firstUsable && !projects.isLoading ? (
+              <Locked>{copy.agenda.export.noProject}</Locked>
+            ) : (
+              <Select
+                id={id}
+                label={copy.agenda.export.project}
+                value={project?.id ?? null}
+                placeholder={copy.agenda.export.chooseProject}
+                onValueChange={(value) => {
+                  setDone(null);
+                  setChosenId(value);
+                }}
+                disabled={projects.isLoading}
+                items={candidates.map((entry) => ({
+                  value: entry.id,
+                  label: entry.name,
+                  hint: !projectHasKey(status.data, entry) ? copy.agenda.export.noKey : hasNoModels(status.data, entry) || startModel(status.data, entry) === null ? copy.agenda.export.noModel : null,
+                  disabled: !usable(entry),
+                }))}
+              />
+            )
+          }
+        </Field>
+
         <div className="border-t border-border" aria-busy={summary.isLoading || undefined}>
           {summary.isError ? (
             <p className="py-3 text-sm text-muted-foreground">
@@ -147,9 +218,22 @@ export function BookingExport(props: { open: boolean; onOpenChange: (open: boole
                   ) : undefined
                 }
               />
-              <Row label={copy.agenda.exportDialog.away} value={result ? dutchDuration(result.minutes.away) : <Skeleton className="h-4 w-10" />} />
+              <Row label={copy.agenda.notBooking} value={result ? dutchDuration(result.minutes.away) : <Skeleton className="h-4 w-10" />} />
             </>
           )}
+        </div>
+
+        {/* The other ways out, quiet (brief §8: copy and save are secondary). */}
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-muted-foreground">
+          <span className="me-1">{copy.agenda.export.secondary}</span>
+          <Button variant="quiet" size="sm" onClick={() => void copyDocument()} disabled={!ready || busy !== null} data-testid="agenda-export-copy">
+            <Copy />
+            {copy.agenda.exportDialog.copy}
+          </Button>
+          <Button variant="quiet" size="sm" onClick={() => void saveDocument()} disabled={!ready || busy !== null} data-testid="agenda-export-save">
+            <Download />
+            {copy.agenda.exportDialog.save}
+          </Button>
         </div>
 
         <div role="status" className="min-h-7 text-sm">

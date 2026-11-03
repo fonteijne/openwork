@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "./context";
-import type { AppStatus, Brain, Project } from "./types";
+import type { AppStatus, AttentionItem, Brain, Project } from "./types";
 
 export { hasNoModels, newProjectModels, preferredIn, projectModels, startModel } from "./models";
 
@@ -40,6 +40,12 @@ export const keys = {
   agenda: ["agenda"] as const,
   env: ["env"] as const,
   versions: ["versions"] as const,
+  /** Every project summary: a decision answered anywhere changes the counts. */
+  summaries: ["summary"] as const,
+  /** "Voor jou": everything that waits on the person, across projects (ui-ux-overhaul §5). */
+  attention: ["attention"] as const,
+  /** Recent chats across projects; the limit is appended, so this prefix refreshes every size. */
+  recent: ["recent-chats"] as const,
 };
 
 export function useStatus() {
@@ -194,4 +200,53 @@ export function useAgendaDay(date: string, options: { enabled?: boolean; poll?: 
     refetchOnWindowFocus: true,
     staleTime: 20_000,
   });
+}
+
+/**
+ * Everything that waits on the person, across projects: one 10 s poll that replaces the
+ * separate summary, routine, brain and proposal clocks on Vandaag (ui-ux-overhaul §9). Off
+ * until a project exists; a window focus refreshes it at once.
+ */
+export function useAttention() {
+  const backend = useBackend();
+  const projects = useProjects();
+  return useQuery({
+    queryKey: keys.attention,
+    queryFn: () => backend.attention.list(),
+    enabled: (projects.data?.length ?? 0) > 0,
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
+    staleTime: 5_000,
+    placeholderData: (previous): AttentionItem[] | undefined => previous,
+  });
+}
+
+/** One limit for every reader, so the palette and Vandaag share one cache and one poll. */
+export const RECENT_LIMIT = 24;
+
+/** The newest chats across projects, for the palette and "Terwijl je weg was". */
+export function useRecentChats() {
+  const backend = useBackend();
+  const projects = useProjects();
+  return useQuery({
+    queryKey: [...keys.recent, RECENT_LIMIT] as const,
+    queryFn: () => backend.chats.recent(RECENT_LIMIT),
+    enabled: (projects.data?.length ?? 0) > 0,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * The query keys a resolved item touches. A screen that answers a permission or question,
+ * runs or fixes a routine, settles a brain or decides a proposal refreshes these afterwards
+ * (`useRefreshAttention`), so the card leaves Vandaag without waiting for the next poll.
+ */
+export const ATTENTION_KEYS: readonly (readonly unknown[])[] = [keys.attention, keys.recent, keys.summaries, keys.allRoutines, keys.brains, keys.proposals];
+
+/** `const refreshAttention = useRefreshAttention(); await backend.…; await refreshAttention();` */
+export function useRefreshAttention() {
+  const refresh = useRefresh();
+  return () => refresh(...ATTENTION_KEYS);
 }

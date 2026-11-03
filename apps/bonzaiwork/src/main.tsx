@@ -7,6 +7,7 @@ import { BackendProvider } from "./backend/context";
 import { createBackend } from "./backend/select";
 import { ToastProvider } from "./components/ui/toast";
 import { watchErrors } from "./lib/recent-errors";
+import { watchRouteHistory } from "./lib/router";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
 // Variable Manrope, split by unicode range: only the Latin file downloads.
 import "@fontsource-variable/manrope/wght.css";
@@ -15,6 +16,8 @@ import "./styles.css";
 watchErrors();
 applyTheme();
 watchSystemTheme();
+// ⌘[ / ⌘] walk an in-app route stack: Electron has no browser chrome (brief §4).
+watchRouteHistory();
 
 const queryClient = new QueryClient({
   defaultOptions: {

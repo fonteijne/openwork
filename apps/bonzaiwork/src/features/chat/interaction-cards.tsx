@@ -1,197 +1,288 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HelpCircle, ShieldQuestion } from "lucide-react";
 
-import type { PermissionReply, PermissionRequest, QuestionRequest } from "~/backend/types";
+import { useBackend } from "~/backend/context";
+import type { PermissionReply, PermissionRequest, QuestionField, QuestionRequest } from "~/backend/types";
 import { Button } from "~/components/ui/button";
+import { Callout } from "~/components/ui/callout";
 import { Input } from "~/components/ui/field";
 import { Kbd } from "~/components/ui/misc";
+import { RadioCards } from "~/components/ui/radio-cards";
+import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { cardKeys, focusCard } from "~/lib/card-keys";
 import { cn } from "~/lib/cn";
+import { errorText } from "~/lib/errors";
+import { isEditable } from "~/lib/shortcuts";
 import { fileName } from "~/lib/tools";
 
+/**
+ * The consent and question cards (brief §7; DESIGN.md T4, P9, S1). Both talk to `Backend`
+ * themselves, so a card works in the chat and anywhere else a request shows up: give it the
+ * project and the request, and `onDone` fires once the engine took the answer. Chords (⏎, esc,
+ * 1–9) belong to the card element and never to the window (brief §4).
+ */
+
 const REVERSIBLE = new Set(["edit", "write", "patch"]);
+/** Actions whose resource is a path: the card shows the file name. Everything else is shown verbatim. */
+const FILE_ACTIONS = new Set(["edit", "write", "read", "patch", "external_directory"]);
+
+/** Focus by script after an answer shows the ring on any focus: it says where ⏎ and esc go (S6, V7). */
+const CARD = "focus:outline-2 focus:outline-offset-2 focus:outline-ring";
+
+/** The card takes focus on arrival when nothing else is being typed in: the decision is the focal element (T4). */
+function useCardFocus(autoFocus: boolean | undefined) {
+  const card = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && isEditable(active) && !active.matches(":disabled")) return;
+    if (card.current) focusCard(card.current, { preventScroll: true });
+  }, [autoFocus]);
+  return card;
+}
+
+export type PermissionCardProps = {
+  projectId: string;
+  request: PermissionRequest;
+  /** The engine took the answer; the chat drops the request, Vandaag refreshes. */
+  onDone?: (reply: PermissionReply) => void;
+  autoFocus?: boolean;
+  className?: string;
+};
 
 /**
- * The consent card (DESIGN.md T4, P9): the focal element while a decision is
- * pending. One line names the action and the data; one line says what can be
- * undone. ⏎ allows, esc declines.
+ * The consent card v2 (DESIGN.md T4, P9): the action as the bold sentence, the data as a mono
+ * chip (file name) or verbatim command, one state line that says whether it can be undone.
+ * "Altijd in dit project" only when the engine names what that would allow (`request.scope`).
  */
-export function PermissionCard(props: { request: PermissionRequest; onReply: (reply: PermissionReply) => Promise<void> }) {
+export function PermissionCard(props: PermissionCardProps) {
+  const backend = useBackend();
   const [busy, setBusy] = useState<PermissionReply | null>(null);
-  const action = copy.permission.actions[props.request.action] ?? copy.permission.fallbackAction;
-  const resources = props.request.resources.map((resource) => (resource.includes("/") || resource.includes(".") ? fileName(resource) : resource));
-  const shown = resources.slice(0, 3);
+  const card = useCardFocus(props.autoFocus);
+  const { request } = props;
+  const action = copy.permission.actions[request.action] ?? copy.permission.fallbackAction;
+  const fileLike = FILE_ACTIONS.has(request.action);
+  const names = fileLike ? request.resources.map(fileName) : request.resources;
+  const [first, ...rest] = names;
+
   const reply = async (value: PermissionReply) => {
     if (busy) return;
     setBusy(value);
     try {
-      await props.onReply(value);
+      await backend.interactions.replyPermission(props.projectId, request.chatId, request.id, value);
+      props.onDone?.(value);
+    } catch (failure) {
+      toast(errorText(failure), { tone: "error" });
     } finally {
       setBusy(null);
     }
   };
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target;
-      const typing = target instanceof HTMLTextAreaElement ? target.value.trim().length > 0 : target instanceof HTMLInputElement;
-      if (typing || event.defaultPrevented) return;
-      if (event.key === "Enter" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !(target instanceof HTMLButtonElement)) {
-        event.preventDefault();
-        void reply("once");
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        void reply("reject");
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
   return (
-    <section aria-label={copy.permission.title} className="bw-enter rounded-window bg-background p-5 ring-1 ring-amber-9/60">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-amber-3 text-amber-11">
-          <ShieldQuestion className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">
-            {action}
-            {shown.length ? (
-              <>
-                {": "}
-                {shown.map((resource, index) => (
-                  <span key={resource}>
-                    {index > 0 ? ", " : null}
-                    <code className="rounded bg-muted px-1 py-px font-mono text-[0.85em] font-normal">{resource}</code>
-                  </span>
-                ))}
-                {resources.length > shown.length ? <span className="font-normal text-muted-foreground"> {copy.permission.more(resources.length - shown.length)}</span> : null}
-              </>
-            ) : null}
-          </p>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {props.request.message ?? (REVERSIBLE.has(props.request.action) ? copy.permission.reversible : copy.permission.notReversible)}
-          </p>
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 sm:ps-10">
-        <Button variant="primary" onClick={() => void reply("once")} disabled={busy !== null}>
-          {copy.permission.allow}
-          <Kbd>⏎</Kbd>
-        </Button>
-        {props.request.canAlways ? (
-          <Button variant="secondary" onClick={() => void reply("always")} disabled={busy !== null}>
-            {copy.permission.always}
+    <Callout
+      ref={card}
+      className={cn(CARD, props.className)}
+      tabIndex={0}
+      onKeyDown={cardKeys({ enter: () => void reply("once"), escape: () => void reply("reject") })}
+      keyShortcuts="Enter Escape"
+      testId="permission-card"
+      label={copy.permission.title}
+      decision
+      icon={<ShieldQuestion />}
+      title={action}
+      chip={fileLike ? first : undefined}
+      state={
+        <>
+          {fileLike && rest.length ? `${copy.permission.more(rest.length)} · ` : null}
+          {request.message ?? (REVERSIBLE.has(request.action) ? copy.attention.permission.reversible : copy.attention.permission.notReversible)}
+        </>
+      }
+      actions={
+        <>
+          <Button variant="primary" onClick={() => void reply("once")} disabled={busy !== null} data-testid="permission-allow">
+            {copy.attention.permission.allow}
+            <Kbd>⏎</Kbd>
           </Button>
-        ) : null}
-        <Button variant="ghost" onClick={() => void reply("reject")} disabled={busy !== null}>
-          {copy.permission.deny}
-          <Kbd>esc</Kbd>
-        </Button>
-      </div>
-    </section>
+          {request.canAlways && request.scope ? (
+            <Button variant="secondary" onClick={() => void reply("always")} disabled={busy !== null} title={request.scope}>
+              {copy.attention.permission.always}
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={() => void reply("reject")} disabled={busy !== null}>
+            {copy.attention.permission.deny}
+            <Kbd>esc</Kbd>
+          </Button>
+        </>
+      }
+    >
+      {/* Commands and other non-file resources verbatim, wrapped, never shortened (P9). */}
+      {!fileLike && names.length ? (
+        <ul className="flex flex-col gap-1">
+          {names.map((name) => (
+            <li key={name}>
+              <code className="block rounded-lg bg-muted px-2.5 py-1.5 font-mono text-sm whitespace-pre-wrap break-all text-foreground">{name}</code>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </Callout>
   );
 }
 
-/** A question from the agent, with its choices and room for your own answer. */
-export function QuestionCard(props: { request: QuestionRequest; onAnswer: (answers: string[][]) => Promise<void>; onSkip: () => Promise<void> }) {
+export type QuestionCardProps = {
+  projectId: string;
+  request: QuestionRequest;
+  /** `answered` is false when the person skipped it. */
+  onDone?: (answered: boolean) => void;
+  autoFocus?: boolean;
+  className?: string;
+};
+
+function MultiField(props: { request: QuestionRequest; field: QuestionField; picked: string[]; onToggle: (label: string) => void }) {
+  return (
+    <div role="group" aria-label={props.field.title} className="flex flex-col">
+      {props.field.options.map((option) => {
+        const checked = props.picked.includes(option.label);
+        return (
+          <label key={option.value} className={cn("flex min-h-11 cursor-default items-center gap-3 border-b border-border px-1.5 py-2 last:border-b-0 hover:bg-hover", checked && "font-semibold")}>
+            <input type="checkbox" name={`${props.request.id}-${props.field.key}`} checked={checked} onChange={() => props.onToggle(option.label)} className="size-4 shrink-0" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-sm text-foreground">{option.label}</span>
+              {option.description ? <span className="text-xs font-normal text-muted-foreground">{option.description}</span> : null}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * A question from the agent: the options as RadioCards, flat inside the card (S1), 1–9 pick,
+ * ⏎ answers once every field has an answer, esc skips (the agent then decides itself).
+ */
+export function QuestionCard(props: QuestionCardProps) {
+  const backend = useBackend();
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [custom, setCustom] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const card = useCardFocus(props.autoFocus);
+  const { request } = props;
+  const [firstField] = request.fields;
 
-  const answers = props.request.fields.map((field) => {
+  const answers = request.fields.map((field) => {
     const own = custom[field.key]?.trim();
     const picked = selected[field.key] ?? [];
-    return own ? [...picked.filter((value) => value !== "__custom"), own] : picked.filter((value) => value !== "__custom");
+    return own ? [...picked, own] : picked;
   });
   const complete = answers.every((answer) => answer.length > 0);
 
-  const run = async (action: () => Promise<void>) => {
+  const pick = (field: QuestionField, label: string) =>
+    setSelected((current) => {
+      const list = current[field.key] ?? [];
+      if (field.multiple) return { ...current, [field.key]: list.includes(label) ? list.filter((value) => value !== label) : [...list, label] };
+      return { ...current, [field.key]: [label] };
+    });
+
+  const run = async (task: () => Promise<void>, answered: boolean) => {
+    if (busy) return;
     setBusy(true);
     try {
-      await action();
+      await task();
+      props.onDone?.(answered);
+    } catch (failure) {
+      toast(errorText(failure), { tone: "error" });
     } finally {
       setBusy(false);
     }
   };
+  const answer = () => {
+    if (!complete) return;
+    void run(() => backend.interactions.replyQuestion(props.projectId, request.chatId, request.id, answers), true);
+  };
+  const skip = () => void run(() => backend.interactions.rejectQuestion(props.projectId, request.chatId, request.id), false);
 
   return (
-    <section aria-label={copy.question.title} className="bw-enter rounded-window bg-background p-5 ring-1 ring-electric-9/40">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-electric-3 text-electric-11">
-          <HelpCircle className="size-4" />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-4">
-          {props.request.fields.map((field) => {
-            const picked = selected[field.key] ?? [];
-            const toggle = (label: string) =>
-              setSelected((current) => {
-                const list = current[field.key] ?? [];
-                if (field.multiple) return { ...current, [field.key]: list.includes(label) ? list.filter((value) => value !== label) : [...list, label] };
-                return { ...current, [field.key]: [label] };
-              });
-            return (
-              <fieldset key={field.key} className="min-w-0">
-                <legend className="text-sm font-semibold text-foreground">{field.description || field.title}</legend>
-                <div className="mt-2 flex flex-col gap-1" role={field.multiple ? "group" : "radiogroup"}>
-                  {field.options.map((option) => {
-                    const checked = picked.includes(option.label);
-                    return (
-                      <label
-                        key={option.value}
-                        className={cn(
-                          "flex cursor-default items-start gap-2.5 rounded-lg px-2.5 py-2 ring-1 ring-inset transition-colors duration-100",
-                          checked ? "bg-electric-3 ring-electric-9/60" : "ring-border hover:bg-hover",
-                        )}
-                      >
-                        <input
-                          type={field.multiple ? "checkbox" : "radio"}
-                          name={`${props.request.id}-${field.key}`}
-                          checked={checked}
-                          onChange={() => toggle(option.label)}
-                          className="mt-0.5 size-4 shrink-0 accent-[var(--primary)]"
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-sm font-medium">{option.label}</span>
-                          {option.description ? <span className="block text-xs text-muted-foreground">{option.description}</span> : null}
-                        </span>
-                      </label>
-                    );
-                  })}
-                  {field.custom ? (
-                    <Input
-                      aria-label={`${field.title}: ${copy.question.other}`}
-                      placeholder={copy.question.otherPlaceholder}
-                      value={custom[field.key] ?? ""}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setCustom((current) => ({ ...current, [field.key]: value }));
-                        if (!field.multiple && value.trim()) setSelected((current) => ({ ...current, [field.key]: [] }));
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && complete) {
-                          event.preventDefault();
-                          void run(() => props.onAnswer(answers));
-                        }
-                      }}
-                      className="mt-1"
-                    />
-                  ) : null}
-                </div>
-              </fieldset>
-            );
-          })}
-          <div className="flex flex-wrap gap-2">
-            <Button variant="primary" disabled={!complete || busy} onClick={() => void run(() => props.onAnswer(answers))}>
-              {copy.question.answer}
-            </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => void run(props.onSkip)}>
-              {copy.question.skip}
-            </Button>
+    <Callout
+      ref={card}
+      className={cn(CARD, props.className)}
+      tabIndex={0}
+      onKeyDown={cardKeys({
+        enter: answer,
+        escape: skip,
+        digit: (n) => {
+          const option = firstField?.options[n - 1];
+          if (firstField && option) pick(firstField, option.label);
+        },
+      })}
+      keyShortcuts="Enter Escape"
+      testId="question-card"
+      label={copy.question.title}
+      decision
+      icon={<HelpCircle />}
+      title={firstField?.description || firstField?.title || copy.question.title}
+      actions={
+        <>
+          <Button variant="primary" disabled={!complete || busy} onClick={answer} data-testid="question-answer">
+            {copy.attention.question.answer}
+            <Kbd>⏎</Kbd>
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={skip}>
+            {copy.question.skip}
+            <Kbd>esc</Kbd>
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {request.fields.map((field, fieldIndex) => (
+          <div key={field.key} className="min-w-0">
+            {fieldIndex > 0 ? <p className="mb-1 text-sm font-semibold text-foreground">{field.description || field.title}</p> : null}
+            {field.multiple ? (
+              <MultiField request={request} field={field} picked={selected[field.key] ?? []} onToggle={(label) => pick(field, label)} />
+            ) : (
+              <RadioCards
+                label={field.title}
+                value={selected[field.key]?.[0] ?? null}
+                onValueChange={(label) => pick(field, label)}
+                items={field.options.map((option, index) => ({
+                  value: option.label,
+                  label:
+                    fieldIndex === 0 && index < 9 ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Kbd className="text-subtle-foreground">{index + 1}</Kbd>
+                        {option.label}
+                      </span>
+                    ) : (
+                      option.label
+                    ),
+                  hint: option.description || undefined,
+                }))}
+              />
+            )}
+            {field.custom ? (
+              <Input
+                aria-label={`${field.title}: ${copy.attention.question.other}`}
+                placeholder={copy.question.otherPlaceholder}
+                value={custom[field.key] ?? ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setCustom((current) => ({ ...current, [field.key]: value }));
+                  if (!field.multiple && value.trim()) setSelected((current) => ({ ...current, [field.key]: [] }));
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && complete) {
+                    event.preventDefault();
+                    answer();
+                  }
+                }}
+                className="mt-2"
+              />
+            ) : null}
           </div>
-        </div>
+        ))}
       </div>
-    </section>
+    </Callout>
   );
 }

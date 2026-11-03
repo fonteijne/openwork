@@ -24,7 +24,7 @@ import { localTimezone, nextOccurrence } from "~/lib/schedule";
 
 /** Everything the demo backend keeps, persisted per browser. */
 export type DemoState = {
-  version: 4;
+  version: 5;
   keyMode: KeyMode;
   userKey: string | null;
   models: Model[];
@@ -150,6 +150,8 @@ function chat(projectId: string, id: string, title: string, createdAt: number, u
     status: "idle",
     revertMessageId: null,
     routineId: null,
+    // Computed from the history when read (demo/index.ts), never stored.
+    preview: null,
     ...extra,
   };
 }
@@ -177,6 +179,15 @@ function project(
     ...extra,
     keyValue,
   };
+}
+
+/** The weekly schedule's last moment before `now`, in local time: the run the closed app missed. */
+function lastOccurrence(schedule: { daysOfWeek: number[]; hour: number; minute: number }, now: number): number {
+  const at = new Date(now);
+  at.setHours(schedule.hour, schedule.minute, 0, 0);
+  if (at.getTime() >= now) at.setDate(at.getDate() - 1);
+  while (!schedule.daysOfWeek.includes(at.getDay())) at.setDate(at.getDate() - 1);
+  return at.getTime();
 }
 
 function file(path: string, bytes: number, updatedAt: number): ProjectFile {
@@ -262,6 +273,20 @@ De drukste weken van het jaar komen eraan. Met deze drie checks voorkom je dat b
 
 De toon is informeel en kort, zoals in de vorige drie nieuwsbrieven. Zal ik er een versie voor bestaande klanten naast zetten, met een korting op een snelheidscheck?`;
 
+const WEBINAR_TEXT = `De uitnodiging staat in **webinar/uitnodiging-klanten.md**, klaar voor 184 klanten uit de klantenlijst.
+
+**Onderwerp:** Jouw webshop klaar voor december? Webinar op 19 november
+
+Beste {voornaam},
+
+Op 19 november om 15:00 laten we in 45 minuten zien hoe je de drukste weken van het jaar zonder afhakers doorkomt. Als klant heb je een plek gereserveerd: [meld je aan](https://example.com/webinar) en we sturen de opname na afloop.
+
+Tot dan!
+
+---
+
+Zal ik de mailing in Mailchimp klaarzetten? De connectie staat nu uit.`;
+
 const FAQ_TEXT = `Ik heb de vijf meest gestelde vragen van de afgelopen maand uitgewerkt en opgeslagen in **faq/antwoorden-oktober.md**.
 
 1. **Wanneer wordt mijn bestelling geleverd?** Binnen 2 werkdagen; vóór 14:00 besteld is de volgende werkdag verzonden.
@@ -288,7 +313,7 @@ const MOVE_TEXT = `Ik heb een checklist gemaakt in **verhuizing/checklist.md**, 
 export function createSeed(now: number, options: { empty: boolean; keyMode: KeyMode }): DemoState {
   const zone = localTimezone();
   const base: DemoState = {
-    version: 4,
+    version: 5,
     keyMode: options.keyMode,
     userKey: options.keyMode === "user" && !options.empty ? "sk-demo-persoonlijk-91c2" : null,
     models: DEMO_MODELS,
@@ -390,7 +415,8 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
   const offertes = "p-offertes";
   const tVanDijk = now - 2 * DAY - 3 * HOUR;
   const tIndex = now - 25 * MIN;
-  const tWeek = now - 2 * DAY + 9 * HOUR;
+  // The weekly routine ran this morning: a run with a chat and a preview for "Terwijl je weg was".
+  const tWeek = now - 6 * HOUR - 20 * MIN;
   const tFollow = now - 5 * DAY;
   base.chats.push(
     chat(offertes, "c-vandijk", "Offerte onderhoudscontract Bakkerij Van Dijk", tVanDijk, tVanDijk + 14 * MIN, { pinned: true, groupId: "g-nieuw" }),
@@ -450,6 +476,7 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
     resources: ["prijslijst-2027.md"],
     canAlways: true,
     message: null,
+    scope: "*.md",
   });
   base.messages["c-week"] = [
     userMessage("c-week", "m-wk-1", tWeek, "Maak een overzicht van alle offertes die deze week zijn verstuurd, met bedrag en status. Haal de status uit HubSpot."),
@@ -492,10 +519,14 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
   const tNews = now - 26 * HOUR;
   const tLinked = now - 4 * DAY;
   const tComp = now - 2 * MIN;
+  const tWebinar = now - 40 * MIN;
   base.chats.push(
+    chat(marketing, "c-webinar", "Webinar-uitnodiging voor klanten", tWebinar, tWebinar + 4 * MIN),
     chat(marketing, "c-news", "Nieuwsbrief november", tNews, tNews + 8 * MIN),
     chat(marketing, "c-linkedin", "LinkedIn-posts voor het webinar", tLinked, tLinked + 12 * MIN, { groupId: "g-social", model: "gpt-5-2" }),
     chat(marketing, "c-comp", "Concurrentieanalyse webdesignbureaus Utrecht", tComp, tComp + 20_000, { status: "running" }),
+    // An archived chat fills the collapsed tail of the sidebar list (brief §4).
+    chat(marketing, "c-okt", "Nieuwsbrief oktober", tNews - 30 * DAY, tNews - 30 * DAY + 9 * MIN, { archived: true }),
   );
   base.groups[marketing] = { groups: [{ id: "g-social", label: "Social" }], assignments: { "c-linkedin": "g-social" } };
   base.messages["c-news"] = [
@@ -513,6 +544,17 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
     assistantMessage("c-linkedin", "m-li-2", tLinked + 2_500, {
       model: "gpt-5-2",
       text: "**Post 1 (aankondiging)**\n\nVan de tien bezoekers die iets in hun winkelwagen leggen, rekenen er gemiddeld maar drie af. Op 19 november laten we in 45 minuten zien hoe je dat in december verbetert. Gratis, online, met tijd voor vragen.\n\nWat is jouw grootste afhaker in de bestelstraat?\n\n**Post 2 (een week ervoor)**\n\nNog zeven dagen tot ons webinar over conversie in de feestdagen. Eén tip alvast: zet je levertijd bovenaan je productpagina.\n\nWelke tip wil jij er nog bij hebben?\n\n**Post 3 (op de dag zelf)**\n\nVanmiddag om 15:00 live: webshops klaar voor de feestdagen. Laatste kans om je aan te melden.\n\nZien we je straks?",
+    }),
+  ];
+  base.messages["c-webinar"] = [
+    userMessage("c-webinar", "m-wb-1", tWebinar, "Schrijf een korte uitnodiging voor het webinar van 19 november aan onze bestaande klanten. Gebruik de klantenlijst uit Google Drive."),
+    assistantMessage("c-webinar", "m-wb-2", tWebinar + 3_000, {
+      tools: [
+        { tool: "read", input: { filePath: "webinar/draaiboek.md" }, ms: 400 },
+        { tool: "google_drive_search", input: { query: "klantenlijst 2026" }, output: "1 bestand: klantenlijst-2026.xlsx (184 rijen)", ms: 1_600 },
+        { tool: "write", input: { filePath: "webinar/uitnodiging-klanten.md" }, ms: 500 },
+      ],
+      text: WEBINAR_TEXT,
     }),
   ];
   base.messages["c-comp"] = [
@@ -651,7 +693,7 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
     file("knowledge/offertes/kortingsbeleid.md", 1_204, now - 3 * HOUR),
     file("knowledge/producten/pakketten.md", 1_870, now - DAY),
   ];
-  base.files[marketing] = [file("nieuwsbrieven/2026-10-oktober.md", 4_102, now - 30 * DAY), file("webinar/draaiboek.md", 5_330, now - 8 * DAY)];
+  base.files[marketing] = [file("nieuwsbrieven/2026-10-oktober.md", 4_102, now - 30 * DAY), file("webinar/draaiboek.md", 5_330, now - 8 * DAY), file("webinar/uitnodiging-klanten.md", 1_260, tWebinar + 3 * MIN)];
   base.files[service] = [file("AGENTS.md", 188, now - 40 * DAY), file("huisstijl.md", 1_920, now - 120 * DAY), file("faq/antwoorden-oktober.md", 2_840, tFaq + 5 * MIN), file("tickets/oktober-export.csv", 88_420, now - 7 * DAY)];
   base.files[finance] = [file("administratie/btw-q3-concept.pdf", 182_330, now - 10 * DAY), file("administratie/inkoopboek-2026-q3.csv", 42_118, now - 10 * DAY)];
   base.audit[offertes] = [
@@ -670,7 +712,8 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
   const closing = { kind: "weekly" as const, timezone: zone, daysOfWeek: [5], hour: 16, minute: 0 };
   const social = { kind: "interval" as const, timezone: zone, everyHours: 3, startHour: 9, endHour: 18, daysOfWeek: [1, 2, 3, 4, 5] };
   const weekRun: RoutineRun = { id: "run-week-1", routineId: "r-week", trigger: "scheduled", status: "succeeded", skippedReason: null, chatId: "c-week", scheduledAt: tWeek, startedAt: tWeek, finishedAt: tWeek + 3 * MIN, error: null };
-  const inboxMissed: RoutineRun = { id: "run-inbox-2", routineId: "r-inbox", trigger: "scheduled", status: "skipped", skippedReason: "app_closed", chatId: null, scheduledAt: now - 20 * HOUR, startedAt: null, finishedAt: null, error: null };
+  // The missed run sits on the schedule's last 09:00 on a weekday, so the row's time matches its sentence.
+  const inboxMissed: RoutineRun = { id: "run-inbox-2", routineId: "r-inbox", trigger: "scheduled", status: "skipped", skippedReason: "app_closed", chatId: null, scheduledAt: lastOccurrence(inbox, now), startedAt: null, finishedAt: null, error: null };
   const inboxOk: RoutineRun = { id: "run-inbox-1", routineId: "r-inbox", trigger: "scheduled", status: "succeeded", skippedReason: null, chatId: "c-faq", scheduledAt: now - 2 * DAY, startedAt: now - 2 * DAY, finishedAt: now - 2 * DAY + 2 * MIN, error: null };
   const closingFailed: RoutineRun = { id: "run-close-1", routineId: "r-closing", trigger: "scheduled", status: "failed", skippedReason: null, chatId: null, scheduledAt: now - 5 * DAY, startedAt: now - 5 * DAY, finishedAt: now - 5 * DAY + 4_000, error: "Het model Mistral Large 3 is niet beschikbaar voor de key van dit project." };
   base.routines = [

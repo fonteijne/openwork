@@ -1,29 +1,38 @@
-import { useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Ellipsis, Plus, Trash2, Unlink } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, useProjects, useStatus } from "~/backend/queries";
+import { keys, useAgendaSettings, useProjects, useStatus } from "~/backend/queries";
 import { ProjectIcon } from "~/components/project-icon";
 import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
+import { StatusChip } from "~/components/ui/chip";
 import { Field, Input, SecretInput, type SecretInputHandle } from "~/components/ui/field";
+import { Menu, MenuItem } from "~/components/ui/menu";
 import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
 import { ConfirmDialog, Dialog } from "~/components/ui/overlay";
 import { Select } from "~/components/ui/select";
+import { Tabs } from "~/components/ui/tabs";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { PostLine } from "~/features/agenda/bridge-post-field";
 import { errorText } from "~/lib/errors";
-import { href } from "~/lib/router";
+import { APP_SETTINGS_GROUPS, href, navigate, type AppSettingsGroup } from "~/lib/router";
 import { readLocal, writeLocal } from "~/lib/storage";
 import { setTheme, useTheme, type ThemePreference } from "~/lib/theme";
 
 import { AgendaAppSection } from "../agenda/agenda-settings";
 import { BrainsAppSection } from "../brain/personal-setup";
 import { DEFAULT_FOLDER_KEY, FALLBACK_FOLDER } from "../projects/new-project-dialog";
-import { CommandsList, KeyForm, SkillsList } from "./project-settings";
+import { attempt, InlineTextRow, KeyForm } from "./shared";
+import { MethodsSection } from "./werkwijzen";
 
-function KeysSection() {
+// ---------------------------------------------------------------------------
+// Toegang: the key, never the vendor (C3); keys per project link to their Toegang group
+// ---------------------------------------------------------------------------
+
+function AccessGroup() {
   const backend = useBackend();
   const client = useQueryClient();
   const status = useStatus();
@@ -31,115 +40,165 @@ function KeysSection() {
   const [replacing, setReplacing] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const data = status.data;
-  if (!data) return null;
+  if (!data) {
+    return (
+      <Section title={copy.settings.app.access}>
+        <Skeleton className="my-3 h-4 w-40" />
+      </Section>
+    );
+  }
   return (
-    <Section title={copy.settings.appSections.keys}>
-      <Row label={copy.settings.server} value={<span className="font-mono text-xs">{data.litellmBaseUrl}</span>} />
+    <Section title={copy.settings.app.access}>
       {data.keyMode === "user" ? (
         replacing || !data.user.hasKey ? (
-          <KeyForm
-            autoFocus={replacing}
-            onCancel={data.user.hasKey ? () => setReplacing(false) : undefined}
-            onLink={async (key) => {
-              client.setQueryData(keys.status, await backend.keys.linkUser(key));
-              setReplacing(false);
-              toast(copy.keys.linkedToast);
-            }}
-          />
+          <>
+            {!data.user.hasKey ? <Row label={copy.settings.key.personal} value={<StatusChip status="locked" label={copy.settings.key.missing} />} /> : null}
+            <KeyForm
+              autoFocus={replacing}
+              onCancel={data.user.hasKey ? () => setReplacing(false) : undefined}
+              onLink={async (key) => {
+                client.setQueryData(keys.status, await backend.keys.linkUser(key));
+                setReplacing(false);
+                toast(copy.keys.linkedToast);
+              }}
+            />
+          </>
         ) : (
           <Row
-            label={copy.settings.personalKey}
-            value={copy.keys.linked(data.user.keyHint ?? "")}
+            label={copy.settings.key.personal}
+            value={copy.settings.key.linked(data.user.keyHint ?? "")}
             action={
               <>
                 <Button variant="secondary" size="sm" onClick={() => setReplacing(true)}>
-                  {copy.keys.replace}
+                  {copy.settings.key.replace}
                 </Button>
-                <Button variant="quiet" size="sm" onClick={() => setUnlinking(true)}>
-                  {copy.keys.unlink}
-                </Button>
+                <Menu
+                  align="end"
+                  trigger={
+                    <Button variant="quiet" size="icon-sm" aria-label={copy.settings.key.more}>
+                      <Ellipsis />
+                    </Button>
+                  }
+                >
+                  <MenuItem icon={<Unlink />} danger onClick={() => setUnlinking(true)}>
+                    {copy.settings.key.unlink}
+                  </MenuItem>
+                </Menu>
               </>
             }
           />
         )
       ) : (
-        <div className="py-2">
-          <p className="pb-1 text-sm font-medium">{copy.settings.projectKeys}</p>
+        <>
+          <Row label={copy.settings.app.projectKeys} />
           {(projects.data ?? [])
             .filter((project) => !project.archivedAt)
             .map((project) => (
-              <a key={project.id} href={href({ name: "project-settings", projectId: project.id, section: "key" })} className="flex min-h-10 items-center gap-2.5 rounded-md px-1.5 text-sm hover:bg-hover">
+              <a
+                key={project.id}
+                href={href({ name: "project-settings", projectId: project.id, group: "toegang" })}
+                aria-label={copy.settings.app.projectKeyOpen(project.name)}
+                className="flex min-h-11 items-center gap-2.5 border-b border-border py-2 text-sm outline-none last:border-b-0 hover:bg-hover/60 focus-visible:ring-2 focus-visible:ring-ring"
+              >
                 <ProjectIcon icon={project.icon} color={project.color} size="sm" />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                {project.key.hasKey ? <span className="text-muted-foreground">{copy.keys.linked(project.key.keyHint ?? "")}</span> : <Locked>{copy.keys.missing}</Locked>}
+                {project.key.hasKey ? <span className="text-muted-foreground">{copy.settings.key.linked(project.key.keyHint ?? "")}</span> : <StatusChip status="locked" label={copy.settings.key.missing} />}
               </a>
             ))}
-        </div>
+        </>
       )}
-      {!data.keyStorePersistent ? <p className="py-2 text-xs text-muted-foreground">{copy.onboarding.notPersistent}</p> : null}
+      {!data.keyStorePersistent ? <Locked className="py-2">{copy.onboarding.notPersistent}</Locked> : null}
       <ConfirmDialog
         open={unlinking}
         onOpenChange={setUnlinking}
         title={copy.keys.confirmUnlink}
         body={copy.keys.confirmUnlinkBody}
-        confirmLabel={copy.keys.unlink}
+        confirmLabel={copy.settings.key.unlink}
         onConfirm={() => {
           setUnlinking(false);
-          void backend.keys
-            .unlinkUser()
-            .then((next) => {
-              client.setQueryData(keys.status, next);
-              toast(copy.keys.unlinked);
-            })
-            .catch((failure: unknown) => toast(errorText(failure), { tone: "error" }));
+          void attempt(async () => {
+            client.setQueryData(keys.status, await backend.keys.unlinkUser());
+          }, copy.keys.unlinked);
         }}
       />
     </Section>
   );
 }
 
-function AppearanceSection() {
+// ---------------------------------------------------------------------------
+// Weergave: theme, language (locked), the default folder for new projects
+// ---------------------------------------------------------------------------
+
+function AppearanceGroup() {
   const theme = useTheme();
   const [folder, setFolder] = useState(() => readLocal(DEFAULT_FOLDER_KEY) ?? FALLBACK_FOLDER);
   return (
-    <>
-      <Section title={copy.settings.appSections.appearance}>
-        <Row
-          label={copy.settings.theme}
-          action={
-            <Select
-              label={copy.settings.theme}
-              value={theme}
-              onValueChange={(value) => setTheme(value === "light" || value === "dark" ? value : "system")}
-              items={(["system", "light", "dark"] as ThemePreference[]).map((value) => ({ value, label: copy.settings.themes[value] }))}
-              className="w-36"
-            />
-          }
-        />
-        <Row label={copy.settings.language} value={copy.settings.languageValue} action={<Locked>{copy.settings.languageLocked}</Locked>} />
-      </Section>
-      <Section title={copy.settings.appSections.projects}>
-        <div className="py-3">
-          <Field label={copy.settings.defaultFolder} hint={copy.settings.defaultFolderHint}>
-            {(id, describedBy) => (
-              <Input
-                id={id}
-                aria-describedby={describedBy}
-                value={folder}
-                onChange={(event) => setFolder(event.target.value)}
-                onBlur={() => {
-                  writeLocal(DEFAULT_FOLDER_KEY, folder.trim() && folder.trim() !== FALLBACK_FOLDER ? folder.trim() : null);
-                  toast(copy.settings.saved);
-                }}
-                className="font-mono"
-              />
-            )}
-          </Field>
-        </div>
-      </Section>
-    </>
+    <Section title={copy.settings.app.appearance}>
+      <Row
+        label={copy.settings.app.theme}
+        action={
+          <Select
+            label={copy.settings.app.theme}
+            value={theme}
+            onValueChange={(value) => setTheme(value === "light" || value === "dark" ? value : "system")}
+            items={(["system", "light", "dark"] as const satisfies readonly ThemePreference[]).map((value) => ({ value, label: copy.settings.themes[value] }))}
+            className="w-36"
+          />
+        }
+      />
+      <Row label={copy.settings.app.language} value={copy.settings.languageValue} action={<Locked>{copy.settings.languageLocked}</Locked>} />
+      <InlineTextRow
+        label={copy.settings.app.defaultFolder}
+        value={folder}
+        placeholder={FALLBACK_FOLDER}
+        onSave={async (next) => {
+          const trimmed = next.trim() || FALLBACK_FOLDER;
+          writeLocal(DEFAULT_FOLDER_KEY, trimmed !== FALLBACK_FOLDER ? trimmed : null);
+          setFolder(trimmed);
+          toast(copy.settings.app.defaultFolderSaved);
+        }}
+      />
+    </Section>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Agenda: tracking on/off, and the Bridge posts of every project at a glance
+// ---------------------------------------------------------------------------
+
+function PostsSection() {
+  const backend = useBackend();
+  const projects = useProjects();
+  const settings = useAgendaSettings(backend.capabilities.agenda);
+  if (!backend.capabilities.agenda) return null;
+  const active = (projects.data ?? []).filter((project) => !project.archivedAt);
+  const postOf = (projectId: string) => settings.data?.projects.find((entry) => entry.workspaceId === projectId)?.bridgePost ?? null;
+  const withPost = active.filter((project) => postOf(project.id) !== null).length;
+  return (
+    <Section title={copy.settings.app.posts} action={settings.data ? <span className="text-xs text-muted-foreground">{copy.settings.app.postsSummary(withPost, active.length)}</span> : undefined}>
+      {settings.isLoading ? (
+        <Skeleton className="my-3 h-4 w-48" />
+      ) : (
+        active.map((project) => (
+          <a
+            key={project.id}
+            href={href({ name: "project-settings", projectId: project.id, group: "project" })}
+            aria-label={copy.settings.app.postOpen(project.name)}
+            className="flex min-h-11 items-center gap-2.5 border-b border-border py-2 text-sm outline-none last:border-b-0 hover:bg-hover/60 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ProjectIcon icon={project.icon} color={project.color} size="sm" />
+            <span className="min-w-0 flex-1 truncate">{project.name}</span>
+            <PostLine post={postOf(project.id)} className="min-w-0 truncate text-muted-foreground" />
+          </a>
+        ))
+      )}
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Technisch: server address, personal variables, versions, demo reset
+// ---------------------------------------------------------------------------
 
 function EnvSection() {
   const backend = useBackend();
@@ -153,7 +212,7 @@ function EnvSection() {
     const key = name.trim().toUpperCase();
     const value = field?.take() ?? "";
     if (!/^[A-Z_][A-Z0-9_]*$/.test(key) || !value) {
-      setError("Gebruik hoofdletters, cijfers en _, en vul een waarde in.");
+      setError(copy.settings.app.envInvalid);
       return;
     }
     try {
@@ -168,7 +227,7 @@ function EnvSection() {
   };
   return (
     <Section
-      title={copy.settings.appSections.env}
+      title={copy.settings.app.env}
       action={
         <Button variant="quiet" size="sm" onClick={() => (setAdding(true), setError(null))}>
           <Plus />
@@ -176,14 +235,13 @@ function EnvSection() {
         </Button>
       }
     >
-      <p className="pt-2 pb-1 text-xs text-muted-foreground">{copy.settings.envHint}</p>
       {env.isLoading ? (
         <Skeleton className="my-3 h-4 w-40" />
       ) : env.data?.length ? (
         env.data.map((entry) => (
           <Row
             key={entry.key}
-            label={<span className="font-mono text-[13px]">{entry.key}</span>}
+            label={<span className="font-mono text-sm">{entry.key}</span>}
             value="••••••"
             action={
               <Button
@@ -191,11 +249,10 @@ function EnvSection() {
                 size="icon-sm"
                 aria-label={`${entry.key} ${copy.settings.delete}`}
                 onClick={() =>
-                  void backend.settings
-                    .removeEnv(entry.key)
-                    .then(() => client.invalidateQueries({ queryKey: keys.env }))
-                    .then(() => toast(copy.settings.envRemoved))
-                    .catch((failure: unknown) => toast(errorText(failure), { tone: "error" }))
+                  void attempt(async () => {
+                    await backend.settings.removeEnv(entry.key);
+                    await client.invalidateQueries({ queryKey: keys.env });
+                  }, copy.settings.envRemoved)
                 }
               >
                 <Trash2 />
@@ -204,12 +261,12 @@ function EnvSection() {
           />
         ))
       ) : (
-        <p className="py-3 text-sm text-muted-foreground">{copy.settings.envEmpty}</p>
+        <Row label={copy.settings.envEmpty} value={<span className="text-xs">{copy.settings.envHint}</span>} />
       )}
       <Dialog
         open={adding}
         onOpenChange={setAdding}
-        title={copy.settings.appSections.env}
+        title={copy.settings.app.env}
         footer={
           <>
             <Button variant="secondary" onClick={() => setAdding(false)}>
@@ -232,76 +289,98 @@ function EnvSection() {
   );
 }
 
-function AboutSection() {
+function TechnicalGroup() {
   const backend = useBackend();
+  const status = useStatus();
   const versions = useQuery({ queryKey: keys.versions, queryFn: () => backend.settings.versions(), staleTime: 5 * 60_000 });
   const demo = backend.mode === "demo";
-  return (
-    <Section title={copy.settings.appSections.about}>
-      <Row label={copy.settings.versionApp} value={versions.data?.app ?? "—"} />
-      <Row label={copy.settings.versionServer} value={versions.data?.server ?? (demo ? copy.boot.demoBadge : "—")} />
-      <Row label={copy.settings.versionEngine} value={versions.data?.engine ?? (demo ? copy.boot.demoBadge : "—")} />
-      <Row label={copy.settings.updates} action={<Locked>{copy.settings.updatesLocked}</Locked>} />
-    </Section>
-  );
-}
-
-function DemoSection() {
-  const backend = useBackend();
   const [confirming, setConfirming] = useState(false);
-  if (backend.mode !== "demo" || !("reset" in backend) || typeof backend.reset !== "function") return null;
-  const reset = backend.reset;
+  const reset = demo && "reset" in backend && typeof backend.reset === "function" ? backend.reset : null;
   return (
-    <Section title={copy.settings.appSections.demo}>
-      <Row
-        label={copy.settings.demoReset}
-        hint={copy.boot.demoHint}
-        action={
-          <Button variant="secondary" size="sm" onClick={() => setConfirming(true)}>
-            {copy.settings.demoReset}
-          </Button>
-        }
-      />
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={`${copy.settings.demoReset}?`}
-        body={copy.settings.demoResetBody}
-        confirmLabel={copy.settings.demoReset}
-        tone="primary"
-        onConfirm={() => {
-          reset.call(backend);
-          window.location.hash = "#/";
-          window.location.reload();
-        }}
-      />
-    </Section>
+    <>
+      <Section title={copy.settings.app.about}>
+        <Row label={copy.settings.app.server} value={status.data ? <span className="font-mono text-xs">{status.data.litellmBaseUrl}</span> : <Skeleton className="h-4 w-40" />} />
+        <Row label={copy.settings.versionApp} value={versions.data?.app ?? "—"} />
+        <Row label={copy.settings.versionServer} value={versions.data?.server ?? (demo ? copy.boot.demoBadge : "—")} />
+        <Row label={copy.settings.versionEngine} value={versions.data?.engine ?? (demo ? copy.boot.demoBadge : "—")} />
+        <Row label={copy.settings.updates} action={<Locked>{copy.settings.updatesLocked}</Locked>} />
+      </Section>
+      <EnvSection />
+      {reset ? (
+        <Section title={copy.settings.technical.demo}>
+          <Row
+            label={copy.settings.demoReset}
+            action={
+              <Button variant="secondary" size="sm" onClick={() => setConfirming(true)}>
+                {copy.settings.demoReset}
+              </Button>
+            }
+          />
+          <ConfirmDialog
+            open={confirming}
+            onOpenChange={setConfirming}
+            title={`${copy.settings.demoReset}?`}
+            body={copy.settings.demoResetBody}
+            confirmLabel={copy.settings.demoReset}
+            tone="primary"
+            onConfirm={() => {
+              reset.call(backend);
+              window.location.hash = "#/";
+              window.location.reload();
+            }}
+          />
+        </Section>
+      ) : null}
+    </>
   );
 }
 
-export function AppSettingsPage() {
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+function GroupContent(props: { group: AppSettingsGroup; anchorProjectId: string | null }): ReactNode {
+  switch (props.group) {
+    case "toegang":
+      return <AccessGroup />;
+    case "weergave":
+      return <AppearanceGroup />;
+    case "agenda":
+      return (
+        <>
+          <AgendaAppSection />
+          <PostsSection />
+        </>
+      );
+    case "breinen":
+      return <BrainsAppSection />;
+    case "alle":
+      // Always rendered (assessment P-7); without a project the rows stand with a lock (P4).
+      return <MethodsSection projectId={props.anchorProjectId} scope="global" />;
+    case "technisch":
+      return <TechnicalGroup />;
+  }
+}
+
+/**
+ * App settings (brief §3, §6): six groups as a pill strip, `#/instellingen/:g`. No vendor name
+ * as a section title; the server address lives under Technisch (assessment P-7).
+ */
+export function AppSettingsPage(props: { group?: AppSettingsGroup | null }) {
   const projects = useProjects();
   const anchor = projects.data?.find((project) => !project.archivedAt) ?? null;
+  const group: AppSettingsGroup = props.group ?? "toegang";
+  const items = useMemo(() => APP_SETTINGS_GROUPS.map((entry) => ({ value: entry, label: copy.settings.appGroups[entry], href: href({ name: "settings", group: entry }) })), []);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <TopBar>
-        <PageTitle>{copy.settings.title}</PageTitle>
+        <PageTitle>{copy.settings.app.title}</PageTitle>
       </TopBar>
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 px-4 pt-6 pb-16 sm:px-6 sm:pt-8">
-          <KeysSection />
-          <AppearanceSection />
-          <AgendaAppSection />
-          <BrainsAppSection />
-          {anchor ? (
-            <>
-              <SkillsList projectId={anchor.id} scope="global" />
-              <CommandsList projectId={anchor.id} scope="global" />
-            </>
-          ) : null}
-          <EnvSection />
-          <AboutSection />
-          <DemoSection />
+      <main className="min-h-0 flex-1 overflow-y-auto" data-testid="app-settings">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 pt-3 pb-16 sm:px-6">
+          <Tabs<AppSettingsGroup> value={group} onValueChange={(next) => navigate({ name: "settings", group: next })} items={items} label={copy.settings.appGroupsLabel} surface="page" />
+          <GroupContent group={group} anchorProjectId={anchor?.id ?? null} />
         </div>
       </main>
     </div>

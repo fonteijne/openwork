@@ -62,7 +62,7 @@ const SWITCHES: Record<string, Partial<BrainStatus>> = {
   },
   "alleen-lezen": { state: "read_only", ahead: 1, error: "Je kunt dit brein lezen maar niet wijzigen. Je wijzigingen blijven op deze laptop; vraag de beheerder om schrijfrechten." },
   fout: { state: "error", error: "De server van dit brein meldt zich anders dan eerst. Synchroniseren is gestopt; vraag je beheerder of dit klopt." },
-  kennis: { state: "error", ahead: 1, error: "Niet gedeeld: knowledge/offertes/kortingsbeleid.md mist de kop met het type (OKF). Laat de AI het herstellen of vul het type in." },
+  kennis: { state: "error", ahead: 1, fixInNotes: true, error: "Niet gedeeld: knowledge/offertes/kortingsbeleid.md mist de kop met het type (OKF). Laat de AI het herstellen of vul het type in." },
   instellingen: { state: "error", repairable: true, error: "De instellingen van dit brein zijn buiten BonzaiWork om veranderd. Synchroniseren is gestopt; kies Herstellen." },
   achter: { state: "behind", behind: 2 },
   "niet-gedeeld": { state: "synced", unshared: [{ path: "offerte-van-dijk.pptx", reason: "not_markdown" }, { path: "scan-contract.md", reason: "too_large" }] },
@@ -72,7 +72,7 @@ const SWITCHES: Record<string, Partial<BrainStatus>> = {
 function base(now: number, path: string, kind: BrainStatus["kind"], remote: string | null): BrainStatus & { path: string } {
   return {
     path, kind, state: remote ? "synced" : "local_only", mode: "auto", remote, branch: "main", ahead: 0, behind: 0,
-    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
+    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, fixInNotes: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
   };
 }
 
@@ -133,7 +133,7 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
   const settled = (projectId: string): Partial<BrainStatus> => {
     const current = brain(projectId);
     const state: BrainState = current.remote ? "synced" : "local_only";
-    return { state, ahead: 0, behind: 0, error: null, repairable: false, conflictFiles: [], conflictBy: null, merging: false, lastSyncAt: Date.now() };
+    return { state, ahead: 0, behind: 0, error: null, repairable: false, fixInNotes: false, conflictFiles: [], conflictBy: null, merging: false, lastSyncAt: Date.now() };
   };
 
   return {

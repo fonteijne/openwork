@@ -6,20 +6,22 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "quie
 export type ButtonSize = "sm" | "md" | "lg" | "icon-sm" | "icon" | "icon-lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: "bg-primary text-primary-foreground hover:bg-primary-hover",
+  // Disabled primary is quiet ink on muted, not faded brand (brief §11: lavender is no longer "disabled").
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover disabled:bg-muted disabled:text-subtle-foreground disabled:opacity-100",
   secondary: "bg-transparent text-foreground ring-1 ring-inset ring-border-strong hover:bg-hover",
   ghost: "text-foreground hover:bg-hover",
   quiet: "text-muted-foreground hover:bg-hover hover:text-foreground",
-  danger: "bg-red-9 text-white hover:brightness-95",
+  // AA at 13px: deep red with page-white text on light; solid red with near-black (`ink-1`) on dark (assessment P-6).
+  danger: "bg-red-11 text-ink-1 hover:brightness-95 dark:bg-red-9",
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: "h-7 gap-1.5 rounded-full px-3 text-xs pointer-coarse:h-9",
-  md: "h-8 gap-1.5 rounded-full px-3.5 text-sm pointer-coarse:h-10",
-  lg: "h-10 gap-2 rounded-full px-5 text-sm",
-  "icon-sm": "size-7 rounded-full pointer-coarse:size-9",
-  icon: "size-8 rounded-full pointer-coarse:size-10",
-  "icon-lg": "size-9 rounded-full",
+  sm: "h-7 gap-1.5 rounded-full px-3 text-xs pointer-coarse:h-11",
+  md: "h-8 gap-1.5 rounded-full px-3.5 text-sm pointer-coarse:h-11",
+  lg: "h-10 gap-2 rounded-full px-5 text-sm pointer-coarse:h-11",
+  "icon-sm": "size-7 rounded-full pointer-coarse:size-11",
+  icon: "size-8 rounded-full pointer-coarse:size-11",
+  "icon-lg": "size-9 rounded-full pointer-coarse:size-11",
 };
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize };

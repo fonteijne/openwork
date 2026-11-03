@@ -234,14 +234,68 @@ export function toolSentence(part: ToolPart): string {
   return label.object ? `${label.verb} ${label.object}` : label.verb;
 }
 
+// ---------------------------------------------------------------------------
+// How a step ended (brief §7; DESIGN.md C5: stopped and declined are decisions, not failures)
+// ---------------------------------------------------------------------------
+
+/** The person stopped the turn: the demo marks the step "Gestopt", the engine "aborted"/"interrupted". */
+export function isStoppedStep(part: ToolPart): boolean {
+  return part.status === "error" && /^(gestopt|aborted|interrupted|cancel)/i.test(part.error ?? "");
+}
+
+/** The person declined the permission for this step: their decision, shown in neutral ink. */
+export function isDeclinedStep(part: ToolPart): boolean {
+  return part.status === "error" && /^(geweigerd|denied|rejected)/i.test(part.error ?? "");
+}
+
+/** A step that really failed: red, inline with its fix (T2). */
+export function isFailedStep(part: ToolPart): boolean {
+  return part.status === "error" && !isStoppedStep(part) && !isDeclinedStep(part);
+}
+
+/** A turn the person stopped: nothing failed, but at least one step was cut short. */
+export function isStoppedTurn(messages: readonly Message[]): boolean {
+  let stopped = false;
+  for (const message of messages) {
+    if (message.error) return false;
+    for (const part of message.parts) {
+      if (part.type !== "tool") continue;
+      if (isFailedStep(part)) return false;
+      if (isStoppedStep(part)) stopped = true;
+    }
+  }
+  return stopped;
+}
+
+export type StepFixKind = "locked" | "missing" | "access" | "signIn" | "timeout" | "tooLarge";
+
+/**
+ * What to do about a failed step, from the engine's own error text. Null when the text names
+ * nothing a person can act on; the raw text then lives under "Technische details" alone.
+ */
+export function stepFixKind(part: ToolPart): StepFixKind | null {
+  const text = `${part.error ?? ""} ${part.output ?? ""}`;
+  if (!text.trim()) return null;
+  if (/wachtwoord|password|encrypted|beveiligd|locked/i.test(text)) return "locked";
+  if (/ENOENT|not found|no such file|bestaat niet|niet gevonden/i.test(text)) return "missing";
+  if (/EACCES|EPERM|permission denied|geen toegang|not permitted/i.test(text)) return "access";
+  if (/unauthori[sz]ed|\b401\b|\b403\b|token (expired|invalid)|sign.?in|inloggen|authenticat/i.test(text)) return "signIn";
+  if (/timed? ?out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|unreachable|niet bereikbaar/i.test(text)) return "timeout";
+  if (/too large|te groot|exceeds|limit exceeded|context length/i.test(text)) return "tooLarge";
+  return null;
+}
+
 export type TouchedFile = { path: string; name: string; changed: boolean };
 
-/** Files the agent read or changed in these messages, newest action wins. */
+/**
+ * Files the agent read or changed in these messages, newest action wins. Only completed steps
+ * count: a write still waiting for permission (pending) or running has changed nothing yet (P1).
+ */
 export function touchedFiles(messages: readonly Message[]): TouchedFile[] {
   const files = new Map<string, TouchedFile>();
   for (const message of messages) {
     for (const part of message.parts) {
-      if (part.type !== "tool" || part.status === "error") continue;
+      if (part.type !== "tool" || part.status !== "completed") continue;
       const path = str(part.input, "filePath", "file_path", "path");
       if (!path) continue;
       const changed = ["write", "edit", "multiedit", "patch", "apply_patch"].includes(part.tool);
@@ -252,6 +306,11 @@ export function touchedFiles(messages: readonly Message[]): TouchedFile[] {
     }
   }
   return [...files.values()].sort((a, b) => Number(b.changed) - Number(a.changed) || a.name.localeCompare(b.name, "nl"));
+}
+
+/** Files this turn wrote or changed: the result the person asked for ("Dit leverde op", brief §7). */
+export function deliveredFiles(messages: readonly Message[]): TouchedFile[] {
+  return touchedFiles(messages).filter((file) => file.changed);
 }
 
 /** Skills and connections the agent used in these messages. */

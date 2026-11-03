@@ -1,35 +1,42 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, FileDown, Pin, PinOff, Plus, X } from "lucide-react";
-import { addDays } from "@bonzaiwork/agenda/model";
+import { MessageSquare, Pin, PinOff, Plus, X } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, useAgendaDay, useAgendaSettings, useProject, useStatus } from "~/backend/queries";
-import type { DayView } from "~/backend/types";
+import { keys, useAgendaDay, useAgendaSettings, useProject, useProjects, useStatus } from "~/backend/queries";
+import type { BridgePost, DayView, Project } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { EmptyState, Locked, Skeleton } from "~/components/ui/misc";
 import { Panel, Sheet } from "~/components/ui/overlay";
 import { Switch } from "~/components/ui/switch";
+import { toast } from "~/components/ui/toast";
 import { Tooltip } from "~/components/ui/tooltip";
 import { copy } from "~/copy";
-import { MOD } from "~/features/shell/sidebar";
 import { peekAgendaReturnFocus, takeAgendaReturnFocus, useUi } from "~/features/shell/ui-store";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
+import { navigate } from "~/lib/router";
+import { chord } from "~/lib/shortcuts";
 import { SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
 
-import { BookingExport } from "./booking-export";
+import { BookingExport, type Booked } from "./booking-export";
+import { DayCard } from "./day-card";
+import { keyRanges, type DayCardRow } from "./day-model";
 import { dateOf, dayTitle, defaultQuarter, dutchDuration, minutesToBook } from "./format";
 import { QuarterEditor, type EditorInput, type EditorResult } from "./quarter-editor";
 import { Timeline, type EditTarget } from "./timeline";
+import { WeekStrip } from "./week-strip";
 
 /**
- * The agenda panel (plan §7.2–7.3). One focal element: today's timeline (P7). It is a lazy chunk,
- * loaded the first time the agenda opens (plan §7.6). Confirmations and undo live in the panel
- * itself, never in the app's toasts.
+ * The agenda panel (plan §7.2–7.3; brief §8). It opens with the Dagkaart: the end-of-day decision
+ * (per post, what still misses a post, what is not booked) is the focal element (P7); then the
+ * week strip, then the timeline as detail. Editing replaces the body, never the toolbar, so the
+ * buttons stay where they are (P11). Confirmations and undo live in the panel itself; only
+ * "Geboekt" leaves it, as the toast of the chat it made (brief §10, C2). It is a lazy chunk,
+ * loaded the first time the agenda opens (plan §7.6).
  */
 
-type Notice = { text: string; undoId: string | null };
+type Notice = { text: string; undoIds: string[] };
 type View = { kind: "timeline" } | { kind: "edit"; input: EditorInput };
 
 function editInput(day: DayView, target: EditTarget): EditorInput {
@@ -44,7 +51,7 @@ function editInput(day: DayView, target: EditTarget): EditorInput {
     mode: "edit",
     from: target.from.key,
     to: target.to.key,
-    // A measured away stretch is usually a meeting: start from "Anders" (plan A2).
+    // A measured away stretch is usually a meeting: start from "Meeting of anders" (plan A2).
     kind: first.kind === "away" && first.source === "measured" ? "other" : first.kind,
     workspaceId: first.workspaceId,
     label: first.kind === "other" ? first.label : "",
@@ -55,24 +62,24 @@ function editInput(day: DayView, target: EditTarget): EditorInput {
   };
 }
 
-function PanelNotice(props: { notice: Notice | null; onUndo: (undoId: string) => void; onDismiss: () => void }) {
+function PanelNotice(props: { notice: Notice | null; onUndo: (undoIds: string[]) => void; onDismiss: () => void }) {
   const { notice, onDismiss } = props;
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(onDismiss, notice.undoId ? 6_000 : 3_500);
+    const timer = setTimeout(onDismiss, notice.undoIds.length ? 6_000 : 3_500);
     return () => clearTimeout(timer);
   }, [notice, onDismiss]);
   return (
     <div role="status" aria-live="polite" className="px-3 pb-3 empty:hidden">
       {notice ? (
-        <div className="flex items-center gap-2 rounded-2xl bg-ink-12 py-1.5 ps-3.5 pe-1.5 text-sm text-ink-1 shadow-shell dark:bg-ink-5 dark:text-ink-12" data-testid="agenda-notice">
+        <div className="flex items-center gap-2 rounded-2xl bg-inverse py-1.5 ps-3.5 pe-1.5 text-sm text-inverse-foreground shadow-shell" data-testid="agenda-notice">
           <span className="min-w-0 flex-1 truncate">{notice.text}</span>
-          {notice.undoId ? (
-            <button type="button" className="h-7 shrink-0 rounded-full px-3 text-sm font-semibold text-electric-on-ink hover:bg-white/10" onClick={() => notice.undoId && props.onUndo(notice.undoId)}>
+          {notice.undoIds.length ? (
+            <button type="button" className="h-7 shrink-0 rounded-full px-3 text-sm font-semibold text-inverse-accent hover:bg-inverse-hover" onClick={() => props.onUndo(notice.undoIds)}>
               {copy.common.undo}
             </button>
           ) : null}
-          <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded-full text-ink-9 hover:bg-white/10 hover:text-ink-1 dark:hover:text-ink-12" aria-label={copy.common.close} onClick={onDismiss}>
+          <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded-full text-inverse-muted-foreground hover:bg-inverse-hover hover:text-inverse-foreground" aria-label={copy.common.close} onClick={onDismiss}>
             <X className="size-4" />
           </button>
         </div>
@@ -81,14 +88,16 @@ function PanelNotice(props: { notice: Notice | null; onUndo: (undoId: string) =>
   );
 }
 
-function TimelineSkeleton() {
+/** Loading keeps the destination layout: a card, a strip, rows. */
+function BodySkeleton() {
   return (
-    <div className="flex flex-col gap-4 px-2 py-3" aria-hidden="true">
-      {[0, 1, 2, 3].map((index) => (
-        <div key={index} className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-3 px-2 py-2" aria-hidden="true">
+      <Skeleton className="h-24 rounded-2xl" />
+      <Skeleton className="h-11 rounded-xl" />
+      {[0, 1, 2].map((index) => (
+        <div key={index} className="flex flex-col gap-1.5 px-2">
           <Skeleton className="h-3 w-24" />
           <Skeleton className="h-4 w-40" />
-          <Skeleton className="h-3 w-32" />
         </div>
       ))}
     </div>
@@ -107,6 +116,8 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
   const available = backend.capabilities.agenda;
   const settings = useAgendaSettings(available);
   const enabled = settings.data?.enabled ?? true;
+  const projects = useProjects();
+  const projectMap = useMemo(() => new Map<string, Project>((projects.data ?? []).map((project) => [project.id, project])), [projects.data]);
   const { project } = useProject(props.projectId ?? "");
   const today = dateOf(Date.now());
   const [date, setDate] = useState(today);
@@ -115,29 +126,56 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
   const [notice, setNotice] = useState<Notice | null>(null);
   const [exporting, setExporting] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [busyRow, setBusyRow] = useState<string | null>(null);
 
   const dismiss = useRef(() => setNotice(null)).current;
   const refresh = () => client.invalidateQueries({ queryKey: keys.agenda });
 
   const goTo = (next: string) => {
-    setDate(next);
+    setDate(next > today ? today : next);
     setView({ kind: "timeline" });
   };
 
   const done = (result: EditorResult) => {
     setView({ kind: "timeline" });
-    setNotice({ text: result.message, undoId: result.undoId });
+    setNotice({ text: result.message, undoIds: [result.undoId] });
     void refresh();
   };
 
-  const undo = async (undoId: string) => {
+  const undo = async (undoIds: string[]) => {
     try {
-      await backend.agenda.undo(undoId);
-      setNotice({ text: copy.agenda.undone, undoId: null });
+      for (const undoId of [...undoIds].reverse()) await backend.agenda.undo(undoId);
+      setNotice({ text: copy.agenda.undone, undoIds: [] });
     } catch (error) {
-      setNotice({ text: errorText(error), undoId: null });
+      setNotice({ text: errorText(error), undoIds: [] });
     }
     void refresh();
+  };
+
+  /**
+   * "Kies post" on a Dagkaart row (H3): for a project the post is the project's setting; for a
+   * label of your own it is a correction of those quarters, with undo (P8).
+   */
+  const choosePost = async (row: DayCardRow, post: BridgePost) => {
+    setBusyRow(row.id);
+    try {
+      const undoIds: string[] = [];
+      if (row.kind === "project") {
+        const ids = [...new Set(row.quarters.flatMap((quarter) => (quarter.workspaceId ? [quarter.workspaceId] : [])))];
+        for (const workspaceId of ids) await backend.agenda.setProjectPost(workspaceId, post);
+      } else {
+        for (const range of keyRanges(row.quarters)) {
+          const result = await backend.agenda.setQuarters({ date, from: range.from, to: range.to, correction: { kind: "other", label: row.label, bridgePost: post } });
+          undoIds.push(result.undoId);
+        }
+      }
+      setNotice({ text: copy.agenda.dayCard.postChosen(post.label ?? post.entityId), undoIds });
+      await refresh();
+    } catch (error) {
+      setNotice({ text: errorText(error), undoIds: [] });
+    } finally {
+      setBusyRow(null);
+    }
   };
 
   const add = () => {
@@ -154,10 +192,18 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
       await backend.agenda.setEnabled(value);
       await refresh();
     } catch (error) {
-      setNotice({ text: errorText(error), undoId: null });
+      setNotice({ text: errorText(error), undoIds: [] });
     } finally {
       setSwitching(false);
     }
+  };
+
+  /** The booking chat is the person's object: it opens, and the action keeps its name (C2). */
+  const booked = (result: Booked) => {
+    setExporting(false);
+    toast(copy.agenda.export.bookedIn(result.projectName));
+    if (props.variant !== "column") setAgenda(false, wide);
+    navigate({ name: "project", projectId: result.projectId, chatId: result.chatId });
   };
 
   const close = () => setAgenda(false, wide);
@@ -179,7 +225,7 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
       </div>
     );
   } else if (day.isLoading) {
-    body = <TimelineSkeleton />;
+    body = <BodySkeleton />;
   } else if (day.isError || !day.data) {
     body = (
       <EmptyState
@@ -191,11 +237,21 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
         }
       />
     );
-  } else if (!day.data.blocks.length) {
-    // Title only (P2); "Toevoegen" is right above it.
-    body = <EmptyState title={copy.agenda.empty} />;
   } else {
-    body = <Timeline day={day.data} disabled={disabled} onEdit={(target) => day.data && setView({ kind: "edit", input: editInput(day.data, target) })} />;
+    const data = day.data;
+    const measured = data.blocks.length > 0;
+    body = (
+      <div className="flex flex-col gap-3 px-2 py-2">
+        {measured ? <DayCard day={data} projects={projectMap} recent={settings.data?.recentPosts ?? []} disabled={disabled} busyRowId={busyRow} onChoosePost={(row, post) => void choosePost(row, post)} /> : null}
+        <WeekStrip date={date} today={today} onSelect={goTo} />
+        {measured ? (
+          <Timeline day={data} projects={projectMap} disabled={disabled} onEdit={(target) => setView({ kind: "edit", input: editInput(data, target) })} />
+        ) : (
+          // Title only (P2); "Toevoegen" is right above it.
+          <EmptyState title={copy.agenda.empty} className="py-8" />
+        )}
+      </div>
+    );
   }
 
   return (
@@ -211,7 +267,7 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
             </Button>
           </Tooltip>
         ) : null}
-        <Tooltip label={copy.agenda.close} shortcut={`${MOD} J`}>
+        <Tooltip label={copy.agenda.close} shortcut={chord("agenda")}>
           <Button variant="quiet" size="icon-sm" aria-label={copy.agenda.close} onClick={close} data-testid="agenda-close">
             <X />
           </Button>
@@ -220,32 +276,30 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
 
       {available ? (
         <div className="flex shrink-0 flex-col gap-2 px-3 pt-2 pb-2">
-          <div className="flex items-center gap-1">
-            <Button variant="quiet" size="icon-sm" aria-label={copy.agenda.previousDay} onClick={() => goTo(addDays(date, -1))}>
-              <ChevronLeft />
-            </Button>
-            <span className="min-w-0 truncate text-sm font-medium text-foreground" aria-live="polite" data-testid="agenda-date">
+          <div className="flex h-7 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" aria-live="polite" data-testid="agenda-date">
               {dayTitle(date, today)}
             </span>
-            <Button variant="quiet" size="icon-sm" aria-label={copy.agenda.nextDay} onClick={() => goTo(addDays(date, 1))} disabled={date >= today}>
-              <ChevronRight />
-            </Button>
-            <span className="ms-auto shrink-0 text-xs tabular-nums text-muted-foreground" data-testid="agenda-total">
+            {date !== today ? (
+              <Button variant="quiet" size="sm" onClick={() => goTo(today)} data-testid="agenda-today">
+                {copy.agenda.week.today}
+              </Button>
+            ) : null}
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground" data-testid="agenda-total">
               {day.data ? copy.agenda.toBook(dutchDuration(minutesToBook(day.data))) : null}
             </span>
           </div>
-          {!editing ? (
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={add} disabled={disabled} data-testid="agenda-add">
-                <Plus />
-                {copy.agenda.add}
-              </Button>
-              <Button variant="secondary" size="sm" className="ms-auto" onClick={() => setExporting(true)} data-testid="agenda-export-open">
-                <FileDown />
-                {copy.agenda.exportAction}
-              </Button>
-            </div>
-          ) : null}
+          {/* The toolbar stays while editing (P11): "Toevoegen" is merely off, "Boeken" keeps working. */}
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={add} disabled={disabled || editing} data-testid="agenda-add">
+              <Plus />
+              {copy.agenda.add}
+            </Button>
+            <Button variant="secondary" size="sm" className="ms-auto" onClick={() => setExporting(true)} data-testid="agenda-export-open">
+              <MessageSquare />
+              {copy.agenda.export.open}
+            </Button>
+          </div>
           {!enabled ? (
             <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2">
               <Locked>{copy.agenda.off}</Locked>
@@ -256,9 +310,9 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
         </div>
       ) : null}
 
-      <div className={cn("min-h-0 flex-1 overflow-y-auto px-1", !available && "px-3")}>{body}</div>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto", !available && "px-3")}>{body}</div>
 
-      <PanelNotice notice={notice} onUndo={(undoId) => void undo(undoId)} onDismiss={dismiss} />
+      <PanelNotice notice={notice} onUndo={(undoIds) => void undo(undoIds)} onDismiss={dismiss} />
 
       {available ? (
         <BookingExport
@@ -269,6 +323,7 @@ export function AgendaPanel(props: { variant: "column" | "overlay" | "sheet"; pr
             setExporting(false);
             goTo(target);
           }}
+          onBooked={booked}
         />
       ) : null}
     </div>

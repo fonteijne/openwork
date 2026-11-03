@@ -70,18 +70,34 @@
   --dls-shell-shadow: 0 20px 80px rgba(0, 0, 0, 0.12);
   --dls-popover-shadow: 0 0 0 1px rgba(35, 35, 35, 0.06), 0 20px 80px rgba(0, 0, 0, 0.12);
 
+  /* Inverse surfaces (toast, tooltip): ink on light, light sand on dark. One set of tokens, no per-component dark overrides. */
+  --inverse-surface: var(--ink-12);
+  --inverse-foreground: #ffffff;
+  --inverse-muted-foreground: var(--ink-8);
+  --inverse-accent: var(--electric-on-ink);
+  --inverse-hover: rgba(255, 255, 255, 0.1);
+
   --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/*
+ * Dark theme (brief §11): the same identity at low lightness. The sidebar keeps its warm sand hue one
+ * clear step above the page, hairlines sit at >= 0.16 alpha so rows and edges stay perceptible, the
+ * primary is a saturated electric with light text so the one focal button survives (P7), and
+ * "disabled" is opacity on that same primary, never lavender. Toast and tooltip read the inverse
+ * tokens below instead of their own dark overrides.
+ */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --ink-1: #161616; --ink-2: #1b1b1b; --ink-3: #232323; --ink-4: #2b2b2b;
-  --ink-5: #333333; --ink-6: #3d3d3d; --ink-7: #4a4a4a; --ink-8: #5e5e5e;
-  --ink-9: #8c8c8c; --ink-10: #a0a0a0; --ink-11: #b8b0ab; --ink-12: #f2e9e4;
+  --ink-1: #111111; --ink-2: #181818; --ink-3: #1f1f1f; --ink-4: #272727;
+  --ink-5: #303030; --ink-6: #3b3b3b; --ink-7: #484848; --ink-8: #5c5c5c;
+  --ink-9: #8d8d8d; --ink-10: #a6a6a6; --ink-11: #c0b9b3; --ink-12: #f2e9e4;
 
-  --sand-1: #1d1b1a; --sand-2: #24211f; --sand-3: #2c2825; --sand-4: #36312d; --sand-5: #423b36;
-  --electric-3: #1c1c4a; --electric-9: #8f8fff; --electric-10: #a3a3ff; --electric-11: #a3a3ff;
+  /* Warm dark sand: the sidebar and the user bubble keep their hue. */
+  --sand-1: #1d1a18; --sand-2: #241f1c; --sand-3: #2b2521; --sand-4: #352e29; --sand-5: #403832;
+  /* Saturated electric for surfaces (white text reads at 5.6:1), a light electric for text and the ring. */
+  --electric-3: #1f1f5a; --electric-9: #4a4aff; --electric-10: #6060ff; --electric-11: #b0b0ff;
 
   --jade-3: #0f2e22; --jade-9: #29a383; --jade-11: #1fd8a4;
   --green-3: #132d21; --green-9: #30a46c; --green-11: #3dd68c;
@@ -94,35 +110,43 @@
   --pink-3: #37172f; --pink-9: #d6409f; --pink-11: #ff8dcc;
   --cyan-3: #082c36; --cyan-9: #00a2c7; --cyan-11: #4ccce6;
 
-  --background: var(--ink-3);
+  --background: var(--ink-2);
   --foreground: var(--ink-12);
-  --card: #2a2a2a;
-  --popover: #2c2c2c;
+  --card: var(--ink-3);
+  --popover: var(--ink-4);
   --popover-foreground: var(--ink-12);
-  --muted: #2f2f2f;
+  --muted: var(--ink-4);
   --muted-foreground: var(--ink-11);
-  --subtle-foreground: #a8a8a8;
-  --border: rgba(255, 255, 255, 0.1);
+  --subtle-foreground: #a09a95;
+  /* Hairlines >= 0.16 alpha (assessment P-5: 0.1 was below perceptibility). */
+  --border: rgba(242, 233, 228, 0.16);
   --border-strong: rgba(242, 233, 228, 0.8);
   --input: var(--ink-9);
-  --ring: var(--electric-10);
+  --ring: var(--electric-11);
   --primary: var(--electric-9);
   --primary-hover: var(--electric-10);
-  --primary-foreground: #161616;
+  --primary-foreground: #ffffff;
   --destructive: var(--red-9);
   --destructive-foreground: var(--red-11);
   --success-foreground: var(--green-11);
   --warning-foreground: var(--amber-11);
-  --selection: rgba(143, 143, 255, 0.3);
+  --selection: rgba(74, 74, 255, 0.35);
   --backdrop: rgba(0, 0, 0, 0.6);
 
-  --dls-sidebar: var(--ink-2);
-  --dls-hover: rgba(255, 255, 255, 0.06);
-  --dls-active: rgba(255, 255, 255, 0.1);
-  --dls-user-bubble: #34302d;
-  --dls-card-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --dls-sidebar: var(--sand-3);
+  --dls-hover: rgba(242, 233, 228, 0.07);
+  --dls-active: rgba(242, 233, 228, 0.12);
+  --dls-user-bubble: var(--sand-3);
+  --dls-card-shadow: 0 0 0 1px rgba(242, 233, 228, 0.12);
   --dls-shell-shadow: 0 20px 80px rgba(0, 0, 0, 0.5);
-  --dls-popover-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 20px 80px rgba(0, 0, 0, 0.5);
+  --dls-popover-shadow: 0 0 0 1px rgba(242, 233, 228, 0.16), 0 20px 80px rgba(0, 0, 0, 0.5);
+
+  /* Inverse surfaces flip to light sand so a toast or tooltip still lifts off the dark page. */
+  --inverse-surface: var(--ink-12);
+  --inverse-foreground: #1a1a1a;
+  --inverse-muted-foreground: #5f5955;
+  --inverse-accent: #0000d2;
+  --inverse-hover: rgba(35, 35, 35, 0.08);
 }
 
 @theme inline {
@@ -165,6 +189,11 @@
   --color-hover: var(--dls-hover);
   --color-active: var(--dls-active);
   --color-user-bubble: var(--dls-user-bubble);
+  --color-inverse: var(--inverse-surface);
+  --color-inverse-foreground: var(--inverse-foreground);
+  --color-inverse-muted-foreground: var(--inverse-muted-foreground);
+  --color-inverse-accent: var(--inverse-accent);
+  --color-inverse-hover: var(--inverse-hover);
 
   --color-ink-1: var(--ink-1);
   --color-ink-2: var(--ink-2);
@@ -172,12 +201,17 @@
   --color-ink-4: var(--ink-4);
   --color-ink-5: var(--ink-5);
   --color-ink-6: var(--ink-6);
+  --color-ink-7: var(--ink-7);
+  --color-ink-8: var(--ink-8);
   --color-ink-9: var(--ink-9);
+  --color-ink-10: var(--ink-10);
   --color-ink-11: var(--ink-11);
   --color-ink-12: var(--ink-12);
+  --color-sand-1: var(--sand-1);
   --color-sand-2: var(--sand-2);
   --color-sand-3: var(--sand-3);
   --color-sand-4: var(--sand-4);
+  --color-sand-5: var(--sand-5);
   --color-electric-3: var(--electric-3);
   --color-electric-9: var(--electric-9);
   --color-electric-11: var(--electric-11);
@@ -421,5 +455,10 @@
     animation: none;
     background: none;
     color: var(--muted-foreground);
+  }
+  /* A running dot stays a solid dot; the word next to it carries the state (V6, StatusChip). */
+  .bw-pulse {
+    animation: none;
+    opacity: 1;
   }
 }

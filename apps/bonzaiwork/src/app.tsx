@@ -2,25 +2,26 @@ import { lazy, Suspense, useEffect } from "react";
 
 import { useProjects, useStatus } from "~/backend/queries";
 import { BrandMark } from "~/components/brand";
+import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
-import { Skeleton } from "~/components/ui/misc";
+import { EmptyState, Skeleton } from "~/components/ui/misc";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
-import { navigate, useRoute, type Route } from "~/lib/router";
+import { navigate, routeProjectId, routeTab, useRoute, type Route } from "~/lib/router";
 
-import { ProjectRuntimeProvider } from "./features/project/runtime";
-import { ProjectsPage } from "./features/projects/projects-page";
+import { HomePage } from "./features/home/home-page";
 import { AppShell } from "./features/shell/app-shell";
 
-// The projects list ships with the first load; every other page is its own
-// chunk, fetched on first visit (the project page a little earlier, below).
+// Vandaag ships with the first load; every other page is its own chunk, fetched on first visit
+// (the project page a little earlier, below).
 const loadProjectPage = () => import("./features/project/project-page");
 // Opened straight on a project: fetch its page alongside the backend, not after the first render.
 if (window.location.hash.startsWith("#/p/")) void loadProjectPage();
 const ProjectPage = lazy(() => loadProjectPage().then((module) => ({ default: module.ProjectPage })));
+const ProjectsPage = lazy(() => import("./features/projects/projects-page").then((module) => ({ default: module.ProjectsPage })));
 const RoutinesPage = lazy(() => import("./features/routines/routines-page").then((module) => ({ default: module.RoutinesPage })));
-const ProjectSettingsPage = lazy(() => import("./features/settings/project-settings").then((module) => ({ default: module.ProjectSettingsPage })));
 const AppSettingsPage = lazy(() => import("./features/settings/app-settings").then((module) => ({ default: module.AppSettingsPage })));
+const PersonalPage = lazy(() => import("./features/brain/personal-page").then((module) => ({ default: module.PersonalPage })));
 const Onboarding = lazy(() => import("./features/onboarding/onboarding").then((module) => ({ default: module.Onboarding })));
 
 const INTENT_EVENTS = ["pointerover", "touchstart", "focusin"] as const;
@@ -64,10 +65,6 @@ function PageSkeleton() {
   );
 }
 
-function routeProjectId(route: Route): string | null {
-  return "projectId" in route ? route.projectId : null;
-}
-
 /**
  * Loading keeps the destination layout (DESIGN.md States). index.html carries
  * the same markup, so the page paints before any script runs and React takes
@@ -76,12 +73,16 @@ function routeProjectId(route: Route): string | null {
 function ShellSkeleton() {
   return (
     <div className="flex h-dvh bg-background" aria-busy="true" aria-label={copy.boot.connecting}>
-      <div className="hidden w-[264px] flex-col gap-3 border-e border-border bg-sidebar p-3 lg:flex">
+      <div className="hidden w-64 flex-col gap-2 border-e border-border bg-sidebar p-3 lg:flex">
         <div className="flex h-8 items-center gap-2 px-1">
           <BrandMark />
           <span className="text-sm font-semibold text-foreground">{copy.appName}</span>
         </div>
         <Skeleton className="mt-3 h-7 w-full" />
+        <Skeleton className="h-7 w-full" />
+        <Skeleton className="h-7 w-4/5" />
+        <Skeleton className="h-7 w-full" />
+        <Skeleton className="mt-6 h-7 w-full" />
         <Skeleton className="h-7 w-full" />
         <Skeleton className="h-7 w-4/5" />
       </div>
@@ -90,10 +91,12 @@ function ShellSkeleton() {
           <BrandMark className="lg:hidden" />
           <span className="text-sm font-semibold text-foreground lg:hidden">{copy.appName}</span>
         </div>
-        <div className="mx-auto mt-10 flex w-full max-w-4xl flex-col gap-4 px-6">
-          <Skeleton className="h-8 w-full" />
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
+        {/* The Vandaag shape (brief §11): the composer card, the "Voor jou" heading, two cards. */}
+        <div className="mx-auto mt-10 flex w-full max-w-3xl flex-col gap-4 px-6">
+          <Skeleton className="h-28 w-full rounded-shell" />
+          <Skeleton className="mt-4 h-4 w-20" />
+          <Skeleton className="h-24 w-full rounded-window" />
+          <Skeleton className="h-24 w-full rounded-window" />
         </div>
       </div>
     </div>
@@ -113,24 +116,62 @@ function Unavailable(props: { message: string; onRetry: () => void }) {
   );
 }
 
+/** An unknown hash: the sidebar stays filled, the page says so and offers the way back (C6). */
+function NotFound() {
+  return (
+    <div className="flex h-full flex-col">
+      <TopBar>
+        <PageTitle>{copy.shell.notFoundTitle}</PageTitle>
+      </TopBar>
+      <EmptyState
+        title={copy.shell.notFoundBody}
+        action={
+          <Button variant="secondary" onClick={() => navigate({ name: "home" })}>
+            {copy.shell.notFoundAction}
+          </Button>
+        }
+      />
+    </div>
+  );
+}
+
 function Page(props: { route: Route }) {
   const { route } = props;
+  const tab = routeTab(route);
+  if (tab && "projectId" in route) {
+    return (
+      <ProjectPage
+        projectId={route.projectId}
+        tab={tab}
+        chatId={route.name === "project" ? route.chatId : null}
+        routineId={route.name === "project-routines" ? route.routineId : null}
+        group={route.name === "project-settings" ? (route.group ?? "project") : "project"}
+        section={route.name === "project-settings" ? (route.section ?? null) : null}
+      />
+    );
+  }
   switch (route.name) {
+    case "home":
+    case "onboarding":
+      return <HomePage />;
     case "projects":
       return <ProjectsPage />;
-    case "project":
-      return <ProjectPage projectId={route.projectId} chatId={route.chatId} />;
-    case "project-routines":
-      return <RoutinesPage projectId={route.projectId} routineId={route.routineId} />;
-    case "project-settings":
-      return <ProjectSettingsPage projectId={route.projectId} section={route.section} />;
     case "routines":
       return <RoutinesPage projectId={null} routineId={route.routineId} />;
+    case "brain":
+      return <PersonalPage />;
     case "settings":
-      return <AppSettingsPage />;
-    case "onboarding":
-      return <ProjectsPage />;
+      return <AppSettingsPage group={route.group ?? null} />;
+    case "not-found":
+      return <NotFound />;
+    default:
+      return <NotFound />;
   }
+}
+
+/** Without a project, the app-level pages go to #/welkom (brief §3). */
+function needsOnboarding(route: Route): boolean {
+  return route.name === "home" || route.name === "projects" || route.name === "routines" || route.name === "settings" || route.name === "brain" || route.name === "onboarding";
 }
 
 export function App() {
@@ -138,37 +179,34 @@ export function App() {
   const status = useStatus();
   const projects = useProjects();
   const needsUserKey = status.data?.keyMode === "user" && !status.data.user.hasKey;
-  const firstRun = status.data?.keyMode === "workspace" && projects.data?.length === 0;
+  // Without a project the app-level pages go to #/welkom in every key mode (brief §3); the welcome
+  // screen links a personal key first when that mode needs one.
+  const firstRun = projects.data?.length === 0;
+  const gated = Boolean(status.data) && (needsUserKey || (firstRun && needsOnboarding(route)));
 
   useEffect(() => {
-    if (route.name === "onboarding" && status.data && !needsUserKey && !firstRun) navigate({ name: "projects" }, { replace: true });
-  }, [route.name, status.data, needsUserKey, firstRun]);
+    if (!status.data) return;
+    if (gated && route.name !== "onboarding") navigate({ name: "onboarding" }, { replace: true });
+    if (!gated && route.name === "onboarding") navigate({ name: "home" }, { replace: true });
+  }, [gated, route.name, status.data]);
 
   // Opening a project is the next step from almost every first screen.
   useEffect(prefetchProjectPage, []);
 
   if (status.isLoading || (projects.isLoading && !projects.data)) return <ShellSkeleton />;
   if (status.isError) return <Unavailable message={errorText(status.error)} onRetry={() => void status.refetch()} />;
-  if (needsUserKey || (firstRun && (route.name === "projects" || route.name === "onboarding")))
+  if (gated)
     return (
       <Suspense fallback={<ShellSkeleton />}>
         <Onboarding />
       </Suspense>
     );
 
-  const projectId = routeProjectId(route);
-  const shell = (
-    <AppShell route={route} projectId={projectId}>
+  return (
+    <AppShell route={route} projectId={routeProjectId(route)}>
       <Suspense fallback={<PageSkeleton />}>
         <Page route={route} />
       </Suspense>
     </AppShell>
-  );
-  return projectId ? (
-    <ProjectRuntimeProvider key={projectId} projectId={projectId}>
-      {shell}
-    </ProjectRuntimeProvider>
-  ) : (
-    shell
   );
 }

@@ -229,7 +229,10 @@ export function readPermission(value: unknown): PermissionRequest | null {
   const resources = strings(source.resources ?? source.patterns);
   // "Always" saves the request's `save` patterns; without any there is nothing to remember.
   const save = source.save === undefined ? null : strings(source.save);
-  return { id, chatId, action, resources, canAlways: save === null || save.length > 0, message: str(source, "message") ?? str(field(source, "metadata"), "message") ?? null };
+  // The scope is what "always" would allow from now on, in the engine's own words; a request
+  // without a pattern (an older engine, a one-off) offers no "always" on Vandaag (ui-ux-overhaul §7).
+  const scope = save?.length ? save.join(", ") : null;
+  return { id, chatId, action, resources, canAlways: save === null || save.length > 0, message: str(source, "message") ?? str(field(source, "metadata"), "message") ?? null, scope };
 }
 
 type FormFields = { request: QuestionRequest; keys: { key: string; multiple: boolean; options: { value: string; label: string }[] }[] };

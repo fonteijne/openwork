@@ -158,6 +158,8 @@ export function Panel(props: { open: boolean; onOpenChange: (open: boolean) => v
         <DialogPrimitive.Popup
           ref={popup}
           aria-label={props.label}
+          // Non-modal: the window's chords (⌘\, ⌘K) keep working from inside (`inOverlay`, S6).
+          data-nonmodal=""
           initialFocus={props.initialFocus}
           onKeyDown={(event) => {
             // Window shortcuts of the page (Enter approves a permission card) are not for the panel.

@@ -7,6 +7,7 @@ import { useBackend } from "~/backend/context";
 import { keys, projectModels, useAgents, useComposerEntries, useStatus } from "~/backend/queries";
 import type { Attachment, ComposerEntry, Project, RunMode } from "~/backend/types";
 import { Button } from "~/components/ui/button";
+import { KbdRow } from "~/components/ui/misc";
 import { Select } from "~/components/ui/select";
 import { Tooltip } from "~/components/ui/tooltip";
 import { toast } from "~/components/ui/toast";
@@ -14,7 +15,11 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatBytes } from "~/lib/format";
+import { chordLabel } from "~/lib/platform";
+import { INSERT_COMPOSER_TEXT_EVENT, insertedText } from "~/lib/shortcuts";
 import { readLocal, writeLocal } from "~/lib/storage";
+
+import { draftKey, DRAFT_RESTORED_EVENT } from "./first-message";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -28,10 +33,6 @@ const RUN_MODE_SHORT: Record<RunMode, string> = {
   "run-everything": "Alles zelf doen",
 };
 
-function draftKey(projectId: string, chatId: string | null) {
-  return `bonzaiwork.draft.${projectId}.${chatId ?? "nieuw"}`;
-}
-
 function RunModePill(props: { projectId: string }) {
   const backend = useBackend();
   const client = useQueryClient();
@@ -40,7 +41,7 @@ function RunModePill(props: { projectId: string }) {
   return (
     <Select
       variant="pill"
-      label={copy.settings.runMode}
+      label={copy.settings.runMode.question}
       value={mode.data.mode}
       onValueChange={(value) => {
         const next: RunMode = value === "approve" ? "approve" : value === "run-everything" ? "run-everything" : "default";
@@ -69,12 +70,20 @@ export const Composer = forwardRef<
     onStop: () => void;
     blocked?: ReactNode;
     /** A permission or question waits: esc belongs to that card, not to stop. */
-    decisionPending?: boolean;
+    /** A decision waits above the composer; its kind picks the words (T5). */
+    decisionPending?: false | "permission" | "question";
     autoFocus?: boolean;
     placeholder?: string;
     size?: "default" | "large";
     /** Keep the words in the composer until onSubmit succeeds: there is no chat yet to show them in. */
     keepUntilSent?: boolean;
+    /** Rendered first in the pill row: the project pill on Vandaag (brief §5). */
+    leading?: ReactNode;
+    /**
+     * ⌘⏎ while the agent runs: the message waits until the turn ends instead of steering it
+     * (brief §7, T5). Without it ⌘⏎ sends like ⏎.
+     */
+    onQueue?: (input: ComposerSubmit) => void;
   }
 >(function Composer(props, ref) {
   const status = useStatus();
@@ -99,6 +108,18 @@ export const Composer = forwardRef<
     setAttachments([]);
     setCommand(null);
     setSkills([]);
+  }, [props.project.id, props.chatId]);
+  // A first message sent from elsewhere (Vandaag, the agenda) that did not go out comes back here.
+  useEffect(() => {
+    const restored = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail: unknown = event.detail;
+      if (!detail || typeof detail !== "object" || !("chatId" in detail) || !("projectId" in detail)) return;
+      if (detail.chatId !== props.chatId || detail.projectId !== props.project.id) return;
+      setText(readLocal(draftKey(props.project.id, props.chatId)) ?? "");
+    };
+    window.addEventListener(DRAFT_RESTORED_EVENT, restored);
+    return () => window.removeEventListener(DRAFT_RESTORED_EVENT, restored);
   }, [props.project.id, props.chatId]);
   useEffect(() => {
     const timer = window.setTimeout(() => writeLocal(draftKey(props.project.id, props.chatId), text.trim() ? text : null), 250);
@@ -136,6 +157,23 @@ export const Composer = forwardRef<
     if (props.autoFocus && window.matchMedia("(pointer: fine)").matches) textarea.current?.focus();
   }, [props.autoFocus]);
 
+  // "Vraag hierover" on a result row (brief §6): the text lands in this composer, which takes focus.
+  useEffect(() => {
+    const onInsert = (event: Event) => {
+      const inserted = insertedText(event);
+      if (inserted === null) return;
+      setText((current) => (current.trim() ? `${current.replace(/\s+$/, "")} ${inserted}` : inserted));
+      window.requestAnimationFrame(() => {
+        const element = textarea.current;
+        if (!element) return;
+        element.focus();
+        element.setSelectionRange(element.value.length, element.value.length);
+      });
+    };
+    window.addEventListener(INSERT_COMPOSER_TEXT_EVENT, onInsert);
+    return () => window.removeEventListener(INSERT_COMPOSER_TEXT_EVENT, onInsert);
+  }, []);
+
   // The `/` menu: commands and skills of this project.
   const slash = /^\/([^\s]*)$/.exec(text);
   const filtered = useMemo<ComposerEntry[]>(() => {
@@ -156,7 +194,22 @@ export const Composer = forwardRef<
     textarea.current?.focus();
   };
 
-  const canSend = (text.trim().length > 0 || command !== null) && Boolean(props.model) && !props.blocked && !sending;
+  // A pending decision belongs to the card above (T4): the field waits, esc and ⏎ go there.
+  const waiting = Boolean(props.decisionPending);
+  const canSend = (text.trim().length > 0 || command !== null) && Boolean(props.model) && !props.blocked && !waiting && !sending;
+  const clear = () => {
+    setText("");
+    setAttachments([]);
+    setCommand(null);
+    setSkills([]);
+  };
+  /** ⌘⏎ while running: hand the message to the chat, which sends it when the turn ends. */
+  const queue = () => {
+    if (!canSend || !props.running || !props.onQueue) return false;
+    props.onQueue({ text: text.trim(), attachments, command, skills });
+    clear();
+    return true;
+  };
   const submit = async () => {
     if (!canSend) return;
     const input: ComposerSubmit = { text: text.trim(), attachments, command, skills };
@@ -164,12 +217,6 @@ export const Composer = forwardRef<
     // Keep the person's words in view while the engine takes them (P11): in
     // the chat as a pending message, or here until the chat exists. They come
     // back here if sending fails.
-    const clear = () => {
-      setText("");
-      setAttachments([]);
-      setCommand(null);
-      setSkills([]);
-    };
     if (!props.keepUntilSent) clear();
     const ok = await props.onSubmit(input).catch(() => false);
     setSending(false);
@@ -182,8 +229,10 @@ export const Composer = forwardRef<
     }
   };
 
-  const showStop = props.running && !text.trim() && !command;
+  const showStop = props.running && !text.trim() && !command && !waiting;
   const large = props.size === "large";
+  const placeholder = props.placeholder ?? (waiting ? (props.decisionPending === "permission" ? copy.chat.composer.permissionPending : copy.chat.composer.decisionPending) : props.running ? copy.chat.composer.steer : copy.chat.composerPlaceholder);
+  const steerHints = props.running && !waiting && props.onQueue ? [{ keys: "⏎", label: copy.chat.composer.steerHint }, { keys: chordLabel("⏎"), label: copy.chat.composer.afterHint }] : null;
 
   return (
     <div
@@ -276,68 +325,79 @@ export const Composer = forwardRef<
           }
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
+            if ((event.metaKey || event.ctrlKey) && queue()) return;
             void submit();
           }
         }}
-        placeholder={props.placeholder ?? (props.running ? copy.chat.composerPlaceholderBusy : copy.chat.composerPlaceholder)}
+        placeholder={placeholder}
         aria-label={copy.chat.composerPlaceholder}
         aria-autocomplete="list"
         aria-controls={menuOpen && filtered.length ? listId : undefined}
         aria-activedescendant={menuOpen && filtered.length ? `${listId}-${highlight}` : undefined}
-        disabled={Boolean(props.blocked)}
+        disabled={Boolean(props.blocked) || waiting}
         className={cn(
           "w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base leading-relaxed text-foreground placeholder:text-subtle-foreground focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed max-sm:text-[16px]",
           large ? "min-h-24" : "min-h-11",
         )}
       />
 
+      {/* Queue and steer as chords only (T5), on a line of their own so the pills keep their room. */}
+      {steerHints ? <KbdRow hints={steerHints} className="px-4 pb-1.5" /> : null}
+
       <div className="flex items-center gap-1 px-2 pb-2">
-        <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          onChange={(event) => {
-            if (event.target.files) addFiles(event.target.files);
-            event.target.value = "";
-          }}
-        />
-        <Tooltip label={copy.chat.attach}>
-          <Button variant="quiet" size="icon-sm" aria-label={copy.chat.attach} onClick={() => fileInput.current?.click()} disabled={Boolean(props.blocked)}>
-            <Paperclip />
-          </Button>
-        </Tooltip>
-        <Tooltip label={copy.chat.commandsTitle} shortcut="/">
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label={copy.chat.commandsTitle}
-            disabled={Boolean(props.blocked)}
-            onClick={() => {
-              setText("/");
-              textarea.current?.focus();
+        {/* The pills scroll sideways on a phone instead of being clipped; send/stop keeps its place at the end. */}
+        <div className="-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&>*]:shrink-0">
+          {props.leading}
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              if (event.target.files) addFiles(event.target.files);
+              event.target.value = "";
             }}
-          >
-            <Slash />
-          </Button>
-        </Tooltip>
-        {models.length ? (
-          <Select variant="pill" label={copy.chat.model} value={props.model} onValueChange={props.onModelChange} items={models.map((model) => ({ value: model.id, label: model.name }))} />
-        ) : (
-          <span className="px-2 text-xs text-muted-foreground">{status.data?.models.length ? copy.chat.noModelsChosen : copy.chat.noModels}</span>
-        )}
-        {agents.data && agents.data.length > 1 ? (
-          <Select
-            variant="pill"
-            label={copy.chat.agent}
-            value={props.agent ?? agents.data[0]?.id ?? null}
-            onValueChange={props.onAgentChange}
-            items={agents.data.map((agent) => ({ value: agent.id, label: agent.name, hint: agent.description }))}
-            className="max-sm:hidden"
           />
-        ) : null}
-        <RunModePill projectId={props.project.id} />
-        <div className="flex-1" />
+          <Tooltip label={copy.chat.attach}>
+            <Button variant="quiet" size="icon-sm" aria-label={copy.chat.attach} onClick={() => fileInput.current?.click()} disabled={Boolean(props.blocked) || waiting}>
+              <Paperclip />
+            </Button>
+          </Tooltip>
+          {/* "/" as a labelled pill (brief §7, P3): the one entry point to skills; "/" in the field is the keyboard route (S6). */}
+          <Tooltip label={copy.chat.composer.skillsTitle} shortcut="/">
+            <Button
+              variant="quiet"
+              size="sm"
+              className="gap-1"
+              aria-label={copy.chat.composer.skillsTitle}
+              disabled={Boolean(props.blocked) || waiting}
+              data-testid="composer-skills"
+              onClick={() => {
+                setText("/");
+                textarea.current?.focus();
+              }}
+            >
+              <BookOpen />
+              {copy.chat.composer.skills}
+            </Button>
+          </Tooltip>
+          {models.length ? (
+            <Select variant="pill" label={copy.chat.model} value={props.model} onValueChange={props.onModelChange} items={models.map((model) => ({ value: model.id, label: model.name }))} />
+          ) : (
+            <span className="px-2 text-xs text-muted-foreground">{status.data?.models.length ? copy.chat.noModelsChosen : copy.chat.noModels}</span>
+          )}
+          {agents.data && agents.data.length > 1 ? (
+            <Select
+              variant="pill"
+              label={copy.chat.agent}
+              value={props.agent ?? agents.data[0]?.id ?? null}
+              onValueChange={props.onAgentChange}
+              items={agents.data.map((agent) => ({ value: agent.id, label: agent.name, hint: agent.description }))}
+              className="max-sm:hidden"
+            />
+          ) : null}
+          <RunModePill projectId={props.project.id} />
+        </div>
         {showStop ? (
           <Tooltip label={copy.chat.stop} shortcut="esc">
             <Button variant="primary" size="icon" className="rounded-full" aria-label={copy.chat.stop} onClick={props.onStop}>
@@ -359,9 +419,9 @@ export const Composer = forwardRef<
         <Popover.Portal>
           <Popover.Positioner anchor={container} side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
             <Popover.Popup initialFocus={false} finalFocus={false} className="w-[min(var(--anchor-width),28rem)] max-h-[min(var(--available-height),20rem)] overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-popover outline-none">
-              <p className="px-2 pt-1 pb-1.5 text-xs text-subtle-foreground">{copy.chat.commandsTitle}</p>
+              <p className="px-2 pt-1 pb-1.5 text-xs text-subtle-foreground">{copy.chat.composer.skillsTitle}</p>
               {filtered.length ? (
-                <ul id={listId} role="listbox" aria-label={copy.chat.commandsTitle}>
+                <ul id={listId} role="listbox" aria-label={copy.chat.composer.skillsTitle}>
                   {filtered.map((entry, index) => (
                     <li
                       key={`${entry.kind}-${entry.name}`}
@@ -385,8 +445,9 @@ export const Composer = forwardRef<
                   ))}
                 </ul>
               ) : (
-                <p className="px-2 py-2 text-sm text-muted-foreground">{copy.chat.noCommands}</p>
+                <p className="px-2 py-2 text-sm text-muted-foreground">{copy.chat.composer.noSkills}</p>
               )}
+              {filtered.length ? <p className="px-2 pt-1.5 pb-1 text-[11px] text-subtle-foreground">{copy.chat.commandHint}</p> : null}
             </Popover.Popup>
           </Popover.Positioner>
         </Popover.Portal>

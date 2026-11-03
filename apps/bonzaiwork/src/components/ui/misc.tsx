@@ -9,8 +9,37 @@ export function Skeleton(props: { className?: string }) {
   return <span aria-hidden="true" className={cn("block animate-pulse rounded-md bg-muted", props.className)} />;
 }
 
-export function Kbd(props: { children: ReactNode }) {
-  return <kbd className="rounded border border-border bg-background px-1 font-sans text-[11px] leading-4 text-muted-foreground">{props.children}</kbd>;
+/** One key or chord ("⏎", "⌘⏎", "esc") as a keycap in the surrounding ink (AA at 11px); the border keeps it quiet. */
+export function Kbd(props: { children: ReactNode; className?: string }) {
+  return (
+    <kbd className={cn("inline-flex h-4 min-w-4 items-center justify-center rounded border border-current/25 px-1 font-sans text-[11px] leading-none text-current", props.className)}>
+      {props.children}
+    </kbd>
+  );
+}
+
+export type KbdHint = { keys: ReactNode; label: ReactNode };
+
+/**
+ * A quiet row of chords (DESIGN.md S6, T5): "⏎ bijsturen · ⌘⏎ na afloop · esc annuleren". The
+ * hint belongs to the focused element next to it; the row itself is not interactive.
+ */
+export function KbdRow(props: { hints: readonly KbdHint[]; className?: string }) {
+  return (
+    <span className={cn("inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-subtle-foreground", props.className)}>
+      {props.hints.map((hint, index) => (
+        <span key={index} className="inline-flex items-center gap-1.5">
+          {index > 0 ? (
+            <span aria-hidden="true" className="me-0.5">
+              ·
+            </span>
+          ) : null}
+          <Kbd>{hint.keys}</Kbd>
+          <span>{hint.label}</span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /** Color marks the minority that needs attention (V2): idle chats show nothing. */
