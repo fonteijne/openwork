@@ -142,7 +142,8 @@ function ProjectAttention(props: { project: Project }) {
 // Verder gaan and Gemaakt in dit project
 // ---------------------------------------------------------------------------
 
-function ChatRow(props: { project: Project; chat: Chat }) {
+/** One chat to continue: title and preview, status and time; also the chats on Jouw brein. */
+export function ChatRow(props: { project: Project; chat: Chat }) {
   const { chat } = props;
   return (
     <li className="border-b border-border last:border-b-0">

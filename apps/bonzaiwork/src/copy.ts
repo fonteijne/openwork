@@ -1382,6 +1382,8 @@ export const copy = {
       preferencesNone: "Nog geen voorkeuren vastgelegd",
       preferencesOpen: "Openen",
       privacy: "Privé",
+      chats: "Chats",
+      chatsNone: "Nog geen chats met je brein",
       excludedSave: "Opslaan",
       privateRepoLink: "Koppelen",
     },

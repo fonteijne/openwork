@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { BookOpen, FolderOpen } from "lucide-react";
+import { BookOpen, FolderOpen, MessageSquarePlus } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, useBrains, useRoutines, useStatus } from "~/backend/queries";
-import type { Brain, RemoteCheck, RoutineInput } from "~/backend/types";
+import { keys, useBrains, useProjects, useRoutines, useStatus } from "~/backend/queries";
+import type { Brain, Project, RemoteCheck, RoutineInput } from "~/backend/types";
 import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
@@ -13,10 +13,13 @@ import { Disclosure } from "~/components/ui/disclosure";
 import { Input } from "~/components/ui/field";
 import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
 import { copy } from "~/copy";
-import { href } from "~/lib/router";
+import { href, navigate } from "~/lib/router";
 import { localTimezone } from "~/lib/schedule";
+import { focusComposer } from "~/lib/shortcuts";
 
+import { ChatRow } from "../chat/project-home";
 import { FilePreview } from "../chat/sidecar";
+import { ProjectRuntimeProvider, useProjectState } from "../project/runtime";
 import { RoutineEditor } from "../routines/routine-editor";
 import { useBrainAction } from "./actions";
 import { BrainAttentionCard, ProposalCards } from "./cards";
@@ -28,10 +31,13 @@ import { TypedFolder, usePersonalSetup } from "./personal-setup";
 
 const PREFERENCES = "_meta/voorkeuren.md";
 
-function Shell(props: { children: React.ReactNode }) {
+/** At most this many chats on the page; the full list lives under "Jouw brein" in the sidebar. */
+const MAX_CHATS = 5;
+
+function Shell(props: { children: React.ReactNode; actions?: React.ReactNode }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <TopBar>
+      <TopBar actions={props.actions}>
         <PageTitle>{copy.shell.brain}</PageTitle>
       </TopBar>
       <main className="min-h-0 flex-1 overflow-y-auto" aria-label={copy.brain.personal.label}>
@@ -188,7 +194,54 @@ function PrivateRepoRow(props: { brain: Brain; readOnly: boolean }) {
   );
 }
 
-function PersonalBrain(props: { brain: Brain; readOnly: boolean }) {
+/** The brain's own chat home (#/p/:id): the composer with the vault as its folder. */
+function startChat(projectId: string) {
+  navigate({ name: "project", projectId, chatId: null });
+  focusComposer();
+}
+
+function NewChatButton(props: { projectId: string }) {
+  return (
+    <Button variant="primary" size="sm" data-testid="brain-new-chat" onClick={() => startChat(props.projectId)}>
+      <MessageSquarePlus />
+      {copy.chatList.newChat}
+    </Button>
+  );
+}
+
+/** The chats with the personal brain itself, newest first (decision B1 keeps them out of the project list). */
+function ChatsSection(props: { project: Project }) {
+  const chats = useProjectState((state) => state.chats);
+  const chatsState = useProjectState((state) => state.chatsState);
+  const recent = useMemo(
+    () =>
+      Object.values(chats)
+        .filter((chat) => !chat.parentId && !chat.archived)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, MAX_CHATS),
+    [chats],
+  );
+  return (
+    <Section title={copy.brain.personal.chats}>
+      {chatsState === "loading" && !recent.length ? (
+        <div className="flex flex-col gap-3 py-3" aria-busy="true">
+          <Skeleton className="h-4 w-72" />
+          <Skeleton className="h-4 w-56" />
+        </div>
+      ) : recent.length ? (
+        <ul className="flex flex-col" data-testid="brain-chats">
+          {recent.map((chat) => (
+            <ChatRow key={chat.id} project={props.project} chat={chat} />
+          ))}
+        </ul>
+      ) : (
+        <Row label={<span className="font-normal text-muted-foreground">{copy.brain.personal.chatsNone}</span>} />
+      )}
+    </Section>
+  );
+}
+
+function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly: boolean }) {
   const { brain } = props;
   const chip = brainChip(brain.status);
   const [preview, setPreview] = useState<string | null>(null);
@@ -202,6 +255,11 @@ function PersonalBrain(props: { brain: Brain; readOnly: boolean }) {
         <BrainAttentionCard projectId={brain.projectId} link={false} />
         <ProposalCards all />
       </div>
+      {props.project ? (
+        <ProjectRuntimeProvider projectId={props.project.id}>
+          <ChatsSection project={props.project} />
+        </ProjectRuntimeProvider>
+      ) : null}
       <PreferencesSection brain={brain} readOnly={props.readOnly} />
       <KnowledgeSection projectId={brain.projectId} readOnly={props.readOnly} onOpen={setPreview} />
       <HistorySection projectId={brain.projectId} readOnly={props.readOnly} />
@@ -228,8 +286,10 @@ export function PersonalPage() {
   const backend = useBackend();
   const status = useStatus();
   const brains = useBrains();
+  const projects = useProjects();
   const readOnly = status.data?.readOnly ?? false;
   const personal = (brains.data ?? []).find((brain) => brain.status.kind === "personal") ?? null;
+  const project = personal ? ((projects.data ?? []).find((candidate) => candidate.id === personal.projectId) ?? null) : null;
   if (!backend.capabilities.brains) {
     return (
       <Shell>
@@ -249,5 +309,9 @@ export function PersonalPage() {
       </Shell>
     );
   }
-  return <Shell>{personal ? <PersonalBrain brain={personal} readOnly={readOnly} /> : <SetupCard readOnly={readOnly} />}</Shell>;
+  return (
+    <Shell actions={project ? <NewChatButton projectId={project.id} /> : undefined}>
+      {personal ? <PersonalBrain brain={personal} project={project} readOnly={readOnly} /> : <SetupCard readOnly={readOnly} />}
+    </Shell>
+  );
 }

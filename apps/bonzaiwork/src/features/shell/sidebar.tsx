@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { BookOpen, CalendarClock, ChevronRight, Inbox, MessageSquarePlus, PanelLeftClose, Plus, Search, Settings } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { projectHasKey, useStatus } from "~/backend/queries";
+import { projectHasKey, usePersonalBrain, useProjects, useStatus } from "~/backend/queries";
 import type { Project } from "~/backend/types";
 import { BrandMark } from "~/components/brand";
 import { ProjectIcon } from "~/components/project-icon";
@@ -127,6 +127,12 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
   const counts = useAttentionCounts();
   const openId = props.projectId;
   const activeChatId = props.route.name === "project" ? props.route.chatId : null;
+  // "Jouw brein" is no project row (decision B1), but its chats are: while a page of the brain's own
+  // project is open they sit under the nav item. On #/brein the page itself lists them (P7).
+  const allProjects = useProjects();
+  const personalId = usePersonalBrain()?.projectId ?? null;
+  const personalProject = personalId ? ((allProjects.data ?? []).find((project) => project.id === personalId) ?? null) : null;
+  const inBrainProject = personalId !== null && openId === personalId;
 
   // The open project is always listed and always expanded; one other row may be open by hand.
   const visible = useMemo(() => {
@@ -178,7 +184,14 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
             count={counts.routines}
             countLabel={copy.shell.routinesBadge(counts.routines)}
           />
-          <NavLink href={href({ name: "brain" })} icon={<BookOpen />} label={copy.shell.brain} active={props.route.name === "brain"} />
+          <NavLink href={href({ name: "brain" })} icon={<BookOpen />} label={copy.shell.brain} active={props.route.name === "brain" || inBrainProject} />
+          {inBrainProject && personalProject ? (
+            <div data-testid="sidebar-brain-chats">
+              <ProjectRuntimeProvider projectId={personalProject.id}>
+                <ExpandedProject project={personalProject} activeChatId={activeChatId} open />
+              </ProjectRuntimeProvider>
+            </div>
+          ) : null}
           <NavLink href={href({ name: "settings" })} icon={<Settings />} label={copy.shell.settings} active={props.route.name === "settings"} />
         </nav>
 
