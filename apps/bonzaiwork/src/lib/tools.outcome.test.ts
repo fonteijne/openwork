@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Message, ToolPart } from "~/backend/types";
 
-import { deliveredFiles, touchedFiles, isFailedStep, isStoppedStep, isStoppedTurn, stepFixKind } from "./tools";
+import { deliveredFiles, describeTool, isRecoveredStep, patchFiles, touchedFiles, isFailedStep, isStoppedStep, isStoppedTurn, stepFixKind, unresolvedFailures } from "./tools";
 
 const tool = (overrides: Partial<ToolPart>): ToolPart => ({
   type: "tool", id: "t", tool: "read", status: "completed", input: {}, output: null, error: null, startedAt: null, endedAt: null, childChatId: null, ...overrides,
@@ -52,5 +52,35 @@ describe("what a turn delivered", () => {
     expect(deliveredFiles(waiting)).toEqual([]);
     expect(touchedFiles(waiting)).toEqual([{ path: "prijslijst-2027.md", name: "prijslijst-2027.md", changed: false }]);
     expect(deliveredFiles([message([tool({ tool: "edit", status: "running", input: { filePath: "x.md" } })])])).toEqual([]);
+  });
+});
+
+describe("a patch", () => {
+  const note = ".hermes/skills/agent/references/native-mcp.md";
+  const patchText = `*** Begin Patch\n*** Update File: ${note}\n@@\n-      SOME_API_KEY: "value"\n+      SOME_API_KEY: "REDACTED"\n*** End Patch`;
+  const failed = tool({ id: "p1", tool: "apply_patch", status: "error", input: { patchText }, error: `patch verification failed: Failed to find expected lines in ${note}` });
+  const worked = tool({ id: "p2", tool: "apply_patch", status: "completed", input: { patchText }, output: "Success" });
+
+  it("names the files of the patch", () => {
+    expect(patchFiles(`*** Begin Patch\n*** Add File: a.md\n+x\n*** Update File: b.md\n*** Move to: c.md\n*** Delete File: d.md\n*** End Patch`)).toEqual(["a.md", "b.md", "c.md", "d.md"]);
+    expect(describeTool(worked)).toMatchObject({ verb: "Wijzigde", object: "native-mcp.md", code: true });
+    expect(describeTool(tool({ tool: "apply_patch", input: { patchText: "*** Update File: a.md\n*** Update File: b.md" } }))).toMatchObject({ object: "2 bestanden", code: false });
+  });
+
+  it("counts a patch that worked as a changed file", () => {
+    expect(deliveredFiles([message([tool({ tool: "read", input: { filePath: note } }), worked])]).map((file) => file.name)).toEqual(["native-mcp.md"]);
+    expect(deliveredFiles([message([failed])])).toEqual([]);
+  });
+
+  it("no longer shows a failed patch as the outcome once a later one changed the same file", () => {
+    const steps = [failed, worked];
+    expect(isRecoveredStep(failed, steps)).toBe(true);
+    expect(unresolvedFailures(steps)).toEqual([]);
+    // Failed last, or nothing changed the file afterwards: the failure stands.
+    expect(unresolvedFailures([worked, failed])).toEqual([failed]);
+    expect(unresolvedFailures([failed, tool({ tool: "read", input: { filePath: note } })])).toEqual([failed]);
+    // A failure that is no file change is never "made good" by one.
+    const shell = tool({ id: "s", tool: "bash", status: "error", error: "boom", input: { command: "ls" } });
+    expect(unresolvedFailures([shell, worked])).toEqual([shell]);
   });
 });
