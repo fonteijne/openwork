@@ -66,6 +66,7 @@ export function BrainAttentionCard(props: { projectId: string; /** Off on the Br
   const brain = useBrain(props.projectId);
   const { busy, run, brains } = useBrainAction(props.projectId);
   const merge = useMergeWithAi(props.projectId);
+  const startChat = useStartChat(props.projectId);
   const dismissed = useTrustDismissed(props.projectId, brain?.status ?? null);
   if (!brain) return null;
   const { status } = brain;
@@ -161,6 +162,12 @@ export function BrainAttentionCard(props: { projectId: string; /** Off on the Br
       : recovery === "retry"
         ? () => void run("share", () => brains.share(props.projectId), status.remote ? copy.brain.shared : undefined)
         : null;
+  // A problem in the notes (OKF, a stage contract, a secret) goes straight into a chat with the
+  // message as its instruction; that turn's end checks the notes again and shares.
+  const problem = status.fixInNotes ? status.error : null;
+  const askAgent = problem
+    ? () => void run("ask", () => startChat({ title: copy.attention.brain.askAgentTitle, prompt: copy.attention.brain.askAgentPrompt(problem) }))
+    : null;
   return (
     <Callout
       className={props.className}
@@ -173,11 +180,20 @@ export function BrainAttentionCard(props: { projectId: string; /** Off on the Br
       title={copy.attention.brain.error}
       state={status.error ?? copy.brain.attention.errorState}
       actions={
-        recover ? (
-          <Button variant="primary" disabled={disabled} onClick={recover}>
-            {recovery === "repair" ? copy.attention.brain.repair : copy.brain.retry}
-            <Kbd>⏎</Kbd>
-          </Button>
+        recover || askAgent ? (
+          <>
+            {recover ? (
+              <Button variant="primary" disabled={disabled} onClick={recover}>
+                {recovery === "repair" ? copy.attention.brain.repair : copy.brain.retry}
+                <Kbd>⏎</Kbd>
+              </Button>
+            ) : null}
+            {askAgent ? (
+              <Button variant="secondary" disabled={disabled} onClick={askAgent}>
+                {copy.attention.brain.askAgent}
+              </Button>
+            ) : null}
+          </>
         ) : undefined
       }
       link={link}

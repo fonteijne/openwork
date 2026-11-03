@@ -446,6 +446,8 @@ export type BrainStatus = {
   error: string | null;
   /** The error is about the folder's git setup: "Herstellen" puts it back; any other error takes "Opnieuw proberen". */
   repairable: boolean;
+  /** The error is in the notes themselves (OKF, a stage contract, a secret): "Vraag de agent" opens a chat to fix it. */
+  fixInNotes: boolean;
   pendingTrust: TrustItem[];
   unshared: { path: string; reason: "not_markdown" | "too_large" }[];
   warnings: string[];

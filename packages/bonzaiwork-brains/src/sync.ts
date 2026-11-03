@@ -69,6 +69,8 @@ export type BrainStatus = {
    * history): "Herstellen" puts it back. Any other error is retried with "Opnieuw proberen".
    */
   repairable: boolean;
+  /** The error is in the notes themselves (OKF, a stage contract, a secret): a chat can fix it. */
+  fixInNotes: boolean;
   /** Items waiting for the user's decision; they are not in the folder (needs_trust). */
   pendingTrust: TrustItem[];
   /** New files that were not shared by themselves (plan §4.3). */
@@ -1145,6 +1147,7 @@ export class BrainSync {
       merging: problem?.kind === "conflict" && problem.merging === true,
       error: problem?.message ?? null,
       repairable: this.repairable,
+      fixInNotes: problem?.kind === "error" && (problem.cause === "content" || problem.cause === "secret"),
       pendingTrust: this.pending,
       unshared: this.unshared,
       warnings: this.warnings,
