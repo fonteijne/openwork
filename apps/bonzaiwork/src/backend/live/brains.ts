@@ -52,6 +52,7 @@ export function readBrainStatus(value: unknown): BrainStatus | null {
     merging: field(value, "merging") === true,
     error: str(value, "error") ?? null,
     repairable: field(value, "repairable") === true,
+    fixInNotes: field(value, "fixInNotes") === true,
     pendingTrust: list(value, "pendingTrust").flatMap((item): TrustItem[] => {
       const path = str(item, "path");
       const itemKind = TRUST_KINDS.find((entry) => entry === str(item, "kind"));

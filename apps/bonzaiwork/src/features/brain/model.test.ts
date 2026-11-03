@@ -6,7 +6,7 @@ import { attentionKind, brainChip, brainRecovery, conceptChecked, deliverableOf,
 
 const status = (patch: Partial<BrainStatus> = {}): BrainStatus => ({
   kind: "project", state: "synced", mode: "auto", remote: "git@gitlab.com:team/brein.git", branch: "main", ahead: 0, behind: 0, lastSyncAt: 1_000,
-  conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
+  conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, fixInNotes: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
   ...patch,
 });
 

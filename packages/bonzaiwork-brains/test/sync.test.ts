@@ -396,7 +396,7 @@ describe("git-veiligheid (plan §7.4)", () => {
     await world.seed({ "knowledge/nieuw.md": "nieuw\n" });
     const stopped = await a.sync.prepareTurn();
     expect(stopped.state).toBe("error");
-    expect(stopped.repairable).toBe(true);
+    expect(stopped).toMatchObject({ repairable: true, fixInNotes: false });
     expect(stopped.error).toContain("Herstellen");
     expect(existsSync(join(a.path, "knowledge/nieuw.md"))).toBe(false);
     expect((await a.sync.repair()).state).not.toBe("error");

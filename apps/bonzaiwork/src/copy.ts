@@ -306,6 +306,9 @@ export const copy = {
       error: "Bijwerken is gestopt",
       allow: "Toestaan",
       repair: "Herstellen",
+      askAgent: "Vraag de agent",
+      askAgentTitle: "Brein herstellen",
+      askAgentPrompt: (error: string) => `Het brein van dit project deelt niet meer. BonzaiWork meldt: "${error}"\n\nHerstel dit in de genoemde bestanden, volgens _meta/schema.md. Pas alleen aan wat nodig is en verwijder niets. Zeg daarna kort wat je veranderde. BonzaiWork controleert de notities opnieuw zodra je klaar bent en deelt het brein als alles klopt.`,
       later: "Nu niet",
     },
     proposal: {
