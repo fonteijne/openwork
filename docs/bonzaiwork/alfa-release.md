@@ -137,7 +137,8 @@ Zet deze ook in de tekst voor testers als ze voor hen zichtbaar zijn.
 | K8 | Keys per gebruiker; per project is gebouwd maar niet de standaard | O1 is nog open | Beslissing O1 |
 
 Alleen Linux en dus niet voor deze alfa: fonteijne/openwork#14 (feedback in de thuismap in plaats van
-Downloads).
+Downloads). De smoketest van de verpakte Linux-app slaagt op 3 november wel op die check; kijk na of het
+issue dicht kan.
 
 ## 7. Na de alfa
 
