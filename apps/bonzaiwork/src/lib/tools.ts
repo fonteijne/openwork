@@ -1,4 +1,4 @@
-import type { Message, ToolPart } from "~/backend/types";
+import type { Message, MessagePart, ToolPart } from "~/backend/types";
 
 /**
  * Tool activity in plain Dutch (DESIGN.md C3, C4): sentence first, past tense
@@ -43,6 +43,30 @@ function str(input: Record<string, unknown>, ...keys: string[]): string | null {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return null;
+}
+
+/** Engine tools that change files: a completed one changed what it names (P1). */
+const CHANGE_TOOLS = new Set(["write", "edit", "multiedit", "patch", "apply_patch"]);
+
+/**
+ * The files an apply_patch envelope names ("*** Update File: notes/a.md"), in order. The patch
+ * tool takes no file path of its own, so without this a patch that worked changed "nothing".
+ */
+export function patchFiles(patch: string): string[] {
+  const files: string[] = [];
+  for (const match of patch.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$/gm)) {
+    const path = (match[1] ?? match[2] ?? "").trim();
+    if (path && !files.includes(path)) files.push(path);
+  }
+  return files;
+}
+
+/** The files a step works on: its own path, or the files its patch names. */
+export function stepFiles(part: ToolPart): string[] {
+  const path = str(part.input, "filePath", "file_path", "path", "filename");
+  if (path) return [path];
+  const patch = str(part.input, "patchText", "patch", "diff");
+  return patch ? patchFiles(patch) : [];
 }
 
 export function fileName(path: string): string {
@@ -177,8 +201,12 @@ export function describeTool(part: ToolPart): ToolLabel {
     case "edit":
     case "multiedit":
     case "patch":
-    case "apply_patch":
-      return { kind: "edit", verb: pick("Wijzigde", "Wijzigt"), object: path ? fileName(path) : "bestanden", code: Boolean(path), service: null };
+    case "apply_patch": {
+      const files = stepFiles(part);
+      if (files.length > 1) return { kind: "edit", verb: pick("Wijzigde", "Wijzigt"), object: `${files.length} bestanden`, code: false, service: null };
+      const file = files[0];
+      return { kind: "edit", verb: pick("Wijzigde", "Wijzigt"), object: file ? fileName(file) : "bestanden", code: Boolean(file), service: null };
+    }
     case "bash":
     case "shell": {
       const command = str(input, "command", "cmd");
@@ -253,6 +281,25 @@ export function isFailedStep(part: ToolPart): boolean {
   return part.status === "error" && !isStoppedStep(part) && !isDeclinedStep(part);
 }
 
+/**
+ * A failed change the agent made good later in the same turn: every file it named was changed
+ * by a later step that completed. It stays in the fold, marked "mislukt", but is no longer the
+ * turn's outcome, so the screen does not contradict the answer that the file was changed (T2).
+ */
+export function isRecoveredStep(part: ToolPart, steps: readonly MessagePart[]): boolean {
+  if (!isFailedStep(part) || !CHANGE_TOOLS.has(part.tool)) return false;
+  const files = stepFiles(part);
+  if (!files.length) return false;
+  const later = steps.slice(steps.indexOf(part) + 1);
+  const changed = new Set(later.flatMap((step) => (step.type === "tool" && step.status === "completed" && CHANGE_TOOLS.has(step.tool) ? stepFiles(step) : [])));
+  return files.every((file) => changed.has(file));
+}
+
+/** Failed steps that still stand at the end of the turn: shown inline with their fix (T2). */
+export function unresolvedFailures(steps: readonly MessagePart[]): ToolPart[] {
+  return steps.filter((step): step is ToolPart => step.type === "tool" && isFailedStep(step) && !isRecoveredStep(step, steps));
+}
+
 /** A turn the person stopped: nothing failed, but at least one step was cut short. */
 export function isStoppedTurn(messages: readonly Message[]): boolean {
   let stopped = false;
@@ -296,13 +343,13 @@ export function touchedFiles(messages: readonly Message[]): TouchedFile[] {
   for (const message of messages) {
     for (const part of message.parts) {
       if (part.type !== "tool" || part.status !== "completed") continue;
-      const path = str(part.input, "filePath", "file_path", "path");
-      if (!path) continue;
-      const changed = ["write", "edit", "multiedit", "patch", "apply_patch"].includes(part.tool);
+      const changed = CHANGE_TOOLS.has(part.tool);
       const read = part.tool === "read";
       if (!changed && !read) continue;
-      const previous = files.get(path);
-      files.set(path, { path, name: fileName(path), changed: changed || Boolean(previous?.changed) });
+      for (const path of stepFiles(part)) {
+        const previous = files.get(path);
+        files.set(path, { path, name: fileName(path), changed: changed || Boolean(previous?.changed) });
+      }
     }
   }
   return [...files.values()].sort((a, b) => Number(b.changed) - Number(a.changed) || a.name.localeCompare(b.name, "nl"));

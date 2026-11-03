@@ -1,8 +1,10 @@
 /**
  * Before every commit (plan §7.2): files that look like a password or key
- * never get shared. A hit blocks the whole commit and names the file.
+ * never get shared. A hit blocks the whole commit; every hit is named at once,
+ * with the line, so one chat can fix them all. The matched text itself is never
+ * repeated: it would put the key in the message, the chat and the log.
  */
-export type SecretHit = { path: string; reason: string };
+export type SecretHit = { path: string; reason: string; line?: number };
 
 const SECRET_FILE_NAMES: Array<[RegExp, string]> = [
   [/(^|\/)\.env(\.(?!example$|sample$|template$)[^/]+)?$/i, "omgevingsbestand"],
@@ -32,15 +34,30 @@ export function secretInName(path: string): string | null {
 }
 
 export function secretInContent(content: string): string | null {
-  for (const [pattern, reason] of SECRET_CONTENT) if (pattern.test(content)) return reason;
-  return null;
+  return findSecretInContent(content)?.reason ?? null;
+}
+
+/** The first thing in the text that looks like a key, and the line it is on (1-based). */
+function findSecretInContent(content: string): { reason: string; line: number } | null {
+  let first: { reason: string; index: number } | null = null;
+  for (const [pattern, reason] of SECRET_CONTENT) {
+    const index = content.search(pattern);
+    if (index >= 0 && (!first || index < first.index)) first = { reason, index };
+  }
+  if (!first) return null;
+  return { reason: first.reason, line: content.slice(0, first.index).split("\n").length };
 }
 
 export function scanForSecrets(files: ReadonlyArray<{ path: string; content: string | null }>): SecretHit[] {
   const hits: SecretHit[] = [];
   for (const file of files) {
-    const reason = secretInName(file.path) ?? (file.content === null ? null : secretInContent(file.content));
-    if (reason) hits.push({ path: file.path, reason });
+    const byName = secretInName(file.path);
+    if (byName) {
+      hits.push({ path: file.path, reason: byName });
+      continue;
+    }
+    const inContent = file.content === null ? null : findSecretInContent(file.content);
+    if (inContent) hits.push({ path: file.path, reason: inContent.reason, line: inContent.line });
   }
   return hits;
 }

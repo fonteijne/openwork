@@ -37,7 +37,13 @@ export function remoteProblemMessage(problem: RemoteProblem, platform: NodeJS.Pl
 }
 
 export const SYNC_MESSAGES = {
-  secret: (file: string) => `Niet gedeeld: ${file} lijkt een wachtwoord of sleutel te bevatten. Haal het weg en probeer opnieuw.`,
+  // Every file at once, with the kind and the line: a chat fixes them in one go instead of one per round.
+  secret: (hits: ReadonlyArray<{ path: string; reason: string; line?: number }>) => {
+    const named = hits.map((hit) => `${hit.path} (${hit.line ? `${hit.reason}, regel ${hit.line}` : hit.reason})`);
+    return hits.length === 1
+      ? `Niet gedeeld: ${named[0]} lijkt een wachtwoord of sleutel te bevatten. Haal het weg en probeer opnieuw.`
+      : `Niet gedeeld: ${hits.length} bestanden lijken een wachtwoord of sleutel te bevatten: ${named.join("; ")}. Haal ze weg en probeer opnieuw.`;
+  },
   configChanged: "De instellingen van dit brein zijn buiten BonzaiWork om veranderd. Synchroniseren is gestopt; kies Herstellen.",
   remoteChanged: "Dit brein wijst naar een andere plek dan waar je het vandaan haalde. Synchroniseren is gestopt; kies Herstellen.",
   branchChanged: "Dit brein staat op een andere versie dan de gedeelde. Synchroniseren is gestopt; kies Herstellen.",

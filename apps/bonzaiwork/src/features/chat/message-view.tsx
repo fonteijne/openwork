@@ -11,7 +11,7 @@ import { cn } from "~/lib/cn";
 import { formatDuration } from "~/lib/format";
 import { closeOpenMarkdown, renderMarkdown } from "~/lib/markdown";
 import { href } from "~/lib/router";
-import { deliveredFiles, describeTool, isDeclinedStep, isFailedStep, isStoppedStep, isStoppedTurn, isVisibleTool, stepFixKind, toolSentence, type ToolKind } from "~/lib/tools";
+import { deliveredFiles, describeTool, isDeclinedStep, isFailedStep, isStoppedStep, isStoppedTurn, isVisibleTool, stepFixKind, toolSentence, unresolvedFailures, type ToolKind } from "~/lib/tools";
 
 import { useOpenLink } from "./file-link";
 import { CopyButton, DeliveredRow, TurnActionsRow } from "./turn-result";
@@ -41,8 +41,6 @@ function isStep(part: MessagePart): part is Step {
 function stepDone(step: Step): boolean {
   return step.type === "reasoning" ? step.endedAt !== null : step.status === "completed" || step.status === "error";
 }
-
-const isFailed = (step: Step): step is ToolPart => step.type === "tool" && isFailedStep(step);
 
 export const Prose = memo(function Prose(props: { text: string; streaming?: boolean }) {
   const openLink = useOpenLink();
@@ -305,7 +303,8 @@ export const AssistantTurn = memo(function AssistantTurn(props: { messages: Mess
     const elapsed = first && last?.completedAt ? last.completedAt - first.createdAt : 0;
     const duration = elapsed >= 1000 ? formatDuration(elapsed) : null;
     const stopped = Boolean(props.stopped) || isStoppedTurn(props.messages);
-    const failedSteps = steps.filter(isFailed);
+    // A failed change the agent redid with success stays in the fold, not as the outcome (T2).
+    const failedSteps = unresolvedFailures(steps);
     const services = steps.flatMap((step) => (step.type === "tool" ? [describeTool(step).service] : []));
     const summary = stopped ? copy.chat.turn.stoppedByYou(duration, steps.length) : copy.chat.turn.worked(duration, steps.length);
     body = (
