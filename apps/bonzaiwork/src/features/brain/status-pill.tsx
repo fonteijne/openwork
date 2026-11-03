@@ -27,6 +27,17 @@ export function brainStateLabel(status: BrainStatus, now = Date.now()): string {
   }
 }
 
+/**
+ * How a stopped brain starts again (issue 23): "Herstellen" puts back what BonzaiWork guards
+ * (.git/config, remote, branch, history); every other stop is "Opnieuw proberen", which checks
+ * the notes again and shares. Null when nothing is stopped.
+ */
+export function brainRecovery(status: BrainStatus): "repair" | "retry" | null {
+  if (status.state === "error" && status.repairable) return "repair";
+  if (status.mode === "read_only") return null;
+  return status.state === "error" || status.state === "offline" || status.state === "read_only" ? "retry" : null;
+}
+
 function Dot(props: { status: BrainStatus }) {
   const busy = props.status.state === "syncing";
   return (
@@ -52,7 +63,8 @@ export function BrainPill(props: { projectId: string; className?: string }) {
   if (!brain) return null;
   const { status } = brain;
   const label = brainStateLabel(status);
-  const canShare = status.mode !== "read_only" && status.remote !== null && status.state !== "conflict";
+  const recovery = brainRecovery(status);
+  const canShare = (status.mode !== "read_only" && status.remote !== null && status.state !== "conflict" && recovery !== "repair") || recovery === "retry";
   const recent = (history.data ?? []).slice(0, 3);
   return (
     <Menu
@@ -83,7 +95,7 @@ export function BrainPill(props: { projectId: string; className?: string }) {
       ) : null}
       {canShare ? (
         <MenuItem icon={<ArrowUpFromLine />} disabled={busy !== null} onClick={() => void run("share", () => brains.share(props.projectId), copy.brain.shared)}>
-          {status.state === "offline" || status.state === "read_only" ? copy.brain.retry : copy.brain.shareNow}
+          {recovery === "retry" ? copy.brain.retry : copy.brain.shareNow}
         </MenuItem>
       ) : null}
       {status.proposal?.url ? (
@@ -99,7 +111,7 @@ export function BrainPill(props: { projectId: string; className?: string }) {
           {copy.brain.proposalShare}
         </MenuItem>
       ) : null}
-      {status.state === "error" ? (
+      {recovery === "repair" ? (
         <MenuItem icon={<Wrench />} disabled={busy !== null} onClick={() => void run("repair", () => brains.repair(props.projectId), copy.brain.repaired)}>
           {copy.brain.repair}
         </MenuItem>

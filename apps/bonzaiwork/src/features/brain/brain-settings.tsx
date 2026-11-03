@@ -24,7 +24,7 @@ import { BrainPicker } from "./brain-picker";
 import { BrainLinkField } from "./link-field";
 import { RoutineEditor } from "../routines/routine-editor";
 import { useStartChat } from "./start-chat";
-import { brainStateLabel } from "./status-pill";
+import { brainRecovery, brainStateLabel } from "./status-pill";
 
 const MODES: BrainMode[] = ["auto", "proposal", "manual", "read_only"];
 
@@ -268,10 +268,23 @@ export function BrainSettingsSection(props: { project: Project }) {
 
   const { status: brainStatus } = brain;
   const personalBrain = brainStatus.kind === "personal";
+  const recovery = brainRecovery(brainStatus);
   return (
     <div className="flex flex-col gap-10">
       <Section title={copy.brain.sectionTitle}>
-        <Row label={copy.brain.pillLabel} value={brainStateLabel(brainStatus)} />
+        <Row
+          label={copy.brain.pillLabel}
+          value={brainStateLabel(brainStatus)}
+          action={recovery === "repair" ? (
+            <Button variant="secondary" size="sm" disabled={readOnly || busy !== null} onClick={() => void run("repair", () => brains.repair(props.project.id), copy.brain.repaired)}>
+              {copy.brain.repair}
+            </Button>
+          ) : recovery === "retry" ? (
+            <Button variant="secondary" size="sm" disabled={readOnly || busy !== null} onClick={() => void run("share", () => brains.share(props.project.id), brainStatus.remote ? copy.brain.shared : undefined)}>
+              {copy.brain.retry}
+            </Button>
+          ) : undefined}
+        />
         {brainStatus.error ? <p className="border-b border-border py-2.5 text-sm text-muted-foreground" role="status">{brainStatus.error}</p> : null}
         {brainStatus.remote ? <Row label={copy.brain.remote} value={<code className="font-mono text-xs">{brainStatus.remote}</code>} /> : null}
         {brainStatus.remote ? <Row label={copy.brain.branch} value={brainStatus.branch} /> : null}

@@ -165,6 +165,29 @@ describe("OKF in de sync", () => {
     expect(await readFile(join(a.path, "knowledge/references/2026-10-29-kickoff.md"), "utf8")).toContain("Notulen.");
   });
 
+  test("na een buiten de chat herstelde kop deelt Opnieuw proberen weer", async () => {
+    world = await okfWorld();
+    const a = await world.user("Anna");
+    await a.write("knowledge/kapot.md", "# Geen kop\n");
+    const blocked = await a.sync.finishTurn({ title: "x", chatId: "s" });
+    expect(blocked.status).toMatchObject({ state: "error", repairable: false });
+    // Fixed in Obsidian: no turn follows, only the button.
+    await a.write("knowledge/kapot.md", concept("Decision", "Kapot"));
+    const status = await a.sync.share();
+    expect(status).toMatchObject({ state: "synced", error: null, repairable: false });
+    expect(await world.git.ok(["show", "main:knowledge/kapot.md"], { cwd: world.bare })).toContain("type: Decision");
+  });
+
+  test("een weggehaald kapot concept laat het brein niet op Actie nodig staan", async () => {
+    world = await okfWorld();
+    const a = await world.user("Anna");
+    await a.write("knowledge/kapot.md", "# Geen kop\n");
+    expect((await a.sync.finishTurn({ title: "x", chatId: "s" })).status.state).toBe("error");
+    await rm(join(a.path, "knowledge/kapot.md"));
+    // Nothing is left to record; the block is still over.
+    expect(await a.sync.share()).toMatchObject({ state: "synced", error: null });
+  });
+
   test("index.md en log.md geven nooit een conflict voor de gebruiker", async () => {
     world = await okfWorld();
     const a = await world.user("Anna");
