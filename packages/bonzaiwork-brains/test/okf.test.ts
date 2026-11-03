@@ -19,6 +19,7 @@ describe("OKF", () => {
     expect(parseConcept("# geen kop").ok).toBe(false);
     expect(parseConcept("---\ntitle: x\n---\n").ok === false && parseConcept("---\ntitle: x\n---\n")).toMatchObject({ problem: "no_type" });
     expect(parseConcept("---\ntype: [\n---\n")).toMatchObject({ ok: false, problem: "invalid_yaml" });
+    expect(parseConcept("---\ntype: Meeting Summary\ntitle: Notulen: kick-off\n---\n")).toMatchObject({ ok: false, problem: "invalid_yaml", line: 3 });
     expect(parseConcept(concept("Process", "Offerteproces"))).toMatchObject({ ok: true, concept: { type: "Process", title: "Offerteproces" } });
   });
 
@@ -156,7 +157,7 @@ describe("OKF in de sync", () => {
     await a.write("knowledge/kapot.md", "# Geen kop\n");
     const blocked = await a.sync.finishTurn({ title: "x", chatId: "s" });
     expect(blocked).toMatchObject({ committed: false, blockedBy: "knowledge/kapot.md" });
-    expect(blocked.status.error).toContain("type");
+    expect(blocked.status.error).toContain("de eerste regel moet --- zijn");
     await a.write("knowledge/kapot.md", concept("Decision", "Kapot"));
     await a.write("knowledge/references/2026-10-29-kickoff.md", "---\ntype: Reference\ntitle: Kickoff\n---\nAnders.\n");
     const turn = await a.sync.finishTurn({ title: "x", chatId: "s" });
@@ -185,6 +186,17 @@ describe("OKF in de sync", () => {
     expect((await a.sync.finishTurn({ title: "x", chatId: "s" })).status.state).toBe("error");
     await rm(join(a.path, "knowledge/kapot.md"));
     // Nothing is left to record; the block is still over.
+    expect(await a.sync.share()).toMatchObject({ state: "synced", error: null });
+  });
+
+  test("een titel met een dubbele punt noemt de echte fout, niet een ontbrekend type", async () => {
+    world = await okfWorld();
+    const a = await world.user("Anna");
+    await a.write("knowledge/notulen.md", "---\ntype: Meeting Summary\ntitle: Meeting Summary: MVP: focus\n---\n# Notulen\n");
+    const blocked = await a.sync.finishTurn({ title: "x", chatId: "s" });
+    expect(blocked.status.error).toContain("de kop van knowledge/notulen.md is niet te lezen (regel 3)");
+    expect(blocked.status.error).not.toContain("mist het type");
+    await a.write("knowledge/notulen.md", "---\ntype: Meeting Summary\ntitle: \"Meeting Summary: MVP: focus\"\n---\n# Notulen\n");
     expect(await a.sync.share()).toMatchObject({ state: "synced", error: null });
   });
 
