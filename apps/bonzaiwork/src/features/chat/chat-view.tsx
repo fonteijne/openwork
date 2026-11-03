@@ -398,8 +398,11 @@ export function ChatView(props: { project: Project; chatId: string }) {
           </div>
         </div>
 
-        {/* The dock: decision cards, brain cards and the composer, over the end of the scroll area; solid, so nothing shows through in the dark theme. */}
-        <div ref={dock} className="absolute inset-x-0 bottom-0 bg-background px-3 pb-[max(12px,env(safe-area-inset-bottom))] sm:px-6" data-testid="composer-dock">
+        {/*
+          The dock: decision cards, brain cards and the composer, over the end of the scroll area; solid, so nothing shows through in the dark theme.
+          It never grows past the chat area: a long question or consent card gives up height first and scrolls its body, the composer stays whole.
+        */}
+        <div ref={dock} className="absolute inset-x-0 bottom-0 flex max-h-full flex-col bg-background px-3 pt-2 pb-[max(12px,env(safe-area-inset-bottom))] sm:px-6" data-testid="composer-dock">
           {showJump ? (
             <div className="pointer-events-none absolute inset-x-0 -top-12 flex justify-center">
               <Button
@@ -416,7 +419,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
               </Button>
             </div>
           ) : null}
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+          <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-col gap-3">
             {permission && isBrainRead(permission) ? (
               <BrainPermissionCard
                 key={permission.id}
@@ -439,6 +442,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
                 projectId={project.id}
                 request={permission}
                 autoFocus
+                className="min-h-0"
                 onDone={() => {
                   runtime.dropPermission(props.chatId, permission.id);
                   void refreshAttention();
@@ -451,6 +455,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
                 projectId={project.id}
                 request={question}
                 autoFocus
+                className="min-h-0"
                 onDone={() => {
                   runtime.dropQuestion(props.chatId, question.id);
                   void refreshAttention();
