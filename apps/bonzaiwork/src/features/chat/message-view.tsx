@@ -1,5 +1,5 @@
 import { memo, useState, type ReactNode } from "react";
-import { BookOpen, ChevronRight, CircleAlert, Code, FileText, FilePen, GitBranch, GitFork, Globe, Paperclip, Plug, Search, Terminal, Undo2, Wrench } from "lucide-react";
+import { BookOpen, ChevronRight, CircleAlert, Code, FileText, FilePen, GitBranch, GitFork, Globe, Paperclip, Plug, Repeat, Search, Terminal, Undo2, Wrench } from "lucide-react";
 
 import type { ChatError, Message, MessagePart, Model, ReasoningPart, ToolPart } from "~/backend/types";
 import { ProseHtml } from "~/components/prose-html";
@@ -13,7 +13,6 @@ import { closeOpenMarkdown, renderMarkdown } from "~/lib/markdown";
 import { href } from "~/lib/router";
 import { deliveredFiles, describeTool, isDeclinedStep, isFailedStep, isStoppedStep, isStoppedTurn, isVisibleTool, stepFixKind, toolSentence, type ToolKind } from "~/lib/tools";
 
-import { chatCopy } from "./copy";
 import { useOpenLink } from "./file-link";
 import { CopyButton, DeliveredRow, TurnActionsRow } from "./turn-result";
 
@@ -120,7 +119,7 @@ function StepRow(props: { step: Step; projectId: string; live: boolean }) {
   const Icon = TOOL_ICONS[label.kind];
   const failed = isFailedStep(step);
   // Stopped and declined are the person's own decisions: neutral ink, a word, no red (C5).
-  const ended = isStoppedStep(step) ? chatCopy.turn.stopped : isDeclinedStep(step) ? chatCopy.turn.declined : null;
+  const ended = isStoppedStep(step) ? copy.chat.turn.stopped : isDeclinedStep(step) ? copy.chat.turn.declined : null;
   const running = step.status === "running" || step.status === "pending";
   const duration = step.startedAt && step.endedAt && step.endedAt - step.startedAt >= 1000 ? formatDuration(step.endedAt - step.startedAt) : null;
   const hasDetails = Object.keys(step.input).length > 0 || Boolean(step.output) || Boolean(step.error);
@@ -136,7 +135,7 @@ function StepRow(props: { step: Step; projectId: string; live: boolean }) {
           </a>
         ) : null}
         {ended ? <span className="shrink-0 text-xs text-subtle-foreground">{ended}</span> : null}
-        {failed ? <span className="shrink-0 text-xs text-red-11">{chatCopy.turn.failed}</span> : null}
+        {failed ? <span className="shrink-0 text-xs text-red-11">{copy.chat.turn.failed}</span> : null}
         {duration ? <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">{duration}</span> : null}
         {hasDetails ? (
           <button
@@ -184,7 +183,7 @@ function LiveRun(props: { steps: readonly Step[]; projectId: string }) {
   return (
     <div className="my-1 flex flex-col">
       {done.length ? (
-        <Disclosure size="sm" label={chatCopy.turn.stepsDone(done.length)} className="-mx-1" panelClassName="ps-0">
+        <Disclosure size="sm" label={copy.chat.turn.stepsDone(done.length)} className="-mx-1" panelClassName="ps-0">
           <StepRail steps={done} projectId={props.projectId} live={false} />
         </Disclosure>
       ) : null}
@@ -196,18 +195,18 @@ function LiveRun(props: { steps: readonly Step[]; projectId: string }) {
 /** A failed step stays out of the fold, with its fix; the engine's words sit under "Technische details" (T2). */
 function FailedStepRow(props: { step: ToolPart; service: string | null }) {
   const kind = stepFixKind(props.step);
-  const fix = kind === "signIn" ? chatCopy.stepFix.signIn(props.service) : kind ? chatCopy.stepFix[kind] : null;
+  const fix = kind === "signIn" ? copy.chat.stepFix.signIn(props.service) : kind ? copy.chat.stepFix[kind] : null;
   return (
     <div className="my-1 flex flex-col gap-0.5 rounded-lg bg-red-3/60 px-2.5 py-1.5 text-sm" data-testid="turn-failed-step">
       <div className="flex min-h-6 items-center gap-2.5">
         <CircleAlert className="size-4 shrink-0 text-red-11" strokeWidth={1.75} />
         <span className="min-w-0 flex-1 text-foreground">
           <StepLabel step={props.step} />
-          <span className="text-red-11"> · {chatCopy.turn.failed}</span>
+          <span className="text-red-11"> · {copy.chat.turn.failed}</span>
           {fix ? <span className="text-muted-foreground"> · {fix}</span> : null}
         </span>
       </div>
-      <Disclosure size="sm" label={chatCopy.turn.technicalDetails} className="ms-4">
+      <Disclosure size="sm" label={copy.chat.turn.technicalDetails} className="ms-4">
         <RawDetails step={props.step} />
       </Disclosure>
     </div>
@@ -228,7 +227,7 @@ export type TurnActions = {
 /** The turn's failure, inline with its fix (T2, C6); never a routing name (C3). */
 function ErrorRow(props: { error: ChatError; projectId: string; turnId: string; onAction: TurnActions["onErrorAction"] }) {
   const { kind } = props.error;
-  const entry = chatCopy.failure[kind];
+  const entry = copy.errors.chat[kind];
   // The key and its budget live in the project's "Toegang" group (brief §6).
   const settingsLink = kind === "key_missing" || kind === "key_rejected" || kind === "budget_exceeded" ? href({ name: "project-settings", projectId: props.projectId, group: "toegang" }) : null;
   return (
@@ -247,7 +246,7 @@ function ErrorRow(props: { error: ChatError; projectId: string; turnId: string; 
         )}
       </div>
       {props.error.detail ? (
-        <Disclosure size="sm" label={chatCopy.turn.technicalDetails} className="ms-4">
+        <Disclosure size="sm" label={copy.chat.turn.technicalDetails} className="ms-4">
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/70 p-2.5 font-mono text-[11px] text-foreground/80">{props.error.detail}</pre>
         </Disclosure>
       ) : null}
@@ -308,7 +307,7 @@ export const AssistantTurn = memo(function AssistantTurn(props: { messages: Mess
     const stopped = Boolean(props.stopped) || isStoppedTurn(props.messages);
     const failedSteps = steps.filter(isFailed);
     const services = steps.flatMap((step) => (step.type === "tool" ? [describeTool(step).service] : []));
-    const summary = stopped ? chatCopy.turn.stoppedByYou(duration, steps.length) : chatCopy.turn.worked(duration, steps.length);
+    const summary = stopped ? copy.chat.turn.stoppedByYou(duration, steps.length) : copy.chat.turn.worked(duration, steps.length);
     body = (
       <>
         {steps.length || stopped ? (
@@ -323,7 +322,7 @@ export const AssistantTurn = memo(function AssistantTurn(props: { messages: Mess
             )}
             {stopped ? (
               <Button variant="secondary" size="sm" onClick={props.actions.onContinue} data-testid="turn-continue">
-                {chatCopy.turn.continue}
+                {copy.chat.turn.continue}
               </Button>
             ) : null}
           </div>
@@ -341,7 +340,7 @@ export const AssistantTurn = memo(function AssistantTurn(props: { messages: Mess
   const delivered = props.live ? [] : deliveredFiles(props.messages);
 
   return (
-    <article className="group/turn" aria-label={chatCopy.turn.label} data-role="assistant">
+    <article className="group/turn" aria-label={copy.chat.turn.label} data-role="assistant">
       {body}
       {error ? <ErrorRow error={error} projectId={props.projectId} turnId={turnId} onAction={props.actions.onErrorAction} /> : null}
       {delivered.length ? <DeliveredRow files={delivered} onOpen={props.actions.onOpenFile} className="mt-3" /> : null}
@@ -352,7 +351,7 @@ export const AssistantTurn = memo(function AssistantTurn(props: { messages: Mess
   );
 });
 
-export const UserMessage = memo(function UserMessage(props: { message: Message; pending: boolean; optimistic?: boolean; onFork?: () => void; onRevert?: () => void }) {
+export const UserMessage = memo(function UserMessage(props: { message: Message; pending: boolean; optimistic?: boolean; onFork?: () => void; onRevert?: () => void; onRoutine?: () => void }) {
   const text = props.message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
   const files = props.message.parts.filter((part): part is Extract<MessagePart, { type: "file" }> => part.type === "file");
   return (
@@ -384,6 +383,13 @@ export const UserMessage = memo(function UserMessage(props: { message: Message; 
             <Tooltip label={copy.chat.revertToHere}>
               <Button variant="quiet" size="icon-sm" aria-label={copy.chat.revertToHere} onClick={props.onRevert}>
                 <Undo2 />
+              </Button>
+            </Tooltip>
+          ) : null}
+          {props.onRoutine && text.trim() ? (
+            <Tooltip label={copy.chat.message.routineFromHere}>
+              <Button variant="quiet" size="icon-sm" aria-label={copy.chat.message.routineFromHere} onClick={props.onRoutine}>
+                <Repeat />
               </Button>
             </Tooltip>
           ) : null}

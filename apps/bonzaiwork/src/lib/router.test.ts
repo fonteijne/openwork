@@ -23,11 +23,11 @@ describe("routes (brief §3)", () => {
   });
 
   it("keeps the old settings sections as aliases (decision S1)", () => {
-    expect(parse("#/p/x/instellingen/key")).toEqual({ name: "project-settings", projectId: "x", group: "agent", section: "key" });
+    expect(parse("#/p/x/instellingen/key")).toEqual({ name: "project-settings", projectId: "x", group: "toegang", section: "key" });
     expect(parse("#/p/x/instellingen/connections")).toEqual({ name: "project-settings", projectId: "x", group: "toegang", section: "connections" });
     expect(parse("#/p/x/instellingen/files")).toEqual({ name: "project-files", projectId: "x" });
     expect(parse("#/p/x/instellingen/brain")).toEqual({ name: "project-brain", projectId: "x" });
-    expect(href({ name: "project-settings", projectId: "x", section: "key" })).toBe("#/p/x/instellingen/agent");
+    expect(href({ name: "project-settings", projectId: "x", section: "key" })).toBe("#/p/x/instellingen/toegang");
     expect(href({ name: "project-settings", projectId: "x", section: "files" })).toBe("#/p/x/bestanden");
     expect(href({ name: "project-settings", projectId: "x", section: "general" })).toBe("#/p/x/instellingen");
     expect(settingsGroupOf("activity")).toBe("technisch");

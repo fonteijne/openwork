@@ -1,109 +1,86 @@
-import { useRef, useState } from "react";
-import { FolderPlus } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
-
 import { useBackend } from "~/backend/context";
-import { keys, usePersonalBrain, useStatus } from "~/backend/queries";
+import { useStatus } from "~/backend/queries";
 import { BrandMark } from "~/components/brand";
+import { Chip } from "~/components/ui/chip";
 import { Button } from "~/components/ui/button";
-import { Field, SecretInput, type SecretInputHandle } from "~/components/ui/field";
-import { toast } from "~/components/ui/toast";
+import { Locked } from "~/components/ui/misc";
 import { copy } from "~/copy";
-import { errorText } from "~/lib/errors";
+import { navigate } from "~/lib/router";
 
-import { PersonalBrainStep, personalBrainLater } from "../brain/personal-setup";
-import { NewProjectDialog } from "../projects/new-project-dialog";
+import { KeyField, NameField, StarterField, focusComposerWhenReady, useProjectDraft } from "../projects/project-form";
+import { useUi } from "../shell/ui-store";
 
-function LinkUserKey() {
+/**
+ * First start, one screen (brief §3, concept §10; assessment I-1): "Waar werk je aan?" with the
+ * name, the key, starter chips and "Begin". The key is required and checked before the project
+ * opens (create → link; a refused key keeps the person here with the error under the field, C6).
+ * In user mode the one key is linked first. Lands on Vandaag with the composer focused and the
+ * project pill set. No sentence explains the interface (P1); the server row keeps its URL for
+ * the smoke test but no longer names the vendor (C3).
+ */
+export function Onboarding() {
   const backend = useBackend();
   const status = useStatus();
-  const client = useQueryClient();
-  const field = useRef<SecretInputHandle>(null);
-  const [present, setPresent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const rememberProject = useUi((state) => state.rememberProject);
+  const draft = useProjectDraft();
+  const readOnly = status.data?.readOnly ?? false;
 
-  const submit = async () => {
-    const key = field.current?.take().trim() ?? "";
-    if (!key) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await backend.keys.linkUser(key);
-      client.setQueryData(keys.status, next);
-      toast(copy.keys.linkedToast);
-    } catch (failure) {
-      setError(errorText(failure));
-      field.current?.focus();
-    } finally {
-      setBusy(false);
-    }
+  const begin = async () => {
+    const project = await draft.create({ folderPath: null, requireKey: true });
+    if (!project) return;
+    rememberProject(project.id);
+    navigate({ name: "home" }, { replace: true });
+    focusComposerWhenReady();
   };
 
-  return (
-    <form
-      className="flex w-full flex-col gap-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-    >
-      <div>
-        <h1 className="text-2xl font-medium tracking-tight">{copy.onboarding.title}</h1>
-        <p className="mt-1 break-all font-mono text-xs text-muted-foreground" data-testid="litellm-server">
-          {status.data?.litellmBaseUrl}
-        </p>
-      </div>
-      <Field label={copy.onboarding.keyLabel} error={error} hint={status.data?.keyStorePersistent === false ? copy.onboarding.notPersistent : undefined}>
-        {(id, describedBy) => (
-          <SecretInput ref={field} id={id} describedBy={describedBy} invalid={Boolean(error)} placeholder={copy.onboarding.keyPlaceholder} autoFocus disabled={busy} testId="litellm-key-input" onPresenceChange={setPresent} onSubmit={() => void submit()} />
-        )}
-      </Field>
-      <Button type="submit" variant="primary" size="lg" disabled={!present || busy} data-testid="litellm-key-submit">
-        {busy ? copy.onboarding.linking : copy.onboarding.link}
-      </Button>
-    </form>
-  );
-}
-
-function FirstProject() {
-  const backend = useBackend();
-  const personal = usePersonalBrain();
-  const [open, setOpen] = useState(false);
-  const [later, setLater] = useState(personalBrainLater);
-  if (backend.capabilities.brains && !personal && !later) return <PersonalBrainStep onLater={() => setLater(true)} />;
-  return (
-    <div className="flex w-full flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-medium tracking-tight">{copy.onboarding.projectFirst}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{copy.onboarding.projectFirstHint}</p>
-      </div>
-      <Button variant="primary" size="lg" onClick={() => setOpen(true)}>
-        <FolderPlus />
-        {copy.projects.new}
-      </Button>
-      <NewProjectDialog open={open} onOpenChange={setOpen} />
-    </div>
-  );
-}
-
-/** First start. The LiteLLM server is baked into the build, so the only decision is the key (or the first project). */
-export function Onboarding() {
-  const status = useStatus();
-  const backend = useBackend();
-  const userMode = status.data?.keyMode === "user" && !status.data.user.hasKey;
   return (
     <main className="flex min-h-dvh items-center justify-center overflow-y-auto bg-background px-4 py-10">
       {/* No header here: in the desktop shell this strip moves the window. */}
       <div className="fixed inset-x-0 top-0 h-10" data-titlebar="strip" aria-hidden="true" />
-      <div className="flex w-full max-w-sm flex-col items-start gap-8">
+      <form
+        className="flex w-full max-w-sm flex-col gap-6"
+        data-testid="welcome"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void begin();
+        }}
+      >
         <div className="flex items-center gap-2.5">
           <BrandMark className="size-8" />
           <span className="text-base font-semibold tracking-tight">{copy.appName}</span>
-          {backend.mode === "demo" ? <span className="rounded-full bg-electric-3 px-2 py-px text-[11px] font-semibold text-electric-11">{copy.boot.demoBadge}</span> : null}
+          {backend.mode === "demo" ? (
+            <Chip tone="accent" size="sm">
+              {copy.boot.demoBadge}
+            </Chip>
+          ) : null}
         </div>
-        {userMode ? <LinkUserKey /> : <FirstProject />}
-      </div>
+
+        {/* ≤ 20px with slight negative tracking (V1); the one title on the screen (P2). */}
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">{copy.onboarding.title}</h1>
+
+        <NameField draft={draft} autoFocus />
+        <StarterField draft={draft} />
+        <KeyField draft={draft} required hint testId="litellm-key-input" />
+        {draft.asksKey && status.data?.litellmBaseUrl ? (
+          <div className="flex min-w-0 items-baseline gap-3 text-xs">
+            <span className="shrink-0 text-muted-foreground">{copy.newProject.server}</span>
+            <span className="min-w-0 truncate font-mono text-subtle-foreground" data-testid="litellm-server" title={status.data.litellmBaseUrl}>
+              {status.data.litellmBaseUrl}
+            </span>
+          </div>
+        ) : null}
+
+        {draft.error?.field === "form" ? (
+          <p className="text-sm text-destructive-foreground" role="alert">
+            {draft.error.message}
+          </p>
+        ) : null}
+        {readOnly ? <Locked>{copy.settings.readOnly}</Locked> : null}
+
+        <Button type="submit" variant="primary" size="lg" disabled={draft.busy || readOnly} data-testid="litellm-key-submit">
+          {draft.busy ? copy.onboarding.beginning : copy.onboarding.begin}
+        </Button>
+      </form>
     </main>
   );
 }

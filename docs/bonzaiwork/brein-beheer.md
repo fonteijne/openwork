@@ -77,10 +77,10 @@ moet dat dus toelaten voor wie mag schrijven, en mag geschiedenis niet laten her
 
 ### 3.1 Delen als voorstel
 
-In de modus **"Als voorstel, na goedkeuring"** (Projectinstellingen → Brein → Delen) gaat het werk van een
+In de modus **"Als voorstel, na goedkeuring"** (Brein-tab → Technische details → Delen) gaat het werk van een
 collega na elke beurt naar een eigen branch `bonzaiwork/<naam>/<datum>` met een merge request (GitLab)
 of pull request (GitHub). Na goedkeuring en samenvoegen (ook "squash") volgt de map van die collega weer
-het team. Geweigerde pushes op een beschermde branch bieden in de statuspil "Als voorstel delen" aan.
+het team. Geweigerde pushes op een beschermde branch bieden op het Brein-tab "Als voorstel delen" aan.
 
 - **GitLab** (ook een eigen server): niets extra; het merge request ontstaat bij de push zelf.
 - **GitHub**: BonzaiWork gebruikt de GitHub CLI (`gh`) die al op de laptop staat, met het account waarmee
@@ -98,7 +98,7 @@ het team. Geweigerde pushes op een beschermde branch bieden in de statuspil "Als
   pull request daar te openen. Een `gh` op een andere plek wijs je aan met `BONZAIWORK_GH`.
 
 Wie alleen mag meelezen, geef je leesrechten, of zet je in BonzaiWork op **"Nooit (alleen lezen)"**
-(Projectinstellingen → Brein → Delen). Past zo iemand toch een gedeeld bestand aan (zelf, of via de AI),
+(Brein-tab → Technische details → Delen). Past zo iemand toch een gedeeld bestand aan (zelf, of via de AI),
 dan wordt het brein niet meer bijgewerkt totdat die wijziging terug is gezet of ergens anders bewaard. De
 melding noemt de bestanden. BonzaiWork zet de wijziging niet stilletjes opzij, zodat er niets verloren gaat.
 
@@ -110,7 +110,7 @@ Wordt de geschiedenis van de branch toch herschreven (een force push), dan stopt
 met bijwerken en delen, met de melding dat de gedeelde geschiedenis is herschreven. Er gaat niets
 verloren: wat collega's daarna maakten, blijft lokaal staan. Zet als beheerder de vorige stand terug
 (push de laatste goede commit opnieuw naar de branch); daarna kiest elke collega "Herstellen" in de
-statuspil en loopt alles weer. Was het herschrijven bewust (bijvoorbeeld om een gelekt geheim te
+Actie-nodig-kaart en loopt alles weer. Was het herschrijven bewust (bijvoorbeeld om een gelekt geheim te
 verwijderen), dan zet elke collega de synchronisatie uit en haalt het brein opnieuw op als nieuw project.
 
 ## 4. Wat er wel en niet gedeeld wordt
@@ -122,7 +122,7 @@ Per beurt deelt BonzaiWork ([plan §4.3](./project-breinen-plan.md#43-vastleggen
 
 Niet vanzelf:
 
-- **nieuwe bestanden die geen Markdown zijn** (een pptx, een afbeelding): de statuspil meldt ze;
+- **nieuwe bestanden die geen Markdown zijn** (een pptx, een afbeelding): het Brein-tab meldt ze;
 - bestanden **groter dan 10 MB**: git is geen opslag voor grote bestanden;
 - wat in `.gitignore` staat, en de `output/`-mappen van werkwijzen (resultaten per run);
 - iets dat op een **geheim** lijkt (een API-sleutel, een privésleutel, een wachtwoord in een URL): dan

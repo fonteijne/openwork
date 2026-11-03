@@ -7,6 +7,7 @@ import { copy } from "~/copy";
 import { formatWhen } from "~/lib/format";
 import { focusComposer } from "~/lib/shortcuts";
 
+import { trustDismissed } from "../brain/model";
 import { AttentionCard } from "./attention-cards";
 import { attentionKey, attentionProjectId, MAX_CARDS } from "./model";
 
@@ -53,6 +54,11 @@ export function AttentionSection(props: {
     return (props.items ?? []).filter((item) => {
       const projectId = attentionProjectId(item);
       if (projectId && !props.projects.has(projectId)) return false;
+      // "Nu niet" on the trust card is remembered per device (brief §8); the poll still carries the item.
+      if (item.kind === "brain" && item.state === "needs_trust") {
+        const brain = props.brains.get(item.projectId);
+        if (brain && trustDismissed(item.projectId, brain.status)) return false;
+      }
       const until = hidden.get(attentionKey(item));
       return until === undefined || until < now;
     });

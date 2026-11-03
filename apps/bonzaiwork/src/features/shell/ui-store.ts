@@ -23,8 +23,6 @@ type UiState = {
   sidecarPinned: boolean;
   /** The sidecar as a sheet (phones) or a non-modal panel (1024–1279) on smaller screens. */
   sidecarSheetOpen: boolean;
-  /** A project file the sidecar shows instead of its details. */
-  sidecarFile: SidecarFile | null;
   /** The agenda panel is shown: as an overlay, or as a column when pinned on a wide screen. */
   agendaOpen: boolean;
   /** The agenda opens as a column of its own on wide screens; remembered per device. */
@@ -42,15 +40,15 @@ type UiState = {
   setSidecarSheet(open: boolean): void;
   /** ⌘\ and the "Details" button: the column on a wide screen, the panel or sheet otherwise. */
   toggleDetails(wide: boolean): void;
-  /** Show a file in the sidecar: the column when `wide`, the sheet otherwise. */
-  openSidecarFile(file: SidecarFile, wide: boolean): void;
-  closeSidecarFile(): void;
+  /** Make sure the Details surface is shown: the column when `wide`, the sheet otherwise (a file opens in it). */
+  showDetails(wide: boolean): void;
   /** Open or close the agenda; `wide`: whether a pinned agenda is a column now. */
   setAgenda(open: boolean, wide: boolean): void;
   toggleAgenda(wide: boolean): void;
   setAgendaPinned(pinned: boolean, wide: boolean): void;
 };
 
+/** A project file open in the Details column; the path lives in the hash (`?bestand=`, features/chat/file-link.tsx). */
 export type SidecarFile = { projectId: string; chatId: string | null; path: string };
 
 /** `bonzaiwork.agenda`: "open" (a pinned column that is shown), "pinned" (hidden), nothing (overlay). */
@@ -97,7 +95,6 @@ export const useUi = create<UiState>((set, get) => {
     lastProjectId: readLocal(LAST_PROJECT_KEY),
     sidecarPinned: readLocal("bonzaiwork.sidecar") !== "closed",
     sidecarSheetOpen: false,
-    sidecarFile: null,
     // A pinned column comes back after a restart; an overlay never opens by itself (plan §7.6).
     agendaOpen: storedAgenda === "open" && wideNow(),
     agendaPinned: storedAgenda === "open" || storedAgenda === "pinned",
@@ -131,15 +128,14 @@ export const useUi = create<UiState>((set, get) => {
       if (wide) get().toggleSidecar();
       else set({ sidecarSheetOpen: !get().sidecarSheetOpen });
     },
-    openSidecarFile: (file, wide) => {
+    showDetails: (wide) => {
       if (!wide) {
-        set({ sidecarFile: file, sidecarSheetOpen: true });
+        set({ sidecarSheetOpen: true });
         return;
       }
       if (!get().sidecarPinned) writeLocal("bonzaiwork.sidecar", null);
-      set({ sidecarFile: file, sidecarPinned: true, ...collapseAgendaColumn(true) });
+      set({ sidecarPinned: true, ...collapseAgendaColumn(true) });
     },
-    closeSidecarFile: () => set({ sidecarFile: null }),
     setAgenda: (open, wide) => {
       const { agendaOpen, agendaPinned, sidecarPinned } = get();
       if (open === agendaOpen) return;

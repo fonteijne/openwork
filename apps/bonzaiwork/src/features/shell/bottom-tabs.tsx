@@ -7,7 +7,7 @@ import { cn } from "~/lib/cn";
 import { href, navigate, type Route } from "~/lib/router";
 import { useMediaQuery, WIDE } from "~/lib/use-media";
 
-import { useAttentionCounts } from "./sidebar";
+import { useAttentionCounts } from "../projects/use-listed-projects";
 import { useUi } from "./ui-store";
 
 const TAB = "flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-muted-foreground [&_svg]:size-5 [&_svg]:shrink-0";

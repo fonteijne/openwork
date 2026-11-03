@@ -9,7 +9,14 @@ const HOVER = "(hover: hover) and (pointer: fine)";
 /** Base UI's tooltip, off the first load: fetched in idle time, and only on screens that hover. */
 const primitives = lazyModule(() => import("@base-ui/react/tooltip").then((module) => module.Tooltip));
 
-/** A short label on hover or focus; shows the keyboard chord when there is one (DESIGN.md S6). */
+/**
+ * A short label on hover or focus; shows the keyboard chord when there is one (DESIGN.md S6).
+ *
+ * `children` must be one element that forwards its ref and handlers to a DOM node: an intrinsic
+ * element, `Button`, or a `forwardRef` component that spreads its props. Base UI's trigger renders
+ * through the child, so a composite such as `Select` drops the anchor and the popup loses its
+ * place. Wrap the composite's own trigger instead, or put the hint inside its list.
+ */
 export function Tooltip(props: { label: ReactNode; shortcut?: string; children: ReactElement<Record<string, unknown>>; side?: "top" | "bottom" | "left" | "right" }) {
   // Touch screens never hover: the control's own aria-label carries the name, and no popup store is built.
   const hover = useMediaQuery(HOVER);

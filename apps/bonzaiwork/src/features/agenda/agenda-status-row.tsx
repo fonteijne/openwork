@@ -30,7 +30,8 @@ export function AgendaStatusRow() {
 
   const away = now?.label === copy.agenda.away;
   const label = !available || !enabled || !now ? copy.agenda.title : away ? copy.shell.notInApp : now.label;
-  const since = available && enabled && now ? copy.agenda.since(timeOf(now.since)) : null;
+  // "Sinds" only on a project: the start of an away stretch reads like a stopwatch on pause (assessment L2).
+  const since = available && enabled && now && !away ? copy.agenda.since(timeOf(now.since)) : null;
   const tooltip = !available ? copy.agenda.unavailable : !enabled ? copy.agenda.off : open ? copy.agenda.close : copy.agenda.open;
 
   return (

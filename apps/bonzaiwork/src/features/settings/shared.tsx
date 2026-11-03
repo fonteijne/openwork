@@ -8,7 +8,6 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 
-import { settingsCopy } from "./copy";
 
 /** Runs a mutation; a failure becomes an error toast (C6), a success the action's own word (C2). */
 export async function attempt(action: () => Promise<unknown>, success?: string): Promise<boolean> {
@@ -77,12 +76,12 @@ export function KeyForm(props: { onLink: (key: string) => Promise<void>; onCance
         void submit();
       }}
     >
-      <Field label={props.label ?? settingsCopy.key.label} error={error} hint={error ? undefined : settingsCopy.key.where}>
-        {(id, describedBy) => <SecretInput ref={field} id={id} describedBy={describedBy} invalid={Boolean(error)} placeholder={settingsCopy.key.placeholder} autoFocus={props.autoFocus} disabled={busy} onPresenceChange={setPresent} onSubmit={() => void submit()} />}
+      <Field label={props.label ?? copy.settings.key.label} error={error} hint={error ? undefined : copy.settings.key.where}>
+        {(id, describedBy) => <SecretInput ref={field} id={id} describedBy={describedBy} invalid={Boolean(error)} placeholder={copy.settings.key.placeholder} autoFocus={props.autoFocus} disabled={busy} onPresenceChange={setPresent} onSubmit={() => void submit()} />}
       </Field>
       <div className="flex gap-2">
         <Button type="submit" variant="primary" disabled={!present || busy}>
-          {busy ? copy.onboarding.linking : settingsCopy.key.link}
+          {busy ? copy.onboarding.linking : copy.settings.key.link}
         </Button>
         {props.onCancel ? (
           <Button variant="ghost" onClick={props.onCancel} disabled={busy}>
@@ -114,12 +113,13 @@ export function InlineTextRow(props: {
   const [draft, setDraft] = useState(props.value);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const control = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const inputControl = useRef<HTMLInputElement>(null);
+  const textControl = useRef<HTMLTextAreaElement>(null);
   const editButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (editing) control.current?.focus();
-  }, [editing]);
+    if (editing) (props.multiline ? textControl : inputControl).current?.focus();
+  }, [editing, props.multiline]);
 
   const close = () => {
     setEditing(false);
@@ -168,13 +168,13 @@ export function InlineTextRow(props: {
             variant="secondary"
             size="sm"
             disabled={props.disabled}
-            aria-label={`${props.label}: ${settingsCopy.project.edit}`}
+            aria-label={`${props.label}: ${copy.settings.project.edit}`}
             onClick={() => {
               setDraft(props.value);
               setEditing(true);
             }}
           >
-            {settingsCopy.project.edit}
+            {copy.settings.project.edit}
           </Button>
         </div>
       </div>
@@ -185,15 +185,15 @@ export function InlineTextRow(props: {
       <Field label={props.label} error={error}>
         {(id, describedBy) =>
           props.multiline ? (
-            <Textarea ref={control} id={id} aria-describedby={describedBy} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={props.placeholder} rows={3} disabled={busy} />
+            <Textarea ref={textControl} id={id} aria-describedby={describedBy} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={props.placeholder} rows={3} disabled={busy} />
           ) : (
-            <Input ref={control} id={id} aria-describedby={describedBy} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={props.placeholder} disabled={busy} />
+            <Input ref={inputControl} id={id} aria-describedby={describedBy} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={props.placeholder} disabled={busy} />
           )
         }
       </Field>
       <div className="flex gap-2">
         <Button variant="primary" size="sm" onClick={() => void save()} disabled={busy}>
-          {settingsCopy.project.save}
+          {copy.settings.project.save}
         </Button>
         <Button
           variant="ghost"

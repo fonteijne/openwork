@@ -25,7 +25,6 @@ import { setTheme, useTheme, type ThemePreference } from "~/lib/theme";
 import { AgendaAppSection } from "../agenda/agenda-settings";
 import { BrainsAppSection } from "../brain/personal-setup";
 import { DEFAULT_FOLDER_KEY, FALLBACK_FOLDER } from "../projects/new-project-dialog";
-import { settingsCopy } from "./copy";
 import { attempt, InlineTextRow, KeyForm } from "./shared";
 import { MethodsSection } from "./werkwijzen";
 
@@ -43,17 +42,17 @@ function AccessGroup() {
   const data = status.data;
   if (!data) {
     return (
-      <Section title={settingsCopy.app.access}>
+      <Section title={copy.settings.app.access}>
         <Skeleton className="my-3 h-4 w-40" />
       </Section>
     );
   }
   return (
-    <Section title={settingsCopy.app.access}>
+    <Section title={copy.settings.app.access}>
       {data.keyMode === "user" ? (
         replacing || !data.user.hasKey ? (
           <>
-            {!data.user.hasKey ? <Row label={settingsCopy.key.personal} value={<StatusChip status="locked" label={settingsCopy.key.missing} />} /> : null}
+            {!data.user.hasKey ? <Row label={copy.settings.key.personal} value={<StatusChip status="locked" label={copy.settings.key.missing} />} /> : null}
             <KeyForm
               autoFocus={replacing}
               onCancel={data.user.hasKey ? () => setReplacing(false) : undefined}
@@ -66,23 +65,23 @@ function AccessGroup() {
           </>
         ) : (
           <Row
-            label={settingsCopy.key.personal}
-            value={settingsCopy.key.linked(data.user.keyHint ?? "")}
+            label={copy.settings.key.personal}
+            value={copy.settings.key.linked(data.user.keyHint ?? "")}
             action={
               <>
                 <Button variant="secondary" size="sm" onClick={() => setReplacing(true)}>
-                  {settingsCopy.key.replace}
+                  {copy.settings.key.replace}
                 </Button>
                 <Menu
                   align="end"
                   trigger={
-                    <Button variant="quiet" size="icon-sm" aria-label={settingsCopy.key.more}>
+                    <Button variant="quiet" size="icon-sm" aria-label={copy.settings.key.more}>
                       <Ellipsis />
                     </Button>
                   }
                 >
                   <MenuItem icon={<Unlink />} danger onClick={() => setUnlinking(true)}>
-                    {settingsCopy.key.unlink}
+                    {copy.settings.key.unlink}
                   </MenuItem>
                 </Menu>
               </>
@@ -91,19 +90,19 @@ function AccessGroup() {
         )
       ) : (
         <>
-          <Row label={settingsCopy.app.projectKeys} />
+          <Row label={copy.settings.app.projectKeys} />
           {(projects.data ?? [])
             .filter((project) => !project.archivedAt)
             .map((project) => (
               <a
                 key={project.id}
                 href={href({ name: "project-settings", projectId: project.id, group: "toegang" })}
-                aria-label={settingsCopy.app.projectKeyOpen(project.name)}
+                aria-label={copy.settings.app.projectKeyOpen(project.name)}
                 className="flex min-h-11 items-center gap-2.5 border-b border-border py-2 text-sm outline-none last:border-b-0 hover:bg-hover/60 focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <ProjectIcon icon={project.icon} color={project.color} size="sm" />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                {project.key.hasKey ? <span className="text-muted-foreground">{settingsCopy.key.linked(project.key.keyHint ?? "")}</span> : <StatusChip status="locked" label={settingsCopy.key.missing} />}
+                {project.key.hasKey ? <span className="text-muted-foreground">{copy.settings.key.linked(project.key.keyHint ?? "")}</span> : <StatusChip status="locked" label={copy.settings.key.missing} />}
               </a>
             ))}
         </>
@@ -114,7 +113,7 @@ function AccessGroup() {
         onOpenChange={setUnlinking}
         title={copy.keys.confirmUnlink}
         body={copy.keys.confirmUnlinkBody}
-        confirmLabel={settingsCopy.key.unlink}
+        confirmLabel={copy.settings.key.unlink}
         onConfirm={() => {
           setUnlinking(false);
           void attempt(async () => {
@@ -134,12 +133,12 @@ function AppearanceGroup() {
   const theme = useTheme();
   const [folder, setFolder] = useState(() => readLocal(DEFAULT_FOLDER_KEY) ?? FALLBACK_FOLDER);
   return (
-    <Section title={settingsCopy.app.appearance}>
+    <Section title={copy.settings.app.appearance}>
       <Row
-        label={settingsCopy.app.theme}
+        label={copy.settings.app.theme}
         action={
           <Select
-            label={settingsCopy.app.theme}
+            label={copy.settings.app.theme}
             value={theme}
             onValueChange={(value) => setTheme(value === "light" || value === "dark" ? value : "system")}
             items={(["system", "light", "dark"] as const satisfies readonly ThemePreference[]).map((value) => ({ value, label: copy.settings.themes[value] }))}
@@ -147,16 +146,16 @@ function AppearanceGroup() {
           />
         }
       />
-      <Row label={settingsCopy.app.language} value={copy.settings.languageValue} action={<Locked>{copy.settings.languageLocked}</Locked>} />
+      <Row label={copy.settings.app.language} value={copy.settings.languageValue} action={<Locked>{copy.settings.languageLocked}</Locked>} />
       <InlineTextRow
-        label={settingsCopy.app.defaultFolder}
+        label={copy.settings.app.defaultFolder}
         value={folder}
         placeholder={FALLBACK_FOLDER}
         onSave={async (next) => {
           const trimmed = next.trim() || FALLBACK_FOLDER;
           writeLocal(DEFAULT_FOLDER_KEY, trimmed !== FALLBACK_FOLDER ? trimmed : null);
           setFolder(trimmed);
-          toast(settingsCopy.app.defaultFolderSaved);
+          toast(copy.settings.app.defaultFolderSaved);
         }}
       />
     </Section>
@@ -176,7 +175,7 @@ function PostsSection() {
   const postOf = (projectId: string) => settings.data?.projects.find((entry) => entry.workspaceId === projectId)?.bridgePost ?? null;
   const withPost = active.filter((project) => postOf(project.id) !== null).length;
   return (
-    <Section title={settingsCopy.app.posts} action={settings.data ? <span className="text-xs text-muted-foreground">{settingsCopy.app.postsSummary(withPost, active.length)}</span> : undefined}>
+    <Section title={copy.settings.app.posts} action={settings.data ? <span className="text-xs text-muted-foreground">{copy.settings.app.postsSummary(withPost, active.length)}</span> : undefined}>
       {settings.isLoading ? (
         <Skeleton className="my-3 h-4 w-48" />
       ) : (
@@ -184,7 +183,7 @@ function PostsSection() {
           <a
             key={project.id}
             href={href({ name: "project-settings", projectId: project.id, group: "project" })}
-            aria-label={settingsCopy.app.postOpen(project.name)}
+            aria-label={copy.settings.app.postOpen(project.name)}
             className="flex min-h-11 items-center gap-2.5 border-b border-border py-2 text-sm outline-none last:border-b-0 hover:bg-hover/60 focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ProjectIcon icon={project.icon} color={project.color} size="sm" />
@@ -213,7 +212,7 @@ function EnvSection() {
     const key = name.trim().toUpperCase();
     const value = field?.take() ?? "";
     if (!/^[A-Z_][A-Z0-9_]*$/.test(key) || !value) {
-      setError(settingsCopy.app.envInvalid);
+      setError(copy.settings.app.envInvalid);
       return;
     }
     try {
@@ -228,7 +227,7 @@ function EnvSection() {
   };
   return (
     <Section
-      title={settingsCopy.app.env}
+      title={copy.settings.app.env}
       action={
         <Button variant="quiet" size="sm" onClick={() => (setAdding(true), setError(null))}>
           <Plus />
@@ -267,7 +266,7 @@ function EnvSection() {
       <Dialog
         open={adding}
         onOpenChange={setAdding}
-        title={settingsCopy.app.env}
+        title={copy.settings.app.env}
         footer={
           <>
             <Button variant="secondary" onClick={() => setAdding(false)}>
@@ -299,8 +298,8 @@ function TechnicalGroup() {
   const reset = demo && "reset" in backend && typeof backend.reset === "function" ? backend.reset : null;
   return (
     <>
-      <Section title={settingsCopy.app.about}>
-        <Row label={settingsCopy.app.server} value={status.data ? <span className="font-mono text-xs">{status.data.litellmBaseUrl}</span> : <Skeleton className="h-4 w-40" />} />
+      <Section title={copy.settings.app.about}>
+        <Row label={copy.settings.app.server} value={status.data ? <span className="font-mono text-xs">{status.data.litellmBaseUrl}</span> : <Skeleton className="h-4 w-40" />} />
         <Row label={copy.settings.versionApp} value={versions.data?.app ?? "—"} />
         <Row label={copy.settings.versionServer} value={versions.data?.server ?? (demo ? copy.boot.demoBadge : "—")} />
         <Row label={copy.settings.versionEngine} value={versions.data?.engine ?? (demo ? copy.boot.demoBadge : "—")} />
@@ -308,7 +307,7 @@ function TechnicalGroup() {
       </Section>
       <EnvSection />
       {reset ? (
-        <Section title={settingsCopy.technical.demo}>
+        <Section title={copy.settings.technical.demo}>
           <Row
             label={copy.settings.demoReset}
             action={
@@ -371,16 +370,16 @@ export function AppSettingsPage(props: { group?: AppSettingsGroup | null }) {
   const projects = useProjects();
   const anchor = projects.data?.find((project) => !project.archivedAt) ?? null;
   const group: AppSettingsGroup = props.group ?? "toegang";
-  const items = useMemo(() => APP_SETTINGS_GROUPS.map((entry) => ({ value: entry, label: settingsCopy.appGroups[entry], href: href({ name: "settings", group: entry }) })), []);
+  const items = useMemo(() => APP_SETTINGS_GROUPS.map((entry) => ({ value: entry, label: copy.settings.appGroups[entry], href: href({ name: "settings", group: entry }) })), []);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <TopBar>
-        <PageTitle>{settingsCopy.app.title}</PageTitle>
+        <PageTitle>{copy.settings.app.title}</PageTitle>
       </TopBar>
       <main className="min-h-0 flex-1 overflow-y-auto" data-testid="app-settings">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 pt-3 pb-16 sm:px-6">
-          <Tabs<AppSettingsGroup> value={group} onValueChange={(next) => navigate({ name: "settings", group: next })} items={items} label={settingsCopy.appGroupsLabel} surface="page" />
+          <Tabs<AppSettingsGroup> value={group} onValueChange={(next) => navigate({ name: "settings", group: next })} items={items} label={copy.settings.appGroupsLabel} surface="page" />
           <GroupContent group={group} anchorProjectId={anchor?.id ?? null} />
         </div>
       </main>

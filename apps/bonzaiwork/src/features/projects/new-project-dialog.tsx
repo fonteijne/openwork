@@ -1,254 +1,142 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, FolderOpen } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, newProjectModels, startModel, useStatus } from "~/backend/queries";
-import { PROJECT_COLORS, PROJECT_ICONS, type ProjectColor, type ProjectIcon as ProjectIconName, type RemoteCheck } from "~/backend/types";
-import { PROJECT_ICON_COMPONENTS } from "~/components/project-icon";
+import { keys, newProjectModels, useStatus } from "~/backend/queries";
+import type { RemoteCheck } from "~/backend/types";
 import { BrainLinkField } from "~/features/brain/link-field";
 import { Button } from "~/components/ui/button";
-import { Field, Input, SecretInput, Textarea, type SecretInputHandle } from "~/components/ui/field";
+import { Disclosure } from "~/components/ui/disclosure";
+import { Field, Textarea } from "~/components/ui/field";
+import { Locked } from "~/components/ui/misc";
 import { Dialog } from "~/components/ui/overlay";
+import { SegmentedControl } from "~/components/ui/segmented";
 import { Select } from "~/components/ui/select";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
-import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { navigate } from "~/lib/router";
-import { readLocal } from "~/lib/storage";
 
-export const DEFAULT_FOLDER_KEY = "bonzaiwork.defaultFolder";
-export const FALLBACK_FOLDER = "~/BonzaiWork";
+import { useUi } from "../shell/ui-store";
+import { FolderRow, KeyField, NameField, StarterField, focusComposerWhenReady, useProjectDraft } from "./project-form";
 
-export function defaultFolder(): string {
-  return readLocal(DEFAULT_FOLDER_KEY) || FALLBACK_FOLDER;
-}
-
-function ColorPicker(props: { value: ProjectColor; onChange: (value: ProjectColor) => void }) {
-  return (
-    <div role="radiogroup" aria-label={copy.newProject.color} className="flex flex-wrap gap-1.5">
-      {PROJECT_COLORS.map((color) => (
-        <button
-          key={color}
-          type="button"
-          role="radio"
-          aria-checked={props.value === color}
-          aria-label={copy.colors[color]}
-          title={copy.colors[color]}
-          data-project-color={color}
-          onClick={() => props.onChange(color)}
-          className={cn(
-            "size-7 rounded-full bg-[var(--project-solid)] ring-offset-2 ring-offset-popover transition-shadow duration-100 pointer-coarse:size-9",
-            props.value === color ? "ring-2 ring-foreground" : "hover:ring-2 hover:ring-border-strong",
-          )}
-        />
-      ))}
-    </div>
-  );
-}
-
-function IconPicker(props: { value: ProjectIconName; color: ProjectColor; onChange: (value: ProjectIconName) => void }) {
-  return (
-    <div role="radiogroup" aria-label={copy.newProject.icon} className="grid grid-cols-6 gap-1.5 sm:grid-cols-12" data-project-color={props.color}>
-      {PROJECT_ICONS.map((icon) => {
-        const Icon = PROJECT_ICON_COMPONENTS[icon];
-        const checked = props.value === icon;
-        return (
-          <button
-            key={icon}
-            type="button"
-            role="radio"
-            aria-checked={checked}
-            aria-label={icon}
-            onClick={() => props.onChange(icon)}
-            className={cn(
-              "flex aspect-square items-center justify-center rounded-full text-muted-foreground transition-colors duration-100 [&_svg]:size-4",
-              checked ? "bg-[var(--project-soft)] text-[var(--project-ink)] ring-1 ring-[var(--project-solid)]" : "hover:bg-hover hover:text-foreground",
-            )}
-          >
-            <Icon strokeWidth={1.75} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+export { DEFAULT_FOLDER_KEY, FALLBACK_FOLDER, defaultFolder } from "./project-form";
 
 type Source = "new" | "brain";
-const SOURCES: Source[] = ["new", "brain"];
 
-/** "Nieuwe map" or "Uit een gedeeld brein" (brains plan §4.1); the rest of the form is the same. */
-function SourcePicker(props: { value: Source; onChange: (value: Source) => void }) {
-  return (
-    <div role="radiogroup" aria-label={copy.newProject.title} className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-      {SOURCES.map((source) => (
-        <button
-          key={source}
-          type="button"
-          role="radio"
-          aria-checked={props.value === source}
-          onClick={() => props.onChange(source)}
-          className={cn(
-            "h-8 rounded-full px-3 text-sm text-muted-foreground transition-colors duration-100 hover:text-foreground pointer-coarse:h-10",
-            props.value === source && "bg-background font-medium text-foreground shadow-card",
-          )}
-        >
-          {source === "new" ? copy.brain.sourceNew : copy.brain.sourceBrain}
-        </button>
-      ))}
-    </div>
-  );
-}
-
+/**
+ * Nieuw project (brief §6, flow 6; assessment P-3): name with an auto-assigned look, starter
+ * chips, the folder as a row value, the key (workspace mode, optional, checked before the dialog
+ * closes), and "Meer" for the model and the instructions the starter seeded (P3). Lands on the
+ * project's Werk tab with the composer focused. "Uit een gedeeld brein" stays as the second
+ * source (brains plan §4.1): the brain is cloned first, then the project opens on that folder.
+ */
 export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const backend = useBackend();
   const status = useStatus();
   const client = useQueryClient();
-  const nameInput = useRef<HTMLInputElement>(null);
-  const keyField = useRef<SecretInputHandle>(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [color, setColor] = useState<ProjectColor>("jade");
-  const [icon, setIcon] = useState<ProjectIconName>("folder");
-  const [folder, setFolder] = useState<string | null>(null);
-  const [typingFolder, setTypingFolder] = useState(false);
-  const [instructions, setInstructions] = useState("");
-  const [showMore, setShowMore] = useState(false);
-  const [model, setModel] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const rememberProject = useUi((state) => state.rememberProject);
+  const draft = useProjectDraft();
   const [source, setSource] = useState<Source>("new");
   const [check, setCheck] = useState<RemoteCheck | null>(null);
-  const [error, setError] = useState<{ field: "name" | "key" | "form"; message: string } | null>(null);
-  // Closing the dialog stops a running fetch from registering or opening a project afterwards.
+  const [cloning, setCloning] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  // Closing the dialog stops a running clone wait from registering or opening a project afterwards.
   const pending = useRef<AbortController | null>(null);
-  const workspaceKeys = status.data?.keyMode === "workspace";
-  const initialModel = startModel(status.data, { allowedModels: newProjectModels(status.data), defaultModel: null });
+  // A clone that finished while the key was refused: the next attempt reuses it.
+  const cloned = useRef<{ jobId: string; folderPath: string } | null>(null);
+  const { reset, abandon } = draft;
 
   useEffect(() => {
     if (!props.open) {
       pending.current?.abort();
       pending.current = null;
+      abandon();
       return;
     }
-    setName("");
-    setDescription("");
-    setColor(PROJECT_COLORS[Math.floor(Math.random() * 6)] ?? "jade");
-    setIcon("folder");
-    setFolder(null);
-    setTypingFolder(false);
-    setInstructions("");
-    setShowMore(false);
-    setModel(initialModel);
+    reset();
     setSource("new");
     setCheck(null);
-    setError(null);
-  }, [props.open, initialModel]);
-
-  const pickFolder = async () => {
-    if (!backend.capabilities.folderPicker) {
-      setTypingFolder(true);
-      return;
-    }
-    const picked = await backend.desktop.pickFolder();
-    if (picked) {
-      setFolder(picked);
-      if (!name.trim()) setName(picked.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
-    }
-  };
+    setCloning(false);
+    setFormError(null);
+    cloned.current = null;
+  }, [props.open, reset, abandon]);
 
   const submit = async () => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError({ field: "name", message: copy.newProject.nameRequired });
-      nameInput.current?.focus();
-      return;
-    }
     const fromBrain = source === "brain";
     if (fromBrain && !check?.ok) {
-      setError({ field: "form", message: copy.brain.testFirst });
+      setFormError(copy.brain.testFirst);
       return;
     }
-    setBusy(true);
-    setError(null);
+    setFormError(null);
     const controller = new AbortController();
     pending.current = controller;
     try {
-      // A shared brain is cloned first; the project opens on the cloned folder (plan §4.1).
-      let folderPath = folder?.trim() || null;
+      let folderPath = draft.folder?.trim() || null;
       let jobId: string | null = null;
       if (fromBrain && check?.ok) {
-        const started = await backend.brains.clone(check.sshUrl, { folderPath, name: trimmed });
-        const job = await backend.brains.job(started.jobId, controller.signal);
-        if (controller.signal.aborted) return;
-        if (job.state !== "done") {
-          setError({ field: "form", message: job.error ?? copy.errors.generic });
-          return;
+        // The brain is cloned first; the project opens on the cloned folder (plan §4.1).
+        if (!cloned.current) {
+          setCloning(true);
+          const started = await backend.brains.clone(check.sshUrl, { folderPath, name: draft.name.trim() || check.name });
+          const job = await backend.brains.job(started.jobId, controller.signal);
+          setCloning(false);
+          if (controller.signal.aborted) return;
+          if (job.state !== "done") {
+            setFormError(job.error ?? copy.errors.generic);
+            return;
+          }
+          cloned.current = { jobId: started.jobId, folderPath: started.folderPath };
         }
-        folderPath = started.folderPath;
-        jobId = started.jobId;
+        folderPath = cloned.current.folderPath;
+        jobId = cloned.current.jobId;
       }
-      const project = await backend.projects.create({
-        name: trimmed,
-        description: description.trim() || null,
-        color,
-        icon,
-        folderPath,
-        instructions: instructions.trim() || null,
-        defaultModel: model,
-        allowedModels: newProjectModels(status.data),
-      });
+      const project = await draft.create({ folderPath, requireKey: false });
+      if (!project || controller.signal.aborted) return;
       if (jobId) {
         await backend.brains.register(project.id, { jobId, kind: "project" });
         // An empty repository becomes a brain with the template; the first user sets it up (plan §6.1).
-        if (check?.ok && check.empty) await backend.brains.setUp(project.id, { name: trimmed, description: description.trim() });
+        if (check?.ok && check.empty) await backend.brains.setUp(project.id, { name: project.name, description: "" });
         await client.invalidateQueries({ queryKey: keys.brains });
       }
-      let keyFailure: string | null = null;
-      const key = workspaceKeys ? keyField.current?.take().trim() : "";
-      if (key) {
-        try {
-          await backend.keys.linkProject(project.id, key);
-        } catch (failure) {
-          keyFailure = errorText(failure);
-        }
-      }
-      await Promise.all([client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.status })]);
       if (controller.signal.aborted) return;
+      rememberProject(project.id);
       props.onOpenChange(false);
-      if (keyFailure) {
-        toast(keyFailure, { tone: "error" });
-        navigate({ name: "project-settings", projectId: project.id, section: "key" });
-      } else {
-        toast(jobId ? copy.brain.fetched : copy.projects.created);
-        navigate({ name: "project", projectId: project.id, chatId: null });
+      toast(jobId ? copy.brain.fetched : copy.projects.created);
+      if (jobId) {
+        // A fetched brain opens on its Brein tab, where the trust card waits (brief §8).
+        navigate({ name: "project-brain", projectId: project.id });
+        return;
       }
+      navigate({ name: "project", projectId: project.id, chatId: null });
+      focusComposerWhenReady();
     } catch (failure) {
-      if (!controller.signal.aborted) setError({ field: "form", message: errorText(failure) });
+      if (!controller.signal.aborted) setFormError(errorText(failure));
     } finally {
+      setCloning(false);
       if (pending.current === controller) pending.current = null;
-      setBusy(false);
     }
   };
 
   // A new project starts with the preferred models only: offer just those as its default.
   const startsWith = newProjectModels(status.data);
   const models = (status.data?.models ?? []).filter((entry) => !startsWith || startsWith.includes(entry.id));
-  const folderLabel = folder ? folder : copy.newProject.folderDefault(defaultFolder());
+  const readOnly = status.data?.readOnly ?? false;
+  const busy = draft.busy || cloning;
+  const message = draft.error?.field === "form" ? draft.error.message : formError;
 
   return (
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
       title={copy.newProject.title}
-      size="lg"
-      initialFocus={nameInput}
+      initialFocus={draft.nameInput}
       footer={
         <>
           <Button variant="secondary" onClick={() => props.onOpenChange(false)}>
             {copy.common.cancel}
           </Button>
-          <Button variant="primary" onClick={() => void submit()} disabled={busy || (source === "brain" && !check?.ok)}>
+          <Button variant="primary" onClick={() => void submit()} disabled={busy || readOnly || (source === "brain" && !check?.ok)} data-testid="project-create">
             {source === "brain" ? (busy ? copy.brain.fetching : copy.brain.fetch) : busy ? copy.projects.creating : copy.projects.create}
           </Button>
         </>
@@ -262,12 +150,19 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
         }}
       >
         {backend.capabilities.brains ? (
-          <SourcePicker
+          <SegmentedControl
             value={source}
-            onChange={(value) => {
+            onValueChange={(value) => {
               setSource(value);
-              setError(null);
+              setFormError(null);
             }}
+            items={[
+              { value: "new", label: copy.brain.sourceNew },
+              { value: "brain", label: copy.brain.sourceBrain },
+            ]}
+            label={copy.newProject.source}
+            fill
+            disabled={busy}
           />
         ) : null}
         {source === "brain" ? (
@@ -276,97 +171,54 @@ export function NewProjectDialog(props: { open: boolean; onOpenChange: (open: bo
             disabled={busy}
             onCheck={(next) => {
               setCheck(next);
-              if (next?.ok && !name.trim()) setName(next.name);
+              cloned.current = null;
+              if (next?.ok && !draft.name.trim()) draft.setName(next.name);
             }}
           />
         ) : null}
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label={copy.newProject.name} error={error?.field === "name" ? error.message : null}>
-            {(id, describedBy) => (
-              <Input ref={nameInput} id={id} aria-describedby={describedBy} aria-invalid={error?.field === "name" || undefined} value={name} onChange={(event) => setName(event.target.value)} placeholder={copy.newProject.namePlaceholder} maxLength={80} />
-            )}
-          </Field>
-          <Field label={copy.newProject.description} optional>
-            {(id) => <Input id={id} value={description} onChange={(event) => setDescription(event.target.value)} placeholder={copy.newProject.descriptionPlaceholder} maxLength={160} />}
-          </Field>
-        </div>
+        <NameField draft={draft} />
+        {source === "new" ? <StarterField draft={draft} /> : null}
+        <FolderRow draft={draft} />
+        <KeyField draft={draft} required={false} />
 
-        <div className="flex flex-col gap-2.5">
-          <span className="text-sm font-medium">{copy.newProject.look}</span>
-          <ColorPicker value={color} onChange={setColor} />
-          <IconPicker value={icon} color={color} onChange={setIcon} />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">{copy.newProject.folder}</span>
-          {typingFolder ? (
-            <div className="flex gap-2">
-              <Input aria-label={copy.newProject.folderPathLabel} placeholder="/Users/jij/Documenten/Offertes" value={folder ?? ""} onChange={(event) => setFolder(event.target.value)} autoFocus className="font-mono" />
-              <Button
-                variant="quiet"
-                onClick={() => {
-                  setTypingFolder(false);
-                  setFolder(null);
-                }}
-              >
-                {copy.newProject.folderUseDefault}
-              </Button>
-            </div>
-          ) : (
-            <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-2xl bg-muted/70 px-4 py-2">
-              <span className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-                <FolderOpen className="size-4 shrink-0" />
-                <span className={cn("truncate", folder && "font-mono text-xs")}>{folderLabel}</span>
-              </span>
-              <Button variant="ghost" size="sm" onClick={() => void pickFolder()}>
-                {copy.newProject.folderChoose}
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {workspaceKeys ? (
-          <Field label={copy.newProject.key} optional error={error?.field === "key" ? error.message : null} hint={status.data?.keyStorePersistent === false ? copy.onboarding.notPersistent : undefined}>
-            {(id, describedBy) => <SecretInput ref={keyField} id={id} describedBy={describedBy} placeholder={copy.onboarding.keyPlaceholder} onSubmit={() => void submit()} />}
-          </Field>
-        ) : null}
-
-        <div>
-          <button
-            type="button"
-            className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
-            aria-expanded={showMore}
-            onClick={() => setShowMore((value) => !value)}
-          >
-            <ChevronRight className={cn("size-4 transition-transform duration-150", showMore && "rotate-90")} />
-            {copy.common.more}
-          </button>
-          {showMore ? (
-            <div className="mt-3 grid gap-5">
-              {models.length ? (
-                <Field label={copy.newProject.model}>
-                  {(id) => (
-                    <Select
-                      id={id}
-                      label={copy.newProject.model}
-                      value={model}
-                      onValueChange={setModel}
-                      items={models.map((entry) => ({ value: entry.id, label: entry.name }))}
-                    />
-                  )}
-                </Field>
-              ) : null}
-              <Field label={copy.newProject.instructions} optional>
-                {(id) => <Textarea id={id} value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder={copy.newProject.instructionsPlaceholder} rows={4} />}
+        {/* Model and instructions are rare decisions here: every one is editable later in Agent (P3). */}
+        <Disclosure label={copy.newProject.more} size="md" className="-mx-1" panelClassName="ps-1 pt-3">
+          <div className="grid gap-5">
+            {models.length ? (
+              <Field label={copy.newProject.model}>
+                {(id) => (
+                  <Select
+                    id={id}
+                    label={copy.newProject.model}
+                    value={draft.model}
+                    onValueChange={draft.setModel}
+                    items={models.map((entry) => ({ value: entry.id, label: entry.name }))}
+                    placeholder={copy.settings.defaultModelNone}
+                    disabled={busy}
+                  />
+                )}
               </Field>
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+            <Field label={copy.newProject.instructions} optional>
+              {(id) => (
+                <Textarea
+                  id={id}
+                  value={draft.instructions}
+                  onChange={(event) => draft.setInstructions(event.target.value)}
+                  placeholder={copy.newProject.instructionsPlaceholder}
+                  rows={4}
+                  disabled={busy}
+                />
+              )}
+            </Field>
+          </div>
+        </Disclosure>
 
-        {error?.field === "form" ? (
+        {readOnly ? <Locked>{copy.settings.readOnly}</Locked> : null}
+        {message ? (
           <p className="text-sm text-destructive-foreground" role="alert">
-            {error.message}
+            {message}
           </p>
         ) : null}
         <button type="submit" hidden />

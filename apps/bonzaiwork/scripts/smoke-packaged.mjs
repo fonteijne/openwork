@@ -4,7 +4,7 @@
  *   2. launches dist-electron/bonzaiwork/linux-unpacked/bonzaiwork with a fresh
  *      profile, a CDP port, and every outbound request routed through a
  *      recording proxy that refuses to forward anything;
- *   3. links a key in onboarding, adds a workspace, and runs one chat turn;
+ *   3. creates the first project with its key on the welcome screen, adds a workspace, and runs one chat turn;
  *   4. opens Feedback sturen and saves a report (window capture, redacted logs);
  *   5. fails when any request went to *.openworklabs.com (workstream C);
  *   6. checks the git for brains is in the app and runs (brains plan §3.1).
@@ -135,9 +135,11 @@ try {
   await page.waitForSelector('[data-testid="litellm-key-input"]', { timeout: 120_000 });
   check("packaged app shows BonzaiWork onboarding", (await page.title()) === "BonzaiWork", await page.title());
   check("onboarding shows the baked LiteLLM URL", (await page.textContent('[data-testid="litellm-server"]')) === baked.litellmBaseUrl);
+  // The first run is one screen (brief §3): a project name, the key, Begin; it lands on Vandaag.
+  await page.fill('[data-testid="project-name"]', "Smoke");
   await page.fill('[data-testid="litellm-key-input"]', KEY);
   await page.click('[data-testid="litellm-key-submit"]');
-  await page.waitForSelector('[data-testid="new-workspace"]', { timeout: 60_000 });
+  await page.waitForSelector('[data-testid="composer-input"]', { timeout: 60_000 });
 
   // The native folder picker cannot be driven here; register the folder the way the UI does after picking one.
   const workspaceId = await page.evaluate(async (folderPath) => {
@@ -165,6 +167,9 @@ try {
   }, workspaceId);
   check("engine offers LiteLLM's models for the new workspace", engineReady);
   await page.reload();
+  // The project rows live on #/projecten (brief §3); the sidebar lists at most eight.
+  await page.evaluate(() => { window.location.hash = "#/projecten"; });
+  await page.waitForSelector('[data-testid="new-workspace"]', { timeout: 60_000 });
   // Upstream creates its own first-run workspace too; pick ours explicitly rather than relying on list order.
   await page.click('[data-testid="workspace-item"]:text-is("workspace")', { timeout: 60_000 });
   await page.waitForSelector('[data-testid="composer-input"]', { timeout: 60_000 });

@@ -17,7 +17,6 @@ import { fileName, touchedFiles } from "~/lib/tools";
 
 import { useOpenProjectFile } from "../chat/file-link";
 import { absoluteFilePath } from "../chat/sidecar";
-import { projectCopy } from "./copy";
 import { DocumentRow } from "./details";
 import { useProjectState } from "./runtime";
 
@@ -64,7 +63,7 @@ export function FilesTab(props: { project: Project }) {
     try {
       for (const file of items) await backend.composer.upload(props.project.id, file);
       await client.invalidateQueries({ queryKey: keys.files(props.project.id) });
-      toast(projectCopy.files.uploaded(items.length));
+      toast(copy.project.files.uploaded(items.length));
     } catch (failure) {
       toast(errorText(failure), { tone: "error" });
     } finally {
@@ -80,7 +79,7 @@ export function FilesTab(props: { project: Project }) {
             <input ref={input} type="file" multiple hidden onChange={(event) => event.target.files && void upload(event.target.files).finally(() => (event.target.value = ""))} />
             <Button variant="secondary" size="sm" disabled={readOnly || uploading} aria-busy={uploading} onClick={() => input.current?.click()} data-testid="files-upload">
               <Upload />
-              {uploading ? projectCopy.files.uploading : copy.project.upload}
+              {uploading ? copy.project.files.uploading : copy.project.upload}
             </Button>
             {backend.capabilities.revealPath ? (
               <Button variant="quiet" size="sm" onClick={() => void backend.desktop.revealPath(props.project.path)} data-testid="files-reveal">
@@ -91,7 +90,7 @@ export function FilesTab(props: { project: Project }) {
           </>
         }
       />
-      <main className="min-h-0 flex-1 overflow-y-auto" aria-label={projectCopy.files.label}>
+      <main className="min-h-0 flex-1 overflow-y-auto" aria-label={copy.project.files.label}>
         <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-16 sm:px-6">
           {files.isLoading ? (
             <div className="flex flex-col gap-3 border-t border-border pt-4" aria-busy="true">
@@ -111,7 +110,7 @@ export function FilesTab(props: { project: Project }) {
                     name={fileName(file.path)}
                     meta={
                       <>
-                        <span className="font-mono">{folder || projectCopy.files.folderRoot}</span>
+                        <span className="font-mono">{folder || copy.project.files.folderRoot}</span>
                         <span aria-hidden="true"> · </span>
                         {when}
                       </>

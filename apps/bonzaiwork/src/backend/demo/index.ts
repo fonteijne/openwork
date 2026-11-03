@@ -582,11 +582,11 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       if (!live.has(routine.projectId) || routine.state === "archived") continue;
       const run = routine.lastRun;
       if (routine.state === "needs_attention") {
-        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "needs_attention", detail: routine.needsAttentionReason, at: routine.updatedAt });
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "needs_attention", detail: routine.needsAttentionReason, model: routine.model, at: routine.updatedAt });
       } else if (run?.status === "failed") {
-        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "failed", detail: run.error, at: run.finishedAt ?? run.scheduledAt });
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "failed", detail: run.error, model: routine.model, at: run.finishedAt ?? run.scheduledAt });
       } else if (run?.status === "skipped" && run.skippedReason === "app_closed") {
-        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "missed", detail: null, at: run.scheduledAt });
+        items.push({ kind: "routine", projectId: routine.projectId, routineId: routine.id, name: routine.name, reason: "missed", detail: null, model: routine.model, at: run.scheduledAt });
       }
     }
     // The brains keep their own state (demo/brains.ts): read them through the same calls screens use.

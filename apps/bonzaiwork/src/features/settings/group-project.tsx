@@ -18,7 +18,6 @@ import { ProjectPostRow } from "~/features/agenda/agenda-settings";
 import { cn } from "~/lib/cn";
 import { navigate } from "~/lib/router";
 
-import { settingsCopy } from "./copy";
 import { attempt, folderName, InlineTextRow } from "./shared";
 
 /**
@@ -46,32 +45,32 @@ export function ProjectGroup(props: { project: Project }) {
 
   return (
     <div className="flex flex-col gap-8">
-      <Section title={settingsCopy.groups.project}>
+      <Section title={copy.settings.groups.project}>
         <InlineTextRow
-          label={settingsCopy.project.name}
+          label={copy.settings.project.name}
           value={project.name}
-          required={settingsCopy.project.nameEmpty}
+          required={copy.settings.project.nameEmpty}
           disabled={readOnly}
-          onSave={(next, previous) => saveWithUndo({ name: next }, { name: previous }, settingsCopy.project.nameChanged, settingsCopy.project.nameRestored)}
+          onSave={(next, previous) => saveWithUndo({ name: next }, { name: previous }, copy.settings.project.nameChanged, copy.settings.project.nameRestored)}
           testId="settings-project-name"
         />
-        <Row label={settingsCopy.project.look} action={<LookPicker project={project} disabled={readOnly} onChange={(patch) => void attempt(() => update(patch), settingsCopy.project.lookSaved)} />} />
+        <Row label={copy.settings.project.look} action={<LookPicker project={project} disabled={readOnly} onChange={(patch) => void attempt(() => update(patch), copy.settings.project.lookSaved)} />} />
         <InlineTextRow
-          label={settingsCopy.project.description}
+          label={copy.settings.project.description}
           value={project.description ?? ""}
-          empty={settingsCopy.project.descriptionEmpty}
-          placeholder={settingsCopy.project.descriptionPlaceholder}
+          empty={copy.settings.project.descriptionEmpty}
+          placeholder={copy.settings.project.descriptionPlaceholder}
           multiline
-          onSave={(next, previous) => saveWithUndo({ description: next || null }, { description: previous || null }, settingsCopy.project.descriptionChanged, settingsCopy.project.descriptionRestored)}
+          onSave={(next, previous) => saveWithUndo({ description: next || null }, { description: previous || null }, copy.settings.project.descriptionChanged, copy.settings.project.descriptionRestored)}
         />
         <Row
-          label={settingsCopy.project.folder}
+          label={copy.settings.project.folder}
           value={<span title={project.path}>{folderName(project.path)}</span>}
           action={
             backend.capabilities.revealPath ? (
               <Button variant="secondary" size="sm" onClick={() => void backend.desktop.revealPath(project.path)}>
                 <FolderOpen />
-                {settingsCopy.project.reveal}
+                {copy.settings.project.reveal}
               </Button>
             ) : undefined
           }
@@ -80,10 +79,10 @@ export function ProjectGroup(props: { project: Project }) {
         <WeekRow projectId={project.id} />
       </Section>
 
-      <Disclosure label={settingsCopy.project.more} testId="settings-project-more" panelClassName="ps-0 pt-0">
+      <Disclosure label={copy.settings.project.more} testId="settings-project-more" panelClassName="ps-0 pt-0">
         <div className="border-t border-border">
           <Row
-            label={settingsCopy.project.export}
+            label={copy.settings.project.export}
             action={
               <Button
                 variant="secondary"
@@ -100,7 +99,7 @@ export function ProjectGroup(props: { project: Project }) {
                 }
               >
                 <Download />
-                {settingsCopy.project.exportAction}
+                {copy.settings.project.exportAction}
               </Button>
             }
           />
@@ -115,7 +114,7 @@ export function ProjectGroup(props: { project: Project }) {
             />
           )}
           <Row
-            label={settingsCopy.project.remove}
+            label={copy.settings.project.remove}
             action={
               <Button variant="danger" size="sm" onClick={() => setRemoving(true)} disabled={readOnly}>
                 {copy.projects.removeConfirm}
@@ -149,7 +148,7 @@ function LookPicker(props: { project: Project; disabled?: boolean; onChange: (pa
   const { project } = props;
   return (
     <Popover
-      label={settingsCopy.project.lookChoose}
+      label={copy.settings.project.lookChoose}
       align="end"
       trigger={
         <button
@@ -198,7 +197,7 @@ function LookPicker(props: { project: Project; disabled?: boolean; onChange: (pa
           })}
         </div>
         <div className="flex justify-end">
-          <PopoverClose render={<Button variant="ghost" size="sm" />}>{settingsCopy.project.done}</PopoverClose>
+          <PopoverClose render={<Button variant="ghost" size="sm" />}>{copy.settings.project.done}</PopoverClose>
         </div>
       </div>
     </Popover>
@@ -222,7 +221,7 @@ function WeekRow(props: { projectId: string }) {
     queries: dates.map((date) => ({ queryKey: keys.agendaDay(date), queryFn: () => backend.agenda.day(date), enabled, staleTime: 60_000 })),
   });
   if (!enabled) return null;
-  if (days.some((day) => day.isLoading)) return <Row label={settingsCopy.project.week} value={<Skeleton className="h-4 w-28" />} />;
+  if (days.some((day) => day.isLoading)) return <Row label={copy.settings.project.week} value={<Skeleton className="h-4 w-28" />} />;
   let quarters = 0;
   let withoutPost = 0;
   for (const day of days) {
@@ -234,11 +233,11 @@ function WeekRow(props: { projectId: string }) {
   }
   const value = quarters ? (
     <>
-      {settingsCopy.project.weekTracked(dutchDuration(quarters * QUARTER_MINUTES))}
-      {withoutPost ? <span className="text-warning-foreground"> · {settingsCopy.project.weekWithoutPost(dutchDuration(withoutPost * QUARTER_MINUTES))}</span> : null}
+      {copy.settings.project.weekTracked(dutchDuration(quarters * QUARTER_MINUTES))}
+      {withoutPost ? <span className="text-warning-foreground"> · {copy.settings.project.weekWithoutPost(dutchDuration(withoutPost * QUARTER_MINUTES))}</span> : null}
     </>
   ) : (
-    settingsCopy.project.weekNothing
+    copy.settings.project.weekNothing
   );
-  return <Row label={settingsCopy.project.week} value={<span data-testid="settings-project-week">{value}</span>} />;
+  return <Row label={copy.settings.project.week} value={<span data-testid="settings-project-week">{value}</span>} />;
 }

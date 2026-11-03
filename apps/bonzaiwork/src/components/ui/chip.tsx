@@ -3,8 +3,8 @@ import { CircleAlert, Lock } from "lucide-react";
 
 import type { ChatStatus } from "~/backend/types";
 import { cn } from "~/lib/cn";
+import { copy } from "~/copy";
 
-import { uiCopy } from "./copy";
 
 /**
  * A small pill: icon + word, or a mono file/command chip (DESIGN.md V1). Neutral by default;
@@ -48,7 +48,7 @@ export function StatusChip(props: {
   className?: string;
 }) {
   if (props.status === "idle" && !props.label) return null;
-  const word = props.label ?? (props.status === "idle" ? "" : uiCopy.status[props.status]);
+  const word = props.label ?? (props.status === "idle" ? "" : copy.ui.status[props.status]);
   return (
     <span
       data-status={props.status}

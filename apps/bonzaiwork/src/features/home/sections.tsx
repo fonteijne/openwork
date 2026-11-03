@@ -14,14 +14,13 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatTime, formatWhen, relativeTime } from "~/lib/format";
-import { chordLabel } from "~/lib/platform";
 import { href } from "~/lib/router";
+import { chord } from "~/lib/shortcuts";
 import { useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { dateOf, dutchDuration, minutesToBook } from "../agenda/format";
 import { useUi } from "../shell/ui-store";
 import { SectionHeading } from "./attention-section";
-import { homeCopy } from "./copy";
 import { attentionChat, MAX_PROJECT_ROWS, projectNeed, type AwayRow } from "./model";
 
 const ROW = "flex min-h-11 items-center gap-3 border-b border-border py-2 text-sm last:border-b-0";
@@ -44,7 +43,7 @@ function BusyRow(props: { chat: Chat; project: Project }) {
     try {
       await backend.chats.abort(project.id, chat.id);
       if (backend.capabilities.agenda) void backend.agenda.reportPresence({ projectId: project.id, name: project.name });
-      toast(homeCopy.stopped);
+      toast(copy.home.stopped);
       await Promise.all([client.invalidateQueries({ queryKey: keys.recent }), client.invalidateQueries({ queryKey: keys.attention }), client.invalidateQueries({ queryKey: keys.summaries })]);
     } catch (failure) {
       toast(errorText(failure), { tone: "error" });
@@ -66,7 +65,7 @@ function BusyRow(props: { chat: Chat; project: Project }) {
           </span>
           {/* The running step shimmers (V6); without the chat's messages the word carries the state. */}
           <span className="bw-shimmer font-medium" role="status">
-            {homeCopy.busyNow}
+            {copy.home.busyNow}
           </span>
         </span>
       </span>
@@ -114,7 +113,7 @@ function AwayRowView(props: { row: AwayRow; project: Project }) {
             {chat.routineId ? (
               <span className="inline-flex items-center gap-1">
                 <Repeat aria-hidden="true" className="size-3" />
-                {homeCopy.routineChat}
+                {copy.home.routineChat}
               </span>
             ) : null}
             {chat.routineId ? <span aria-hidden="true">·</span> : null}
@@ -132,7 +131,7 @@ function AwayRowView(props: { row: AwayRow; project: Project }) {
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
         <a href={href({ name: "project-brain", projectId: project.id })} className="truncate text-foreground hover:underline underline-offset-2">
-          {homeCopy.brainChange(row.entry.author, row.entry.title)}
+          {copy.home.brainChange(row.entry.author, row.entry.title)}
         </a>
         <span className="truncate text-xs text-muted-foreground">
           {copy.project.tabs.brain} · {project.name}
@@ -157,7 +156,7 @@ export function WhileAwaySection(props: { rows: readonly AwayRow[]; projects: Re
             <span className="text-xs text-subtle-foreground">{copy.home.since(sameDay ? formatTime(props.lastSeenAt) : relativeTime(props.lastSeenAt))}</span>
             <Button variant="quiet" size="sm" onClick={props.onSeenAll} data-testid="home-seen-all">
               {copy.home.allSeen}
-              <Kbd className="pointer-coarse:hidden">{chordLabel(homeCopy.seenAllChord, { shift: true })}</Kbd>
+              <Kbd className="pointer-coarse:hidden">{chord("seenAll")}</Kbd>
             </Button>
           </>
         }

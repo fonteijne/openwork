@@ -21,7 +21,6 @@ import { formatMoney } from "~/lib/format";
 import { href } from "~/lib/router";
 
 import { ConnectionsSection } from "./connections";
-import { settingsCopy } from "./copy";
 import { attempt, folderName, KeyForm } from "./shared";
 
 const RUN_MODES: readonly RunMode[] = ["default", "approve", "run-everything"];
@@ -55,20 +54,20 @@ function KeySection(props: { project: Project }) {
   const afterKeyChange = () => Promise.all([client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.status })]);
 
   return (
-    <Section title={settingsCopy.key.title}>
+    <Section title={copy.settings.key.title}>
       {userMode ? (
         <Row
-          label={settingsCopy.key.personal}
-          value={status.data?.user.hasKey ? settingsCopy.key.linked(status.data.user.keyHint ?? "") : <StatusChip status="locked" label={settingsCopy.key.missing} />}
+          label={copy.settings.key.personal}
+          value={status.data?.user.hasKey ? copy.settings.key.linked(status.data.user.keyHint ?? "") : <StatusChip status="locked" label={copy.settings.key.missing} />}
           action={
             <a href={href({ name: "settings", group: "toegang" })} className="inline-flex h-7 items-center rounded-full px-3 text-xs font-medium text-foreground ring-1 ring-inset ring-border-strong hover:bg-hover pointer-coarse:h-9">
-              {settingsCopy.key.personalOpen}
+              {copy.settings.key.personalOpen}
             </a>
           }
         />
       ) : replacing || !project.key.hasKey ? (
         <>
-          {!project.key.hasKey ? <Row label={settingsCopy.key.label} value={<StatusChip status="locked" label={settingsCopy.key.missing} />} /> : null}
+          {!project.key.hasKey ? <Row label={copy.settings.key.label} value={<StatusChip status="locked" label={copy.settings.key.missing} />} /> : null}
           <KeyForm
             autoFocus={replacing}
             onCancel={project.key.hasKey ? () => setReplacing(false) : undefined}
@@ -82,23 +81,23 @@ function KeySection(props: { project: Project }) {
         </>
       ) : (
         <Row
-          label={settingsCopy.key.label}
-          value={<span data-testid="settings-key-state">{settingsCopy.key.linked(project.key.keyHint ?? "")}</span>}
+          label={copy.settings.key.label}
+          value={<span data-testid="settings-key-state">{copy.settings.key.linked(project.key.keyHint ?? "")}</span>}
           action={
             <>
               <Button variant="secondary" size="sm" onClick={() => setReplacing(true)}>
-                {settingsCopy.key.replace}
+                {copy.settings.key.replace}
               </Button>
               <Menu
                 align="end"
                 trigger={
-                  <Button variant="quiet" size="icon-sm" aria-label={settingsCopy.key.more}>
+                  <Button variant="quiet" size="icon-sm" aria-label={copy.settings.key.more}>
                     <Ellipsis />
                   </Button>
                 }
               >
                 <MenuItem icon={<Unlink />} danger onClick={() => setUnlinking(true)}>
-                  {settingsCopy.key.unlink}
+                  {copy.settings.key.unlink}
                 </MenuItem>
               </Menu>
             </>
@@ -111,7 +110,7 @@ function KeySection(props: { project: Project }) {
         onOpenChange={setUnlinking}
         title={copy.keys.confirmUnlink}
         body={copy.keys.confirmUnlinkBody}
-        confirmLabel={settingsCopy.key.unlink}
+        confirmLabel={copy.settings.key.unlink}
         onConfirm={() => {
           setUnlinking(false);
           void attempt(async () => {
@@ -126,7 +125,7 @@ function KeySection(props: { project: Project }) {
 
 /** "€ 18 van € 50" as a bar (brief §12 Progress); amber near the end, red when the budget is gone. */
 export function usageText(spend: number, budget: number | null, currency: string): string {
-  return budget !== null ? settingsCopy.usage.of(formatMoney(spend, currency), formatMoney(budget, currency)) : formatMoney(spend, currency);
+  return budget !== null ? copy.settings.usage.of(formatMoney(spend, currency), formatMoney(budget, currency)) : formatMoney(spend, currency);
 }
 
 function UsageSection(props: { project: Project }) {
@@ -135,26 +134,26 @@ function UsageSection(props: { project: Project }) {
   const usage = useUsage(props.project.id);
   if (!backend.capabilities.usage) {
     return (
-      <Section title={settingsCopy.usage.title}>
-        <Row label={settingsCopy.usage.thisMonth} value={<Locked>{settingsCopy.usage.locked}</Locked>} />
+      <Section title={copy.settings.usage.title}>
+        <Row label={copy.settings.usage.thisMonth} value={<Locked>{copy.settings.usage.locked}</Locked>} />
       </Section>
     );
   }
   const data = usage.data;
   if (!data) {
     return (
-      <Section title={settingsCopy.usage.title}>
+      <Section title={copy.settings.usage.title}>
         <Skeleton className="my-3 h-4 w-40" />
       </Section>
     );
   }
   const ratio = data.maxBudget ? data.spend / data.maxBudget : null;
   return (
-    <Section title={settingsCopy.usage.title}>
+    <Section title={copy.settings.usage.title}>
       <div className="py-3">
         <Progress
-          label={settingsCopy.usage.thisMonth}
-          caption={settingsCopy.usage.thisMonth}
+          label={copy.settings.usage.thisMonth}
+          caption={copy.settings.usage.thisMonth}
           value={data.maxBudget ? Math.min(data.spend, data.maxBudget) : null}
           max={data.maxBudget ?? undefined}
           valueText={usageText(data.spend, data.maxBudget, data.currency)}
@@ -175,21 +174,21 @@ function RunModeSection(props: { projectId: string }) {
   const mode = useQuery({ queryKey: keys.runMode(props.projectId), queryFn: () => backend.config.runMode(props.projectId) });
   const chosen = mode.data?.mode ?? "default";
   return (
-    <Section title={settingsCopy.runMode.title}>
+    <Section title={copy.settings.runMode.title}>
       {mode.isLoading ? (
         <Skeleton className="my-3 h-7 w-64 rounded-full" />
       ) : !mode.data?.supported ? (
-        <Row label={settingsCopy.runMode.question} value={<Locked>{mode.data?.reason ?? copy.settings.runModeUnsupported}</Locked>} />
+        <Row label={copy.settings.runMode.question} value={<Locked>{mode.data?.reason ?? copy.settings.runModeUnsupported}</Locked>} />
       ) : (
         <Row
-          label={settingsCopy.runMode.question}
+          label={copy.settings.runMode.question}
           hint={copy.settings.runModes[chosen].hint}
           action={
             <SegmentedControl<RunMode>
-              label={settingsCopy.runMode.question}
+              label={copy.settings.runMode.question}
               size="sm"
               value={chosen}
-              items={RUN_MODES.map((value) => ({ value, label: settingsCopy.runMode.short[value] }))}
+              items={RUN_MODES.map((value) => ({ value, label: copy.settings.runMode.short[value] }))}
               onValueChange={(value) =>
                 void attempt(async () => {
                   client.setQueryData(keys.runMode(props.projectId), await backend.config.setRunMode(props.projectId, value));
@@ -223,18 +222,18 @@ function FoldersSection(props: { projectId: string }) {
   };
   return (
     <Section
-      title={settingsCopy.folders.title}
+      title={copy.settings.folders.title}
       action={
         apply ? (
           <Button variant="quiet" size="sm" onClick={() => void addFolder()}>
             <Plus />
-            {settingsCopy.folders.add}
+            {copy.settings.folders.add}
           </Button>
         ) : undefined
       }
     >
       {!apply ? (
-        <Row label={settingsCopy.folders.title} value={<Locked>{copy.settings.foldersUnsupported}</Locked>} />
+        <Row label={copy.settings.folders.title} value={<Locked>{copy.settings.foldersUnsupported}</Locked>} />
       ) : folders.data?.length ? (
         folders.data.map((folder) => (
           <Row
@@ -242,16 +241,16 @@ function FoldersSection(props: { projectId: string }) {
             label={<span title={folder}>{folderName(folder)}</span>}
             value={<span className="font-mono text-xs">{folder}</span>}
             action={
-              <Button variant="quiet" size="icon-sm" aria-label={settingsCopy.folders.remove(folder)} onClick={() => void setFolders((folders.data ?? []).filter((entry) => entry !== folder))}>
+              <Button variant="quiet" size="icon-sm" aria-label={copy.settings.folders.remove(folder)} onClick={() => void setFolders((folders.data ?? []).filter((entry) => entry !== folder))}>
                 <X />
               </Button>
             }
           />
         ))
       ) : (
-        <Row label={settingsCopy.folders.empty} />
+        <Row label={copy.settings.folders.empty} />
       )}
-      <PromptDialog open={adding} onOpenChange={setAdding} title={settingsCopy.folders.add} label={settingsCopy.folders.pathLabel} placeholder={settingsCopy.folders.placeholder} submitLabel={copy.settings.add} onSubmit={async (path) => void (await setFolders([...(folders.data ?? []), path]))} />
+      <PromptDialog open={adding} onOpenChange={setAdding} title={copy.settings.folders.add} label={copy.settings.folders.pathLabel} placeholder={copy.settings.folders.placeholder} submitLabel={copy.settings.add} onSubmit={async (path) => void (await setFolders([...(folders.data ?? []), path]))} />
     </Section>
   );
 }
@@ -278,11 +277,11 @@ function ReadsSection(props: { projectId: string }) {
     }
   };
   return (
-    <Section title={settingsCopy.brains.title}>
+    <Section title={copy.settings.brains.title}>
       {!backend.capabilities.brains ? (
         <Row label={copy.brain.reads} value={<Locked>{copy.brain.locked}</Locked>} />
       ) : !others ? (
-        <Row label={settingsCopy.brains.none} />
+        <Row label={copy.settings.brains.none} />
       ) : (
         <div className="py-3">
           <BrainPicker label={copy.brain.reads} hint={copy.brain.readsHint} exclude={props.projectId} value={reads.data ?? []} onChange={(next) => void change(next)} disabled={(status.data?.readOnly ?? false) || busy} />

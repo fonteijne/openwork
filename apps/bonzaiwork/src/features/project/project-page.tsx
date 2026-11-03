@@ -14,14 +14,14 @@ import { Panel, Sheet } from "~/components/ui/overlay";
 import { Tabs } from "~/components/ui/tabs";
 import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
-import { href, legacySectionOf, navigate, type ProjectTab, type Route, type SettingsGroup, type SettingsSection } from "~/lib/router";
+import { href, navigate, type ProjectTab, type Route, type SettingsGroup, type SettingsSection } from "~/lib/router";
 import { chord } from "~/lib/shortcuts";
 import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { ChatView } from "../chat/chat-view";
 import { ProjectFileLinks, useOpenedFile } from "../chat/file-link";
 import { ProjectHome } from "../chat/project-home";
-import { useSidebarProjects } from "../shell/sidebar";
+import { useSidebarProjects } from "../projects/use-listed-projects";
 import { useUi } from "../shell/ui-store";
 import { BrainTab } from "../brain/brain-tab";
 import { Details } from "./details";
@@ -186,7 +186,7 @@ function TabContent(props: { project: Project; tab: ProjectTab; routineId: strin
       // Seam: the settings agent switches ProjectSettingsPage to `group`; until then the group's first section.
       return (
         <Suspense fallback={<TabSkeleton />}>
-          <ProjectSettingsPage projectId={props.project.id} section={props.section ?? legacySectionOf(props.group)} />
+          <ProjectSettingsPage projectId={props.project.id} group={props.group} section={props.section} />
         </Suspense>
       );
   }

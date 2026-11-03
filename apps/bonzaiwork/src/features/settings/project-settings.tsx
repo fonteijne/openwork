@@ -7,7 +7,6 @@ import { copy } from "~/copy";
 import { href, navigate, SETTINGS_GROUPS, settingsGroupOf, type SettingsGroup, type SettingsSection } from "~/lib/router";
 
 import { ProjectLoading, ProjectMissing } from "../project/project-page";
-import { settingsCopy } from "./copy";
 import { AgentGroup } from "./group-agent";
 import { ProjectGroup } from "./group-project";
 import { TechnischGroup } from "./group-technisch";
@@ -49,12 +48,12 @@ export function ProjectSettingsPage(props: { projectId: string; group?: Settings
         label:
           entry === "toegang" && keyAttention ? (
             <span className="flex items-center gap-1.5">
-              {settingsCopy.groups[entry]}
+              {copy.settings.groups[entry]}
               <span aria-hidden="true" className="size-1.5 rounded-full bg-amber-9" />
-              <span className="sr-only">{settingsCopy.keyAttention}</span>
+              <span className="sr-only">{copy.settings.keyAttention}</span>
             </span>
           ) : (
-            settingsCopy.groups[entry]
+            copy.settings.groups[entry]
           ),
         href: project ? href({ name: "project-settings", projectId: project.id, group: entry }) : undefined,
       })),
@@ -66,7 +65,7 @@ export function ProjectSettingsPage(props: { projectId: string; group?: Settings
   return (
     <main className="min-h-0 flex-1 overflow-y-auto" data-testid="project-settings">
       <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pt-3 pb-16 sm:px-6">
-        <Tabs<SettingsGroup> value={group} onValueChange={(next) => navigate({ name: "project-settings", projectId: project.id, group: next })} items={items} label={settingsCopy.groupsLabel} surface="page" className="mb-6" />
+        <Tabs<SettingsGroup> value={group} onValueChange={(next) => navigate({ name: "project-settings", projectId: project.id, group: next })} items={items} label={copy.settings.groupsLabel} surface="page" className="mb-6" />
         {status.data?.readOnly ? <p className="mb-6 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">{copy.settings.readOnly}</p> : null}
         <Overview project={project} group={group} />
         <GroupContent project={project} group={group} />

@@ -271,6 +271,8 @@ export type AttentionItem =
       reason: "needs_attention" | "failed" | "missed";
       /** The reason or error in the server's own words (Dutch), when it has one. */
       detail: string | null;
+      /** The routine's current model id, so a fix row can show it without a second list call; null for the project's default. */
+      model: string | null;
       at: number;
     }
   | { kind: "brain"; projectId: string; state: "conflict" | "needs_trust" | "error"; at: number }

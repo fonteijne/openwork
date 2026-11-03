@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ChevronLeft, Clock, Ellipsis, RotateCcw, WifiOff } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
@@ -22,13 +22,15 @@ import { isOptimistic } from "../project/store";
 import { chatBlocked } from "./blocked";
 import { ChatActions } from "./chat-actions";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
-import { chatCopy } from "./copy";
 import { useOpenProjectFile } from "./file-link";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
 import { BrainPermissionCard, isBrainRead } from "~/features/brain/brain-permission";
 import { BrainCards } from "~/features/brain/cards";
 import { BrainTurnLine } from "~/features/brain/turn-line";
 import { AssistantTurn, ThinkingLine, UserMessage, type TurnActions } from "./message-view";
+
+// "Maak hier een routine van" (brief §8): the editor is the routines page's chunk, fetched on first use.
+const RoutineEditor = lazy(() => import("../routines/routine-editor").then((module) => ({ default: module.RoutineEditor })));
 
 type Item = { kind: "user"; message: Message } | { kind: "turn"; key: string; messages: Message[] };
 
@@ -68,6 +70,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [routineFrom, setRoutineFrom] = useState<Message | null>(null);
   const [agent, setAgent] = useState<string | null>(null);
   const [modelOverride, setModelOverride] = useState<string | null>(null);
   /** The scroll area ends where the composer dock begins (brief §7). */
@@ -180,7 +183,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
         runtime.upsertChat({ ...chat, revertMessageId: user.id });
         await backend.chats.revert(project.id, props.chatId, user.id);
         const sent = await send({ text: textOf(user), attachments: [], command: null, skills: [] });
-        if (sent) toast(chatCopy.turn.retried);
+        if (sent) toast(copy.chat.turn.retried);
       } catch (failure) {
         runtime.upsertChat({ ...chat, revertMessageId: chat.revertMessageId });
         toast(errorText(failure), { tone: "error" });
@@ -198,7 +201,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
         const created = await backend.chats.fork(project.id, props.chatId, user.id);
         runtime.upsertChat(created);
         await backend.chats.send(project.id, created.id, { text: textOf(user), model: chosen, agent, attachments: [], command: null, skills: [] });
-        toast(chatCopy.turn.rerunStarted);
+        toast(copy.chat.turn.rerunStarted);
         navigate({ name: "project", projectId: project.id, chatId: created.id });
       } catch (failure) {
         toast(errorText(failure), { tone: "error" });
@@ -214,7 +217,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
         if (kind === "model_unavailable") composer.current?.focus();
         else void retryTurn(turnId);
       },
-      onContinue: () => void send({ text: chatCopy.turn.continuePrompt, attachments: [], command: null, skills: [] }),
+      onContinue: () => void send({ text: copy.chat.turn.continuePrompt, attachments: [], command: null, skills: [] }),
       onRerun: (turnId, chosen) => void rerunTurn(turnId, chosen),
       onOpenFile: openFile,
     }),
@@ -302,12 +305,12 @@ export function ChatView(props: { project: Project; chatId: string }) {
       <TopBar
         details
         leading={
-          <Tooltip label={chatCopy.header.back} shortcut={chord("back")} side="bottom">
+          <Tooltip label={copy.chat.header.back} shortcut={chord("back")} side="bottom">
             <Button
               variant="quiet"
               size="icon"
               className="-ms-1"
-              aria-label={chatCopy.header.back}
+              aria-label={copy.chat.header.back}
               data-testid="chat-back"
               onClick={() => (canGoBack() ? goBack() : navigate({ name: "project", projectId: project.id, chatId: null }))}
             >
@@ -362,6 +365,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
                     optimistic={isOptimistic(item.message)}
                     onFork={() => void fork(item.message)}
                     onRevert={running ? undefined : () => void revert(item.message)}
+                    onRoutine={backend.capabilities.routines ? () => setRoutineFrom(item.message) : undefined}
                   />
                 ) : (
                   <AssistantTurn key={item.key} messages={item.messages} live={item.key === liveTurn} stopped={stoppedTurns.includes(item.key)} projectId={project.id} actions={turnActions} />
@@ -442,13 +446,13 @@ export function ChatView(props: { project: Project; chatId: string }) {
                 }}
               />
             ) : (
-              <BrainCards projectId={project.id} />
+              <BrainCards projectId={project.id} chatTitle={chat?.title ?? null} />
             )}
             {queued ? (
               <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground" role="status" data-testid="composer-queued">
                 <Clock className="size-3.5 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">
-                  {chatCopy.composer.queued}
+                  {copy.chat.composer.queued}
                   {queued.text ? <span className="text-foreground"> · {queued.text}</span> : null}
                 </span>
                 <Button
@@ -459,7 +463,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
                     setQueued(null);
                   }}
                 >
-                  {chatCopy.composer.cancelQueued}
+                  {copy.chat.composer.cancelQueued}
                 </Button>
               </div>
             ) : null}
@@ -487,6 +491,19 @@ export function ChatView(props: { project: Project; chatId: string }) {
         <div className={cn("pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-window border-2 border-dashed border-ring bg-background/85 text-sm font-medium text-foreground")}>
           {copy.chat.dropHere}
         </div>
+      ) : null}
+      {routineFrom ? (
+        <Suspense fallback={null}>
+          <RoutineEditor
+            open
+            onOpenChange={(open) => {
+              if (!open) setRoutineFrom(null);
+            }}
+            routine={null}
+            projectId={project.id}
+            template={{ prompt: textOf(routineFrom), model: chat?.model ?? null }}
+          />
+        </Suspense>
       ) : null}
     </div>
   );

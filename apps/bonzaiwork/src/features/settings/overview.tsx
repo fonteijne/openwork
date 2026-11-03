@@ -10,7 +10,6 @@ import { PostLine } from "~/features/agenda/bridge-post-field";
 import { href, type SettingsGroup } from "~/lib/router";
 
 import { connectionsSummary } from "./connections";
-import { settingsCopy } from "./copy";
 import { allowedSummary } from "./models";
 import { usageText } from "./group-toegang";
 import { folderName, OverviewRow } from "./shared";
@@ -27,7 +26,7 @@ export function Overview(props: { project: Project; group: SettingsGroup }) {
   const { project, group } = props;
   const hasKey = projectHasKey(status.data, project);
   const link = (target: SettingsGroup) => href({ name: "project-settings", projectId: project.id, group: target });
-  const open = (target: SettingsGroup) => settingsCopy.overviewOpen(settingsCopy.groups[target]);
+  const open = (target: SettingsGroup) => copy.settings.overviewOpen(copy.settings.groups[target]);
 
   const instructions = useQuery({ queryKey: keys.instructions(project.id), queryFn: () => backend.config.instructions(project.id), enabled: group !== "agent" });
   const methods = useMethods(group === "agent" ? null : project.id, "project");
@@ -43,26 +42,26 @@ export function Overview(props: { project: Project; group: SettingsGroup }) {
   const post = agenda.data?.projects.find((entry) => entry.workspaceId === project.id)?.bridgePost ?? null;
 
   return (
-    <Section title={settingsCopy.overview} className="mb-8">
+    <Section title={copy.settings.overview} className="mb-8">
       {group !== "toegang" ? (
         <>
           <OverviewRow
-            label={settingsCopy.overviewRows.key}
-            value={hasKey ? settingsCopy.key.linked((status.data?.keyMode === "user" ? status.data.user.keyHint : project.key.keyHint) ?? "") : <StatusChip status="locked" label={settingsCopy.key.missing} />}
+            label={copy.settings.overviewRows.key}
+            value={hasKey ? copy.settings.key.linked((status.data?.keyMode === "user" ? status.data.user.keyHint : project.key.keyHint) ?? "") : <StatusChip status="locked" label={copy.settings.key.missing} />}
             attention={!hasKey}
             href={link("toegang")}
             openLabel={open("toegang")}
             testId="settings-overview-key"
           />
-          {backend.capabilities.usage ? <OverviewRow label={settingsCopy.overviewRows.usage} value={usage.data ? usageText(usage.data.spend, usage.data.maxBudget, usage.data.currency) : "…"} href={link("toegang")} openLabel={open("toegang")} /> : null}
+          {backend.capabilities.usage ? <OverviewRow label={copy.settings.overviewRows.usage} value={usage.data ? usageText(usage.data.spend, usage.data.maxBudget, usage.data.currency) : "…"} href={link("toegang")} openLabel={open("toegang")} /> : null}
           <OverviewRow
-            label={settingsCopy.overviewRows.runMode}
+            label={copy.settings.overviewRows.runMode}
             value={runMode.data ? (runMode.data.supported && runMode.data.mode ? copy.settings.runModes[runMode.data.mode].label : <Locked>{copy.settings.runModes.default.label}</Locked>) : "…"}
             href={link("toegang")}
             openLabel={open("toegang")}
           />
           <OverviewRow
-            label={settingsCopy.overviewRows.connections}
+            label={copy.settings.overviewRows.connections}
             value={connections.data ? connectionsSummary(connections.data) : "…"}
             attention={connections.data?.some((connection) => connection.status === "needs_auth" || connection.status === "failed")}
             href={link("toegang")}
@@ -72,22 +71,22 @@ export function Overview(props: { project: Project; group: SettingsGroup }) {
       ) : null}
       {group !== "agent" ? (
         <>
-          <OverviewRow label={settingsCopy.overviewRows.defaultModel} value={modelName(status.data, project.defaultModel) ?? settingsCopy.models.defaultModelNone} href={link("agent")} openLabel={open("agent")} />
-          <OverviewRow label={settingsCopy.overviewRows.models} value={models.length ? allowedSummary(project, models) : settingsCopy.models.empty} attention={project.allowedModels !== null && project.allowedModels.length === 0 && models.length > 0} href={link("agent")} openLabel={open("agent")} />
-          <OverviewRow label={settingsCopy.overviewRows.instructions} value={instructions.data === undefined ? "…" : lines ? settingsCopy.lines(lines) : settingsCopy.none} href={link("agent")} openLabel={open("agent")} />
-          <OverviewRow label={settingsCopy.overviewRows.methods} value={methods.isLoading ? "…" : settingsCopy.methodsCount(methods.skillCount, methods.commandCount) || settingsCopy.none} href={link("agent")} openLabel={open("agent")} />
+          <OverviewRow label={copy.settings.overviewRows.defaultModel} value={modelName(status.data, project.defaultModel) ?? copy.settings.models.defaultModelNone} href={link("agent")} openLabel={open("agent")} />
+          <OverviewRow label={copy.settings.overviewRows.models} value={models.length ? allowedSummary(project, models) : copy.settings.models.empty} attention={project.allowedModels !== null && project.allowedModels.length === 0 && models.length > 0} href={link("agent")} openLabel={open("agent")} />
+          <OverviewRow label={copy.settings.overviewRows.instructions} value={instructions.data === undefined ? "…" : lines ? copy.settings.lines(lines) : copy.settings.none} href={link("agent")} openLabel={open("agent")} />
+          <OverviewRow label={copy.settings.overviewRows.methods} value={methods.isLoading ? "…" : copy.settings.methodsCount(methods.skillCount, methods.commandCount) || copy.settings.none} href={link("agent")} openLabel={open("agent")} />
         </>
       ) : null}
       {group !== "project" ? (
         <>
-          {backend.capabilities.agenda ? <OverviewRow label={settingsCopy.overviewRows.post} value={agenda.data ? <PostLine post={post} className="min-w-0 truncate text-muted-foreground" /> : "…"} href={link("project")} openLabel={open("project")} /> : null}
-          <OverviewRow label={settingsCopy.overviewRows.folder} value={<span title={project.path}>{folderName(project.path)}</span>} href={link("project")} openLabel={open("project")} />
+          {backend.capabilities.agenda ? <OverviewRow label={copy.settings.overviewRows.post} value={agenda.data ? <PostLine post={post} className="min-w-0 truncate text-muted-foreground" /> : "…"} href={link("project")} openLabel={open("project")} /> : null}
+          <OverviewRow label={copy.settings.overviewRows.folder} value={<span title={project.path}>{folderName(project.path)}</span>} href={link("project")} openLabel={open("project")} />
         </>
       ) : null}
       {group !== "technisch" ? (
         <>
-          <OverviewRow label={settingsCopy.overviewRows.engine} value={versions.data?.engine ?? (backend.mode === "demo" ? copy.boot.demoBadge : "…")} href={link("technisch")} openLabel={open("technisch")} />
-          <OverviewRow label={settingsCopy.overviewRows.activity} value={audit.data ? (audit.data.length ? settingsCopy.changes(audit.data.length) : settingsCopy.none) : "…"} href={link("technisch")} openLabel={open("technisch")} />
+          <OverviewRow label={copy.settings.overviewRows.engine} value={versions.data?.engine ?? (backend.mode === "demo" ? copy.boot.demoBadge : "…")} href={link("technisch")} openLabel={open("technisch")} />
+          <OverviewRow label={copy.settings.overviewRows.activity} value={audit.data ? (audit.data.length ? copy.settings.changes(audit.data.length) : copy.settings.none) : "…"} href={link("technisch")} openLabel={open("technisch")} />
         </>
       ) : null}
     </Section>

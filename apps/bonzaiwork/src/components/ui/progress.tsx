@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { Progress as ProgressPrimitive } from "@base-ui/react/progress";
 
 import { cn } from "~/lib/cn";
+import { copy } from "~/copy";
 
-import { uiCopy } from "./copy";
 
 /**
  * A usage bar ("€ 18 van € 50"; brief §12) on Base UI Progress: `role="progressbar"` with
@@ -29,7 +29,7 @@ export function Progress(props: {
       value={props.value}
       max={props.max}
       aria-label={props.label}
-      aria-valuetext={props.valueText ?? (props.value === null ? uiCopy.progress.indeterminate : undefined)}
+      aria-valuetext={props.valueText ?? (props.value === null ? copy.ui.progress.indeterminate : undefined)}
       className={cn("flex min-w-0 flex-col gap-1.5", props.className)}
     >
       {props.caption || props.valueText ? (

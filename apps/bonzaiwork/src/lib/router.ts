@@ -45,11 +45,11 @@ const enc = encodeURIComponent;
 /** Which group an old settings section belongs to; `files` and `brain` left settings for a tab. */
 export function settingsGroupOf(section: SettingsSection | null | undefined): SettingsGroup {
   switch (section) {
-    case "key":
     case "instructions":
     case "skills":
     case "commands":
       return "agent";
+    case "key":
     case "connections":
     case "permissions":
       return "toegang";
@@ -57,20 +57,6 @@ export function settingsGroupOf(section: SettingsSection | null | undefined): Se
       return "technisch";
     default:
       return "project";
-  }
-}
-
-/** The old section that opens the same content as a group; for pages that still take a section. */
-export function legacySectionOf(group: SettingsGroup): SettingsSection {
-  switch (group) {
-    case "agent":
-      return "instructions";
-    case "toegang":
-      return "connections";
-    case "technisch":
-      return "activity";
-    case "project":
-      return "general";
   }
 }
 

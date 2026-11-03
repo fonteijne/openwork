@@ -91,10 +91,12 @@ function ShellSkeleton() {
           <BrandMark className="lg:hidden" />
           <span className="text-sm font-semibold text-foreground lg:hidden">{copy.appName}</span>
         </div>
+        {/* The Vandaag shape (brief §11): the composer card, the "Voor jou" heading, two cards. */}
         <div className="mx-auto mt-10 flex w-full max-w-3xl flex-col gap-4 px-6">
           <Skeleton className="h-28 w-full rounded-shell" />
-          <Skeleton className="mt-4 h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
+          <Skeleton className="mt-4 h-4 w-20" />
+          <Skeleton className="h-24 w-full rounded-window" />
+          <Skeleton className="h-24 w-full rounded-window" />
         </div>
       </div>
     </div>
@@ -177,7 +179,9 @@ export function App() {
   const status = useStatus();
   const projects = useProjects();
   const needsUserKey = status.data?.keyMode === "user" && !status.data.user.hasKey;
-  const firstRun = status.data?.keyMode === "workspace" && projects.data?.length === 0;
+  // Without a project the app-level pages go to #/welkom in every key mode (brief §3); the welcome
+  // screen links a personal key first when that mode needs one.
+  const firstRun = projects.data?.length === 0;
   const gated = Boolean(status.data) && (needsUserKey || (firstRun && needsOnboarding(route)));
 
   useEffect(() => {

@@ -4,20 +4,12 @@ import { BadgeCheck } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { keys, useBrain, useConcept, useStatus } from "~/backend/queries";
-import type { ConceptView } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
-import { formatDateTime } from "~/lib/format";
 
-function tierLabel(concept: ConceptView): string {
-  const tiers = copy.brain.tiers;
-  if (concept.tier !== "human") return tiers[concept.tier];
-  const last = concept.verified.at(-1);
-  // OKF records reviewers as "human:<name>"; the user sees the name.
-  return tiers.human((last?.by ?? "").replace(/^human:/, ""), last?.at ? formatDateTime(Date.parse(last.at)) : "");
-}
+import { tierLabel } from "./knowledge";
 
 /** The concept's path inside the brain, whether the preview got it relative or absolute. */
 function conceptPath(path: string, root: string): string {

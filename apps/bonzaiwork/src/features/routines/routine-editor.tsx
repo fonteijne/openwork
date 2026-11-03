@@ -1,26 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
 import { hasNoModels, keys, projectModels, useProjects, useStatus } from "~/backend/queries";
-import { BrainPicker } from "~/features/brain/brain-picker";
 import type { Routine, RoutineInput, RoutineSchedule } from "~/backend/types";
 import { Button } from "~/components/ui/button";
+import { Disclosure } from "~/components/ui/disclosure";
 import { Field, Input, Textarea } from "~/components/ui/field";
 import { Dialog } from "~/components/ui/overlay";
+import { SegmentedControl } from "~/components/ui/segmented";
 import { Select } from "~/components/ui/select";
 import { toast } from "~/components/ui/toast";
+import { BrainPicker } from "~/features/brain/brain-picker";
 import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatDateTime } from "~/lib/format";
 import { dayShort, describeSchedule, localTimezone, nextOccurrences, WEEK_ORDER, WEEKDAYS } from "~/lib/schedule";
+import { SMALL_UP, useMediaQuery } from "~/lib/use-media";
 
 import { ModelsBlocked } from "../chat/blocked";
+import { suggestName } from "./grouping";
 
 type Kind = RoutineSchedule["kind"];
 
 const ZONES = ["Europe/Amsterdam", "Europe/Brussels", "Europe/London", "Europe/Berlin", "America/New_York", "Asia/Singapore", "UTC"];
+const KINDS: readonly Kind[] = ["once", "daily", "weekly", "interval"];
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -40,8 +45,12 @@ function localDateInput(timestamp: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** Edits a schedule; every change shows the next runs right away. */
-export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value: RoutineSchedule) => void }) {
+/**
+ * Edits the "Wanneer" of a schedule (brief §8): kind as a `SegmentedControl` (P5), then only the
+ * fields that kind needs. The timezone is not here: it is a rare choice and lives under "Meer
+ * opties" (P3). `error` marks the day chips invalid (C6: the error sits on the field).
+ */
+export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value: RoutineSchedule) => void; error?: string | null; errorId?: string }) {
   const { value } = props;
   const zone = value.timezone;
   const days = value.kind === "weekly" || value.kind === "interval" ? value.daysOfWeek : WEEKDAYS;
@@ -75,55 +84,82 @@ export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value
     }
   };
 
-  const kinds: Kind[] = ["once", "daily", "weekly", "interval"];
   const hours = Array.from({ length: 25 }, (_, hour) => hour);
+  // On a phone the four labels do not fit side by side: the track scrolls sideways with the checked pill in view (brief §6).
+  const wide = useMediaQuery(SMALL_UP);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div role="radiogroup" aria-label={copy.routines.schedule} className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1 sm:grid-cols-4">
-        {kinds.map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            role="radio"
-            aria-checked={value.kind === kind}
-            onClick={() => setKind(kind)}
-            className={cn(
-              "h-8 rounded-full px-3 text-sm text-muted-foreground transition-colors duration-100 hover:text-foreground pointer-coarse:h-10",
-              value.kind === kind && "bg-background font-medium text-foreground shadow-card",
-            )}
-          >
-            {copy.routines.kinds[kind]}
-          </button>
-        ))}
-      </div>
+    <div className="flex flex-col gap-3">
+      <SegmentedControl
+        label={copy.routines.schedule}
+        value={value.kind}
+        onValueChange={setKind}
+        items={KINDS.map((kind) => ({ value: kind, label: copy.routines.editor.kinds[kind] }))}
+        fill={wide}
+        scroll={!wide}
+        className={wide ? "max-w-xl" : undefined}
+      />
 
-      {value.kind === "once" ? (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={copy.routines.date}>
-            {(id) => (
-              <Input
-                id={id}
-                type="date"
-                value={localDateInput(value.at)}
-                onChange={(event) => {
-                  const [year, month, day] = event.target.value.split("-").map((part) => Number.parseInt(part, 10));
-                  if (!year || !month || !day) return;
-                  const at = new Date(value.at);
-                  at.setFullYear(year, month - 1, day);
-                  props.onChange({ ...value, at: at.getTime() });
-                }}
-              />
-            )}
+      <div className="flex flex-wrap items-end gap-3">
+        {value.kind === "once" ? (
+          <>
+            <Field label={copy.routines.date} className="w-40">
+              {(id) => (
+                <Input
+                  id={id}
+                  type="date"
+                  value={localDateInput(value.at)}
+                  onChange={(event) => {
+                    const [year, month, day] = event.target.value.split("-").map((part) => Number.parseInt(part, 10));
+                    if (!year || !month || !day) return;
+                    const at = new Date(value.at);
+                    at.setFullYear(year, month - 1, day);
+                    props.onChange({ ...value, at: at.getTime() });
+                  }}
+                />
+              )}
+            </Field>
+            <Field label={copy.routines.at} className="w-32">{(id) => <Input id={id} type="time" value={time} onChange={(event) => setTime(event.target.value)} />}</Field>
+          </>
+        ) : null}
+
+        {value.kind === "daily" || value.kind === "weekly" ? (
+          <Field label={copy.routines.at} className="w-32">
+            {(id) => <Input id={id} type="time" value={time} onChange={(event) => setTime(event.target.value)} />}
           </Field>
-          <Field label={copy.routines.at}>{(id) => <Input id={id} type="time" value={time} onChange={(event) => setTime(event.target.value)} />}</Field>
-        </div>
-      ) : null}
+        ) : null}
+
+        {value.kind === "interval" ? (
+          <>
+            <Field label={copy.routines.every} className="w-28">
+              {(id) => (
+                <Select
+                  id={id}
+                  label={copy.routines.every}
+                  value={String(value.everyHours)}
+                  onValueChange={(next) => props.onChange({ ...value, everyHours: Number.parseInt(next, 10) || 1 })}
+                  items={[1, 2, 3, 4, 6, 8].map((hours) => ({ value: String(hours), label: hours === 1 ? "Elk uur" : `${hours} uur` }))}
+                />
+              )}
+            </Field>
+            <Field label={copy.routines.between} className="w-28">
+              {(id) => (
+                <Select id={id} label={copy.routines.between} value={String(value.startHour)} onValueChange={(next) => props.onChange({ ...value, startHour: Number.parseInt(next, 10) })} items={hours.slice(0, 24).map((hour) => ({ value: String(hour), label: toTime(hour, 0) }))} />
+              )}
+            </Field>
+            <Field label={copy.routines.and} className="w-28">
+              {(id) => (
+                <Select id={id} label={copy.routines.and} value={String(value.endHour)} onValueChange={(next) => props.onChange({ ...value, endHour: Number.parseInt(next, 10) })} items={hours.slice(1).map((hour) => ({ value: String(hour), label: hour === 24 ? "24:00" : toTime(hour, 0) }))} />
+              )}
+            </Field>
+          </>
+        ) : null}
+      </div>
 
       {value.kind === "weekly" || value.kind === "interval" ? (
         <div className="flex flex-col gap-1.5">
           <span className="text-sm font-medium">{copy.routines.days}</span>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label={copy.routines.days}>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label={copy.routines.days} aria-invalid={props.error ? true : undefined} aria-describedby={props.error ? props.errorId : undefined}>
             {WEEK_ORDER.map((day) => {
               const on = value.daysOfWeek.includes(day);
               return (
@@ -133,8 +169,9 @@ export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value
                   aria-pressed={on}
                   onClick={() => toggleDay(day)}
                   className={cn(
-                    "h-8 min-w-10 rounded-full px-2.5 text-sm capitalize ring-1 ring-inset transition-colors duration-100 pointer-coarse:h-10",
+                    "h-8 min-w-10 rounded-full px-2.5 text-sm capitalize ring-1 ring-inset transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-10",
                     on ? "bg-primary text-primary-foreground ring-primary" : "text-muted-foreground ring-border-strong hover:bg-hover",
+                    props.error && !on && "ring-red-9",
                   )}
                 >
                   {dayShort(day)}
@@ -142,73 +179,35 @@ export function ScheduleEditor(props: { value: RoutineSchedule; onChange: (value
               );
             })}
           </div>
+          {props.error ? (
+            <p id={props.errorId} role="alert" className="text-xs text-destructive-foreground">
+              {props.error}
+            </p>
+          ) : null}
         </div>
       ) : null}
-
-      {value.kind === "daily" || value.kind === "weekly" ? (
-        <Field label={copy.routines.at} className="max-w-40">
-          {(id) => <Input id={id} type="time" value={time} onChange={(event) => setTime(event.target.value)} />}
-        </Field>
-      ) : null}
-
-      {value.kind === "interval" ? (
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label={copy.routines.every} className="w-32">
-            {(id) => (
-              <Select
-                id={id}
-                label={copy.routines.every}
-                value={String(value.everyHours)}
-                onValueChange={(next) => props.onChange({ ...value, everyHours: Number.parseInt(next, 10) || 1 })}
-                items={[1, 2, 3, 4, 6, 8].map((hours) => ({ value: String(hours), label: hours === 1 ? "Elk uur" : `${hours} uur` }))}
-              />
-            )}
-          </Field>
-          <Field label={copy.routines.between} className="w-28">
-            {(id) => (
-              <Select id={id} label={copy.routines.between} value={String(value.startHour)} onValueChange={(next) => props.onChange({ ...value, startHour: Number.parseInt(next, 10) })} items={hours.slice(0, 24).map((hour) => ({ value: String(hour), label: toTime(hour, 0) }))} />
-            )}
-          </Field>
-          <Field label={copy.routines.and} className="w-28">
-            {(id) => (
-              <Select id={id} label={copy.routines.and} value={String(value.endHour)} onValueChange={(next) => props.onChange({ ...value, endHour: Number.parseInt(next, 10) })} items={hours.slice(1).map((hour) => ({ value: String(hour), label: hour === 24 ? "24:00" : toTime(hour, 0) }))} />
-            )}
-          </Field>
-        </div>
-      ) : null}
-
-      <Field label={copy.routines.timezone} className="max-w-64">
-        {(id) => (
-          <Select
-            id={id}
-            label={copy.routines.timezone}
-            value={zone}
-            onValueChange={(next) => props.onChange({ ...value, timezone: next })}
-            items={[...new Set([localTimezone(), ...ZONES])].map((entry) => ({ value: entry, label: entry.replace(/_/g, " ") }))}
-          />
-        )}
-      </Field>
     </div>
   );
 }
 
-function SchedulePreview(props: { schedule: RoutineSchedule }) {
-  const runs = useMemo(() => nextOccurrences(props.schedule, Date.now(), 5), [props.schedule]);
+/** Directly under "Wanneer": the sentence and the next three moments on one line (brief §8). */
+function UpcomingLine(props: { schedule: RoutineSchedule; error?: string | null; errorId?: string }) {
+  const runs = useMemo(() => nextOccurrences(props.schedule, Date.now(), 3), [props.schedule]);
   return (
-    <div className="rounded-lg bg-muted/60 px-3 py-2.5">
-      <p className="text-sm font-medium text-foreground">{describeSchedule(props.schedule)}</p>
-      {runs.length ? (
-        <ol className="mt-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground">
-          {runs.map((at) => (
-            <li key={at} className="tabular-nums">
-              {formatDateTime(at)}
-            </li>
-          ))}
-        </ol>
+    <p className="text-xs text-muted-foreground" aria-live="polite">
+      <span className="font-medium text-foreground">{describeSchedule(props.schedule)}</span>
+      {props.error ? (
+        <span id={props.errorId} role="alert" className="block text-destructive-foreground">
+          {props.error}
+        </span>
+      ) : runs.length ? (
+        <span className="block tabular-nums">
+          {copy.routines.editor.upcoming}: {runs.map((at) => formatDateTime(at)).join(" · ")}
+        </span>
       ) : (
-        <p className="mt-1 text-xs text-muted-foreground">{copy.routines.previewEmpty}</p>
+        <span className="block">{copy.routines.editor.noUpcoming}</span>
       )}
-    </div>
+    </p>
   );
 }
 
@@ -216,46 +215,78 @@ function defaultSchedule(): RoutineSchedule {
   return { kind: "weekly", timezone: localTimezone(), daysOfWeek: WEEKDAYS, hour: 9, minute: 0 };
 }
 
+type FieldErrors = { prompt?: string; name?: string; days?: string; once?: string; project?: string };
+
+/**
+ * The routine editor as a sentence (brief §8, assessment I-5): Opdracht (the focal field, P7) →
+ * Wanneer with the next three moments right underneath → Project. Model, tijdzone and breinen sit
+ * under one collapsed "Meer opties" row (P3). Errors are per field with `aria-invalid`, and focus
+ * moves to the first one (C6). The name is suggested from the opdracht until the person edits it.
+ * `template` prefills a new routine (starters, "Maak hier een routine van", brain maintenance).
+ */
 export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boolean) => void; routine: Routine | null; projectId: string | null; onSaved?: (routine: Routine) => void; template?: Partial<RoutineInput> }) {
   const backend = useBackend();
   const client = useQueryClient();
   const status = useStatus();
   const projects = useProjects();
+  const promptInput = useRef<HTMLTextAreaElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState<string>("__default");
   const [schedule, setSchedule] = useState<RoutineSchedule>(defaultSchedule);
   const [brains, setBrains] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const errorId = `${useId()}-error`;
 
+  const firstProjectId = projects.data?.find((project) => !project.archivedAt)?.id ?? null;
   useEffect(() => {
     if (!props.open) return;
     const routine = props.routine;
     const template = routine ? undefined : props.template;
-    setName(routine?.name ?? template?.name ?? "");
-    setProjectId(routine?.projectId ?? props.projectId ?? projects.data?.find((project) => !project.archivedAt)?.id ?? null);
+    const initialName = routine?.name ?? template?.name ?? "";
+    setName(initialName);
+    setNameTouched(Boolean(initialName));
+    setProjectId(routine?.projectId ?? props.projectId ?? firstProjectId);
     setPrompt(routine?.prompt ?? template?.prompt ?? "");
-    setModel(routine?.model ?? "__default");
+    setModel(routine?.model ?? template?.model ?? "__default");
     setSchedule(routine?.schedule ?? template?.schedule ?? defaultSchedule());
     setBrains(routine?.brains ?? template?.brains ?? []);
-    setError(null);
-  }, [props.open, props.routine, props.projectId, projects.data, props.template]);
+    setErrors({});
+    setFailure(null);
+  }, [props.open, props.routine, props.projectId, firstProjectId, props.template]);
 
   const project = projects.data?.find((entry) => entry.id === projectId) ?? null;
   const models = projectModels(status.data, project);
+  const modelKnown = model === "__default" || models.some((entry) => entry.id === model);
+  const shownName = nameTouched ? name : suggestName(prompt);
+  /** An error leaves as soon as its field changes (C6: the message belongs to the state, not the click). */
+  const clearError = (...fields: (keyof FieldErrors)[]) =>
+    setErrors((current) => {
+      if (!fields.some((field) => current[field])) return current;
+      const next = { ...current };
+      for (const field of fields) delete next[field];
+      return next;
+    });
 
   const save = async () => {
-    if (!name.trim()) return setError(copy.routines.nameRequired);
-    if (!prompt.trim()) return setError(copy.routines.promptRequired);
-    if ((schedule.kind === "weekly" || schedule.kind === "interval") && schedule.daysOfWeek.length === 0) return setError(copy.routines.daysRequired);
-    if (schedule.kind === "once" && schedule.at <= Date.now()) return setError(copy.routines.pastOnce);
-    if (!projectId) return;
+    const next: FieldErrors = {};
+    if (!prompt.trim()) next.prompt = copy.routines.promptRequired;
+    if (prompt.trim() && !shownName.trim()) next.name = copy.routines.nameRequired;
+    if ((schedule.kind === "weekly" || schedule.kind === "interval") && schedule.daysOfWeek.length === 0) next.days = copy.routines.daysRequired;
+    if (schedule.kind === "once" && schedule.at <= Date.now()) next.once = copy.routines.pastOnce;
+    if (!projectId) next.project = copy.routines.editor.projectRequired;
+    setErrors(next);
+    if (next.prompt) return promptInput.current?.focus();
+    if (next.name) return nameInput.current?.focus();
+    if (Object.keys(next).length || !projectId) return;
     setBusy(true);
-    setError(null);
-    const input = { projectId, name: name.trim(), prompt: prompt.trim(), model: model === "__default" ? null : model, schedule, brains: brains.filter((id) => id !== projectId) };
+    setFailure(null);
+    const input: RoutineInput = { projectId, name: shownName.trim(), prompt: prompt.trim(), model: model === "__default" ? null : model, schedule, brains: brains.filter((id) => id !== projectId) };
     try {
       const saved = props.routine ? await backend.routines.update(props.routine.id, input) : await backend.routines.create(input);
       await client.invalidateQueries({ queryKey: keys.allRoutines });
@@ -264,8 +295,8 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
       toast(props.routine ? copy.routines.saved : copy.routines.created);
       props.onOpenChange(false);
       props.onSaved?.(saved);
-    } catch (failure) {
-      setError(errorText(failure));
+    } catch (error) {
+      setFailure(errorText(error));
     } finally {
       setBusy(false);
     }
@@ -277,13 +308,13 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
       onOpenChange={props.onOpenChange}
       title={props.routine ? props.routine.name : copy.routines.new}
       size="lg"
-      initialFocus={nameInput}
+      initialFocus={promptInput}
       footer={
         <>
           <Button variant="secondary" onClick={() => props.onOpenChange(false)}>
             {copy.common.cancel}
           </Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy}>
+          <Button variant="primary" onClick={() => void save()} disabled={busy} data-testid="routine-editor-save">
             {props.routine ? copy.routines.save : copy.routines.create}
           </Button>
         </>
@@ -291,53 +322,117 @@ export function RoutineEditor(props: { open: boolean; onOpenChange: (open: boole
     >
       <form
         className="flex flex-col gap-5"
+        data-testid="routine-editor"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           void save();
         }}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field label={copy.routines.name}>{(id) => <Input ref={nameInput} id={id} value={name} onChange={(event) => setName(event.target.value)} placeholder={copy.routines.namePlaceholder} maxLength={80} />}</Field>
-          <Field label={copy.routines.project}>
-            {(id) => (
-              <Select
-                id={id}
-                label={copy.routines.project}
-                value={projectId}
-                onValueChange={setProjectId}
-                items={(projects.data ?? []).filter((entry) => !entry.archivedAt).map((entry) => ({ value: entry.id, label: entry.name }))}
-              />
-            )}
-          </Field>
-        </div>
-        <Field label={copy.routines.prompt}>{(id) => <Textarea id={id} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={copy.routines.promptPlaceholder} rows={4} />}</Field>
-        <Field label={copy.routines.model} className="sm:max-w-sm">
-          {(id) => project && hasNoModels(status.data, project) ? (
-            <div id={id} className="text-sm">
-              <ModelsBlocked projectId={project.id} />
-            </div>
-          ) : (
-            <Select
+        <Field label={copy.routines.prompt} error={errors.prompt}>
+          {(id, describedBy) => (
+            <Textarea
+              ref={promptInput}
               id={id}
-              label={copy.routines.model}
-              value={model}
-              onValueChange={setModel}
-              items={[{ value: "__default", label: copy.routines.modelDefault }, ...models.map((entry) => ({ value: entry.id, label: entry.name }))]}
+              value={prompt}
+              onChange={(event) => {
+                setPrompt(event.target.value);
+                clearError("prompt", "name");
+              }}
+              placeholder={copy.routines.editor.promptPlaceholder}
+              rows={4}
+              aria-invalid={errors.prompt ? true : undefined}
+              aria-describedby={describedBy}
+              className="text-base sm:text-sm"
             />
           )}
         </Field>
-        {backend.capabilities.brains ? <BrainPicker label={copy.routines.brains} hint={copy.routines.brainsHint} exclude={projectId} value={brains} onChange={setBrains} /> : null}
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium">{copy.routines.schedule}</span>
-          <ScheduleEditor value={schedule} onChange={setSchedule} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium">{copy.routines.preview}</span>
-          <SchedulePreview schedule={schedule} />
-        </div>
-        {error ? (
+
+        <Field label={copy.routines.editor.name} error={errors.name} hint={nameTouched ? undefined : copy.routines.editor.nameHint} className="sm:max-w-md">
+          {(id, describedBy) => (
+            <Input
+              ref={nameInput}
+              id={id}
+              value={shownName}
+              onChange={(event) => {
+                setNameTouched(true);
+                setName(event.target.value);
+                clearError("name");
+              }}
+              placeholder={copy.routines.namePlaceholder}
+              maxLength={80}
+              aria-invalid={errors.name ? true : undefined}
+              aria-describedby={describedBy}
+            />
+          )}
+        </Field>
+
+        <fieldset className="flex min-w-0 flex-col gap-3">
+          <legend className="mb-3 text-sm font-medium text-foreground">{copy.routines.schedule}</legend>
+          <ScheduleEditor
+            value={schedule}
+            onChange={(next) => {
+              setSchedule(next);
+              clearError("days", "once");
+            }}
+            error={errors.days}
+            errorId={`${errorId}-days`}
+          />
+          <UpcomingLine schedule={schedule} error={errors.once} errorId={`${errorId}-once`} />
+        </fieldset>
+
+        <Field label={copy.routines.project} error={errors.project} className="sm:max-w-md">
+          {(id) => (
+            <Select
+              id={id}
+              label={copy.routines.project}
+              value={projectId}
+              onValueChange={(next) => {
+                setProjectId(next);
+                clearError("project");
+              }}
+              placeholder={copy.routines.editor.projectRequired}
+              items={(projects.data ?? []).filter((entry) => !entry.archivedAt).map((entry) => ({ value: entry.id, label: entry.name }))}
+            />
+          )}
+        </Field>
+
+        <Disclosure label={copy.routines.editor.moreOptions} keepMounted defaultOpen={Boolean(props.routine?.model || props.routine?.brains.length) || !modelKnown} className="-mx-1" panelClassName="flex flex-col gap-4 ps-0 pt-3 sm:ps-6">
+          <Field label={copy.routines.model} className="sm:max-w-md">
+            {(id) =>
+              project && hasNoModels(status.data, project) ? (
+                <div id={id} className="text-sm">
+                  <ModelsBlocked projectId={project.id} />
+                </div>
+              ) : (
+                <Select
+                  id={id}
+                  label={copy.routines.model}
+                  value={modelKnown ? model : null}
+                  placeholder={copy.routines.modelGone}
+                  onValueChange={setModel}
+                  items={[{ value: "__default", label: copy.routines.modelDefault }, ...models.map((entry) => ({ value: entry.id, label: entry.name }))]}
+                />
+              )
+            }
+          </Field>
+          <Field label={copy.routines.timezone} className="sm:max-w-md">
+            {(id) => (
+              <Select
+                id={id}
+                label={copy.routines.timezone}
+                value={schedule.timezone}
+                onValueChange={(next) => setSchedule({ ...schedule, timezone: next })}
+                items={[...new Set([localTimezone(), ...ZONES])].map((entry) => ({ value: entry, label: entry.replace(/_/g, " ") }))}
+              />
+            )}
+          </Field>
+          {backend.capabilities.brains ? <BrainPicker label={copy.routines.brains} hint={copy.routines.brainsHint} exclude={projectId} value={brains} onChange={setBrains} /> : null}
+        </Disclosure>
+
+        {failure ? (
           <p className="text-sm text-destructive-foreground" role="alert">
-            {error}
+            {failure}
           </p>
         ) : null}
         <button type="submit" hidden />

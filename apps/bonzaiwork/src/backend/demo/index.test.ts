@@ -42,8 +42,8 @@ describe("sortAttention", () => {
     const items: AttentionItem[] = [
       { kind: "proposal", proposal, at: 50 },
       { kind: "brain", projectId: "a", state: "conflict", at: 10 },
-      { kind: "routine", projectId: "a", routineId: "r1", name: "Gemist", reason: "missed", detail: null, at: 90 },
-      { kind: "routine", projectId: "a", routineId: "r2", name: "Kapot", reason: "failed", detail: "Fout", at: 5 },
+      { kind: "routine", projectId: "a", routineId: "r1", name: "Gemist", reason: "missed", detail: null, model: null, at: 90 },
+      { kind: "routine", projectId: "a", routineId: "r2", name: "Kapot", reason: "failed", detail: "Fout", model: null, at: 5 },
       { kind: "chat_failed", projectId: "a", chatId: "c1", chatTitle: "Mislukt", error: { kind: "unknown", detail: null }, at: 1 },
       { kind: "question", projectId: "a", chatId: "c2", chatTitle: "Vraag", request: { id: "q", chatId: "c2", fields: [] }, at: 20 },
       { kind: "permission", projectId: "a", chatId: "c3", chatTitle: "Oud", request, at: 10 },

@@ -17,7 +17,6 @@ import { formatBytes } from "~/lib/format";
 import { renderMarkdown } from "~/lib/markdown";
 
 import { ConceptFacts } from "../brain/concept-facts";
-import { projectCopy } from "../project/copy";
 import { closeProjectFile, useMarkdownLinkOpener, type OpenLink } from "./file-link";
 
 /**
@@ -57,7 +56,7 @@ function FileBody(props: { projectId: string; chatId: string | null; path: strin
   }
   if (file.isError) return <p className="text-sm text-muted-foreground">{errorText(file.error)}</p>;
   const content = file.data?.content;
-  if (content === null || content === undefined) return <p className="text-sm text-muted-foreground">{projectCopy.reader.noPreview(file.data ? formatBytes(file.data.bytes) : null)}</p>;
+  if (content === null || content === undefined) return <p className="text-sm text-muted-foreground">{copy.project.reader.noPreview(file.data ? formatBytes(file.data.bytes) : null)}</p>;
   if (MARKDOWN.test(props.path)) {
     // Sanitized in renderMarkdown (DOMPurify): file contents are untrusted.
     return (
@@ -101,19 +100,19 @@ export function FileView(props: { project: Project; path: string; chatId: string
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border ps-2 pe-3" data-titlebar="sidecar">
-        <Tooltip label={projectCopy.reader.back}>
-          <Button variant="quiet" size="icon-sm" aria-label={projectCopy.reader.back} onClick={closeProjectFile}>
+        <Tooltip label={copy.project.reader.back}>
+          <Button variant="quiet" size="icon-sm" aria-label={copy.project.reader.back} onClick={closeProjectFile}>
             <ChevronLeft />
           </Button>
         </Tooltip>
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={path}>
           {name}
         </h2>
-        <Tooltip label={projectCopy.reader.reload}>
+        <Tooltip label={copy.project.reader.reload}>
           <Button
             variant="quiet"
             size="icon-sm"
-            aria-label={projectCopy.reader.reload}
+            aria-label={copy.project.reader.reload}
             aria-busy={reloading}
             onClick={() => {
               if (!reloading) void queryClient.refetchQueries({ queryKey, exact: true });
@@ -123,8 +122,8 @@ export function FileView(props: { project: Project; path: string; chatId: string
           </Button>
         </Tooltip>
         {backend.capabilities.revealPath ? (
-          <Tooltip label={projectCopy.details.reveal}>
-            <Button variant="quiet" size="icon-sm" aria-label={projectCopy.details.reveal} onClick={() => void backend.desktop.revealPath(absoluteFilePath(project, path))}>
+          <Tooltip label={copy.project.details.reveal}>
+            <Button variant="quiet" size="icon-sm" aria-label={copy.project.details.reveal} onClick={() => void backend.desktop.revealPath(absoluteFilePath(project, path))}>
               <FolderOpen />
             </Button>
           </Tooltip>

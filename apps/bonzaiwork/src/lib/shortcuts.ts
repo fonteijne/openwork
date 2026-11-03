@@ -24,6 +24,7 @@ export type ShortcutId =
   | "back"
   | "forward"
   | "shortcuts"
+  | "seenAll"
   | `project${ProjectSlot}`;
 
 export type Shortcut = {
@@ -52,6 +53,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   define("back", copy.shell.shortcuts.back, "BracketLeft", "["),
   define("forward", copy.shell.shortcuts.forward, "BracketRight", "]"),
   define("shortcuts", copy.shell.shortcuts.shortcuts, "Slash", "/", true),
+  define("seenAll", copy.shell.shortcuts.seenAll, "KeyU", "U", true),
 ];
 
 export function shortcut(id: ShortcutId): Shortcut {
@@ -94,4 +96,22 @@ export const FOCUS_COMPOSER_EVENT = "bonzaiwork:focus-composer";
 
 export function focusComposer(delay = 30): void {
   window.setTimeout(() => window.dispatchEvent(new Event(FOCUS_COMPOSER_EVENT)), delay);
+}
+
+/** "Alles gezien" (⌘⇧U): the app shell fires it, the page that keeps `lastSeenAt` (Vandaag) listens. */
+export const SEEN_ALL_EVENT = "bonzaiwork:seen-all";
+
+/**
+ * Text for the open composer ("Vraag hierover" on a result row, brief §6): the Composer that is
+ * mounted appends it and takes focus. Nothing navigates (S5).
+ */
+export const INSERT_COMPOSER_TEXT_EVENT = "bonzaiwork:insert-composer-text";
+
+export function insertComposerText(text: string): void {
+  window.dispatchEvent(new CustomEvent<string>(INSERT_COMPOSER_TEXT_EVENT, { detail: text }));
+}
+
+/** The text an insert event carries, or null for any other event. */
+export function insertedText(event: Event): string | null {
+  return event instanceof CustomEvent && typeof event.detail === "string" ? event.detail : null;
 }

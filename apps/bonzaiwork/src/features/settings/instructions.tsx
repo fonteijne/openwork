@@ -10,8 +10,8 @@ import { Section, Skeleton } from "~/components/ui/misc";
 import { toast } from "~/components/ui/toast";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
+import { copy } from "~/copy";
 
-import { settingsCopy } from "./copy";
 
 const AUTOSAVE_MS = 800;
 
@@ -72,7 +72,7 @@ export function InstructionsSection(props: { projectId: string }) {
     const restored = previous;
     setValue(restored);
     setPrevious(null);
-    void persist(restored, text).then(() => toast(settingsCopy.instructions.undone));
+    void persist(restored, text).then(() => toast(copy.settings.instructions.undone));
   };
   const addLine = (line: string) => {
     const base = text.replace(/\s+$/, "");
@@ -83,15 +83,15 @@ export function InstructionsSection(props: { projectId: string }) {
 
   return (
     <Section
-      title={settingsCopy.instructions.title}
+      title={copy.settings.instructions.title}
       action={
         <span className="flex items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">
-          {state === "saving" ? settingsCopy.instructions.saving : state === "saved" ? settingsCopy.instructions.savedJustNow : state === "dirty" ? settingsCopy.instructions.unsaved : lines ? settingsCopy.lines(lines) : null}
+          {state === "saving" ? copy.settings.instructions.saving : state === "saved" ? copy.settings.instructions.savedJustNow : state === "dirty" ? copy.settings.instructions.unsaved : lines ? copy.settings.lines(lines) : null}
           {state === "saved" && previous !== null ? (
             <>
               <span aria-hidden="true">·</span>
               <button type="button" className="font-medium text-foreground underline-offset-2 hover:underline" onClick={undo}>
-                {settingsCopy.instructions.undo}
+                {copy.settings.instructions.undo}
               </button>
             </>
           ) : null}
@@ -106,15 +106,15 @@ export function InstructionsSection(props: { projectId: string }) {
             ref={textarea}
             value={text}
             onChange={(event) => schedule(event.target.value)}
-            placeholder={settingsCopy.instructions.placeholder}
+            placeholder={copy.settings.instructions.placeholder}
             rows={8}
-            aria-label={settingsCopy.instructions.title}
+            aria-label={copy.settings.instructions.title}
             className={cn("min-h-40 leading-relaxed")}
             data-testid="settings-instructions"
           />
         )}
-        <div className="flex flex-wrap items-center gap-1.5" aria-label={settingsCopy.instructions.starters}>
-          {settingsCopy.instructions.starterChips.map((chip) => (
+        <div className="flex flex-wrap items-center gap-1.5" aria-label={copy.settings.instructions.starters}>
+          {copy.settings.instructions.starterChips.map((chip) => (
             <Button key={chip} variant="secondary" size="sm" onClick={() => addLine(chip)} disabled={query.isLoading || text.includes(chip)}>
               <Plus />
               {chip}

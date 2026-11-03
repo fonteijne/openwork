@@ -1,9 +1,12 @@
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
 import { hasDesktopBridge } from "~/backend/live/desktop";
-import { useProject } from "~/backend/queries";
+import { keys, useProject } from "~/backend/queries";
 import { whenIdle } from "~/lib/idle";
+
+import { dateOf } from "./format";
 
 /**
  * Which project is open, for the agenda's presence minutes (plan §5.3). Sent on every navigation in a
@@ -25,14 +28,16 @@ function listenForInput() {
 
 export function useAgendaPresence(projectId: string | null) {
   const backend = useBackend();
+  const client = useQueryClient();
   const { project } = useProject(projectId ?? "");
   const name = project?.name ?? null;
   const available = backend.capabilities.agenda;
 
   useEffect(() => {
     if (!available) return;
-    return whenIdle(() => void backend.agenda.reportPresence({ projectId, name }));
-  }, [available, backend, projectId, name]);
+    // The footer status row shows the new project as soon as the server has it (P1), nothing waits.
+    return whenIdle(() => void backend.agenda.reportPresence({ projectId, name }).then(() => client.invalidateQueries({ queryKey: keys.agendaDay(dateOf(Date.now())) })).catch(() => undefined));
+  }, [available, backend, client, projectId, name]);
 
   useEffect(() => {
     if (!available || hasDesktopBridge()) return;

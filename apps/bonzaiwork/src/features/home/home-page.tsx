@@ -6,11 +6,10 @@ import { keys, useAttention, useBrainAuthor, useBrains, useRecentChats, useRouti
 import type { Brain, BrainHistoryEntry, Project } from "~/backend/types";
 import { PageTitle, TopBar } from "~/components/top-bar";
 import { copy } from "~/copy";
-import { isMac } from "~/lib/platform";
-import { isEditable } from "~/lib/shortcuts";
+import { SEEN_ALL_EVENT } from "~/lib/shortcuts";
 import { SMALL_UP, useMediaQuery } from "~/lib/use-media";
 
-import { useSidebarProjects } from "../shell/sidebar";
+import { useSidebarProjects } from "../projects/use-listed-projects";
 import { AttentionSection } from "./attention-section";
 import { HomeComposer } from "./home-composer";
 import { awayRows, MAX_AWAY_ROWS, nextRoutine, readLastSeen, writeLastSeen } from "./model";
@@ -37,17 +36,11 @@ function useBrainHistories(brains: readonly Brain[]): { brain: Brain; entries: B
   return useMemo(() => shared.map((brain, index) => ({ brain, entries: data[index] ?? [] })), [shared, data]);
 }
 
-/** ⌘⇧U marks everything as seen (brief §5). Seam: this chord belongs in the shortcuts table. */
-function useSeenAllChord(onSeenAll: () => void) {
+/** ⌘⇧U marks everything as seen (brief §5): the chord lives in the shortcuts table; the shell fires the event. */
+function useSeenAll(onSeenAll: () => void) {
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const mod = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-      if (!mod || !event.shiftKey || event.altKey || event.code !== "KeyU" || event.defaultPrevented || isEditable(event.target)) return;
-      event.preventDefault();
-      onSeenAll();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(SEEN_ALL_EVENT, onSeenAll);
+    return () => window.removeEventListener(SEEN_ALL_EVENT, onSeenAll);
   }, [onSeenAll]);
 }
 
@@ -83,7 +76,7 @@ export function HomePage() {
     writeLastSeen(now);
     setLastSeenAt(now);
   };
-  useSeenAllChord(seenAll);
+  useSeenAll(seenAll);
 
   const composer = <HomeComposer projects={projects} size={smallUp ? "large" : "default"} autoFocus={false} />;
 

@@ -77,7 +77,7 @@ describe("defaultProjectId", () => {
 
 describe("attentionKey", () => {
   it("keys a routine by its reason, so a missed and a failed run are two cards", () => {
-    const base = { kind: "routine" as const, projectId: "p", routineId: "r", name: "r", detail: null, at: 1 };
+    const base = { kind: "routine" as const, projectId: "p", routineId: "r", name: "r", detail: null, model: null, at: 1 };
     expect(attentionKey({ ...base, reason: "missed" })).not.toBe(attentionKey({ ...base, reason: "failed" }));
   });
 });

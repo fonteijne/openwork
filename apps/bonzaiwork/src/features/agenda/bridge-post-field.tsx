@@ -6,6 +6,7 @@ import { Button } from "~/components/ui/button";
 import { Field, Input } from "~/components/ui/field";
 import { Menu, MenuItem, MenuLabel } from "~/components/ui/menu";
 import { copy } from "~/copy";
+import { cn } from "~/lib/cn";
 
 /**
  * A Bridge post as two fields (plan §2.6): the entity id (`bridge add_worklog --entity`) and an
@@ -86,13 +87,16 @@ export function BridgePostField(props: { value: PostDraft; onChange: (value: Pos
   );
 }
 
-/** A post as people read it: the entity id in mono, the name after it; or "Geen Bridge-post" in neutral ink (C5). */
+/**
+ * A post as people read it (C3): the name first, the entity id only in a tooltip; the id in mono
+ * when the post has no name; or "Geen Bridge-post" in neutral ink (C5).
+ */
 export function PostLine(props: { post: BridgePost | null; className?: string }) {
   if (!props.post) return <span className={props.className ?? "text-muted-foreground"}>{copy.agenda.noPost}</span>;
+  if (!props.post.label) return <span className={cn("min-w-0 truncate font-mono text-[0.75rem] text-foreground", props.className)}>{props.post.entityId}</span>;
   return (
-    <span className={props.className ?? "min-w-0 truncate"}>
-      <span className="font-mono text-[0.75rem] text-foreground">{props.post.entityId}</span>
-      {props.post.label ? <span className="ms-1.5 text-muted-foreground">{props.post.label}</span> : null}
+    <span className={cn("min-w-0 truncate text-foreground", props.className)} title={props.post.entityId}>
+      {props.post.label}
     </span>
   );
 }

@@ -1,29 +1,29 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CircleAlert, HelpCircle, Repeat, ShieldQuestion } from "lucide-react";
+import { Repeat } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, startModel, useAttention, useComposerEntries, useRefreshAttention, useStatus } from "~/backend/queries";
+import { keys, startModel, useAttention, useBrains, useComposerEntries, useRoutines, useStatus } from "~/backend/queries";
 import type { AttentionItem, Chat, Message, Project } from "~/backend/types";
 import { Button } from "~/components/ui/button";
-import { Callout } from "~/components/ui/callout";
 import { StatusChip } from "~/components/ui/chip";
 import { Disclosure } from "~/components/ui/disclosure";
-import { Kbd, Skeleton } from "~/components/ui/misc";
+import { Skeleton } from "~/components/ui/misc";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
 import { folderOf } from "~/lib/file-links";
-import { formatTime, relativeTime } from "~/lib/format";
+import { relativeTime } from "~/lib/format";
 import { href, navigate } from "~/lib/router";
-import { FOCUS_COMPOSER_EVENT } from "~/lib/shortcuts";
+import { FOCUS_COMPOSER_EVENT, focusComposer } from "~/lib/shortcuts";
 import { fileName } from "~/lib/tools";
 import { SMALL_UP, useMediaQuery } from "~/lib/use-media";
 
-import { projectCopy } from "../project/copy";
+import { trustDismissed } from "../brain/model";
+import { AttentionCard } from "../home/attention-cards";
+import { attentionKey } from "../home/model";
 import { DocumentRow } from "../project/details";
 import { useProjectState, useRuntime } from "../project/runtime";
-import { isOptimistic } from "../project/store";
 import { chatBlocked } from "./blocked";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "./composer";
 import { useOpenProjectFile } from "./file-link";
@@ -46,254 +46,88 @@ function WorkSection(props: { title: string; count?: number; children: ReactNode
 }
 
 // ---------------------------------------------------------------------------
-// Voor jou, for this project (brief §5, §6): one Callout per open decision
+// Voor jou, for this project (brief §5, §6): the same card objects as Vandaag
 // ---------------------------------------------------------------------------
 
-function messageText(message: Message): string {
-  return message.parts.map((part) => (part.type === "text" ? part.text : "")).join("").trim();
-}
-
-function AttentionCard(props: { project: Project; item: AttentionItem; onDone: () => void }) {
-  const backend = useBackend();
-  const runtime = useRuntime();
-  const status = useStatus();
-  const refreshAttention = useRefreshAttention();
-  const [busy, setBusy] = useState(false);
-  const { item, project } = props;
-  const chatLink = (chatId: string) => href({ name: "project", projectId: project.id, chatId });
-
-  const act = async (task: () => Promise<void>) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await task();
-      await refreshAttention();
-      props.onDone();
-    } catch (failure) {
-      toast(errorText(failure), { tone: "error" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  switch (item.kind) {
-    case "permission": {
-      const { request } = item;
-      const action = copy.permission.actions[request.action] ?? copy.permission.fallbackAction;
-      const resource = request.resources[0] ? fileName(request.resources[0]) : null;
-      const reversible = ["edit", "write", "patch"].includes(request.action);
-      const reply = (value: "once" | "always" | "reject") =>
-        act(async () => {
-          await backend.interactions.replyPermission(project.id, item.chatId, request.id, value);
-          runtime.dropPermission(item.chatId, request.id);
-          toast(value === "reject" ? copy.attention.permission.denied : copy.attention.permission.allowed);
-        });
-      // Chords belong to the focused card, never to the window (brief §4).
-      const onKey = (event: KeyboardEvent<HTMLElement>) => {
-        if (event.target !== event.currentTarget || busy) return;
-        if (event.key === "Enter") {
-          event.preventDefault();
-          void reply("once");
-        } else if (event.key === "Escape") {
-          event.preventDefault();
-          void reply("reject");
-        }
-      };
-      return (
-        <Callout
-          icon={<ShieldQuestion />}
-          label={projectCopy.work.attention.permission}
-          decision
-          tabIndex={0}
-          onKeyDown={onKey}
-          data-attention=""
-          testId="work-attention-permission"
-          title={action}
-          chip={resource}
-          state={`${projectCopy.work.attention.inChat(item.chatTitle, relativeTime(item.at))} · ${reversible ? copy.attention.permission.reversible : copy.attention.permission.notReversible}`}
-          actions={
-            <>
-              <Button variant="primary" size="sm" disabled={busy} onClick={() => void reply("once")}>
-                {copy.attention.permission.allow}
-                <Kbd>⏎</Kbd>
-              </Button>
-              {request.canAlways && request.scope ? (
-                <Button variant="secondary" size="sm" disabled={busy} onClick={() => void reply("always")} title={request.scope}>
-                  {copy.attention.permission.always}
-                </Button>
-              ) : null}
-              <Button variant="quiet" size="sm" disabled={busy} onClick={() => void reply("reject")}>
-                {copy.attention.permission.deny}
-                <Kbd>esc</Kbd>
-              </Button>
-            </>
-          }
-          link={<a href={chatLink(item.chatId)}>{projectCopy.work.attention.openChat}</a>}
-        />
-      );
-    }
-    case "question": {
-      const field = item.request.fields[0];
-      return (
-        <Callout
-          icon={<HelpCircle />}
-          label={projectCopy.work.attention.question}
-          decision
-          data-attention=""
-          tabIndex={0}
-          testId="work-attention-question"
-          title={field?.title ?? projectCopy.work.attention.question}
-          state={projectCopy.work.attention.inChat(item.chatTitle, relativeTime(item.at))}
-          actions={
-            <Button variant="primary" size="sm" onClick={() => navigate({ name: "project", projectId: project.id, chatId: item.chatId })}>
-              {projectCopy.work.attention.answer}
-            </Button>
-          }
-        />
-      );
-    }
-    case "chat_failed": {
-      const reason = copy.errors.chat[item.error.kind]?.text ?? copy.errors.chat.unknown.text;
-      // "Opnieuw" runs the turn again: revert to the last message and send it once more (brief §5, §7).
-      const retry = () =>
-        act(async () => {
-          await runtime.ensureMessages(item.chatId);
-          const list = runtime.store.getState().messages[item.chatId]?.list ?? EMPTY;
-          const last = [...list].reverse().find((message) => message.role === "user" && !isOptimistic(message));
-          const text = last ? messageText(last) : "";
-          const chat = runtime.store.getState().chats[item.chatId];
-          const model = chat?.model ?? startModel(status.data, project);
-          if (!last || !text || !model) {
-            navigate({ name: "project", projectId: project.id, chatId: item.chatId });
-            return;
-          }
-          await backend.chats.revert(project.id, item.chatId, last.id);
-          await backend.chats.send(project.id, item.chatId, { text, model, agent: null, attachments: [], command: null, skills: [] });
-          toast(copy.attention.chatFailed.retried, { action: { label: projectCopy.work.attention.openChat, onClick: () => navigate({ name: "project", projectId: project.id, chatId: item.chatId }) } });
-        });
-      return (
-        <Callout
-          icon={<CircleAlert />}
-          label={projectCopy.work.attention.failed}
-          tone="failure"
-          data-attention=""
-          tabIndex={0}
-          testId="work-attention-failed"
-          title={copy.attention.chatFailed.title(reason.replace(/\.$/, ""))}
-          state={projectCopy.work.attention.inChat(item.chatTitle, relativeTime(item.at))}
-          actions={
-            <Button variant="secondary" size="sm" disabled={busy} onClick={() => void retry()}>
-              {copy.attention.chatFailed.retry}
-            </Button>
-          }
-          link={<a href={chatLink(item.chatId)}>{projectCopy.work.attention.openChat}</a>}
-        />
-      );
-    }
-    case "routine": {
-      const state =
-        item.reason === "missed" ? projectCopy.work.attention.missedAt(formatTime(item.at)) : (item.detail ?? (item.reason === "failed" ? projectCopy.work.attention.lastRunFailed : copy.attention.routine.attention));
-      const routineLink = href({ name: "project-routines", projectId: project.id, routineId: item.routineId });
-      const runNow = () =>
-        act(async () => {
-          const run = await backend.routines.run(item.routineId);
-          const chatId = run.chatId;
-          toast(copy.attention.routine.started, chatId ? { action: { label: projectCopy.work.attention.openChat, onClick: () => navigate({ name: "project", projectId: project.id, chatId }) } } : {});
-        });
-      return (
-        <Callout
-          icon={<Repeat />}
-          label={projectCopy.work.attention.routine}
-          decision={item.reason === "needs_attention"}
-          tone={item.reason === "failed" ? "failure" : "neutral"}
-          data-attention=""
-          tabIndex={0}
-          testId="work-attention-routine"
-          title={item.name}
-          state={state}
-          actions={
-            item.reason === "needs_attention" ? (
-              <Button variant="secondary" size="sm" onClick={() => navigate({ name: "project-routines", projectId: project.id, routineId: item.routineId })}>
-                {projectCopy.work.attention.openRoutine}
-              </Button>
-            ) : (
-              <Button variant="secondary" size="sm" disabled={busy} onClick={() => void runNow()}>
-                {copy.attention.routine.runNow}
-              </Button>
-            )
-          }
-          link={item.reason === "needs_attention" ? null : <a href={routineLink}>{projectCopy.work.attention.openRoutine}</a>}
-        />
-      );
-    }
-    case "brain": {
-      const title = item.state === "conflict" ? copy.attention.brain.conflict(null) : item.state === "needs_trust" ? copy.attention.brain.needsTrust : copy.attention.brain.error;
-      return (
-        <Callout
-          icon={<BookOpen />}
-          label={projectCopy.work.attention.brain}
-          decision
-          data-attention=""
-          tabIndex={0}
-          testId="work-attention-brain"
-          title={title}
-          state={relativeTime(item.at)}
-          actions={
-            <Button variant="secondary" size="sm" onClick={() => navigate({ name: "project-brain", projectId: project.id })}>
-              {projectCopy.work.attention.openBrain}
-            </Button>
-          }
-        />
-      );
-    }
-    case "proposal":
-      return null;
-  }
-}
-
-/** The project's share of "Voor jou" (brief §6). After an answer the card leaves and focus moves on (S5, P11). */
+/**
+ * The project's share of "Voor jou" (brief §6), rendered with Vandaag's cards (one object per
+ * decision, P5/S6). After an answer the card leaves, the page stays and focus moves to the card
+ * that took its place, else to the composer (S5, P11).
+ */
 function ProjectAttention(props: { project: Project }) {
   const attention = useAttention();
-  const list = useRef<HTMLDivElement>(null);
-  const [moveFocus, setMoveFocus] = useState(false);
-  const items = useMemo(() => (attention.data ?? []).filter((item) => item.kind !== "proposal" && item.projectId === props.project.id), [attention.data, props.project.id]);
+  const runtime = useRuntime();
+  const brains = useBrains();
+  const routines = useRoutines(props.project.id);
+  const refs = useRef(new Map<string, HTMLElement>());
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [advanceTo, setAdvanceTo] = useState<number | null>(null);
+  const brain = useMemo(() => (brains.data ?? []).find((entry) => entry.projectId === props.project.id) ?? null, [brains.data, props.project.id]);
+  const items = useMemo(
+    () =>
+      (attention.data ?? []).filter((item) => {
+        if (item.kind === "proposal" || item.projectId !== props.project.id || hidden.has(attentionKey(item))) return false;
+        // A remembered "Nu niet" keeps the trust card away (brief §8).
+        return !(item.kind === "brain" && item.state === "needs_trust" && brain && trustDismissed(props.project.id, brain.status));
+      }),
+    [attention.data, props.project.id, hidden, brain],
+  );
+  const routineMap = useMemo(() => new Map((routines.data ?? []).map((routine) => [routine.id, routine])), [routines.data]);
+
+  // A hidden key the poll no longer carries can be forgotten.
+  useEffect(() => {
+    if (!hidden.size || !attention.data) return;
+    const present = new Set(attention.data.map(attentionKey));
+    const next = new Set([...hidden].filter((key) => present.has(key)));
+    if (next.size !== hidden.size) setHidden(next);
+  }, [attention.data, hidden]);
 
   useEffect(() => {
-    if (!moveFocus) return;
-    setMoveFocus(false);
-    list.current?.querySelector<HTMLElement>("[data-attention]")?.focus();
-  }, [moveFocus, items.length]);
+    if (advanceTo === null) return;
+    const target = items[Math.min(advanceTo, items.length - 1)];
+    const element = target ? refs.current.get(attentionKey(target)) : undefined;
+    if (element) element.focus();
+    else focusComposer(0);
+    setAdvanceTo(null);
+  }, [advanceTo, items]);
 
   if (!items.length) return null;
   const shown = items.slice(0, MAX_CARDS);
   const rest = items.slice(MAX_CARDS);
-  const keyOf = (item: AttentionItem): string => {
-    switch (item.kind) {
-      case "permission":
-      case "question":
-        return `${item.kind}:${item.request.id}`;
-      case "chat_failed":
-        return `failed:${item.chatId}`;
-      case "routine":
-        return `routine:${item.routineId}`;
-      case "brain":
-        return `brain:${item.projectId}`;
-      case "proposal":
-        return `proposal:${item.proposal.id}`;
-    }
+  const card = (item: AttentionItem) => {
+    const key = attentionKey(item);
+    return (
+      <AttentionCard
+        key={key}
+        item={item}
+        project={props.project}
+        brain={brain}
+        routine={item.kind === "routine" ? (routineMap.get(item.routineId) ?? null) : null}
+        onResolved={() => {
+          // The open chat's store drops the card at once instead of on the next poll.
+          if (item.kind === "permission") runtime.dropPermission(item.chatId, item.request.id);
+          if (item.kind === "question") runtime.dropQuestion(item.chatId, item.request.id);
+          setAdvanceTo(items.findIndex((entry) => attentionKey(entry) === key));
+          setHidden((current) => new Set(current).add(key));
+        }}
+        cardRef={(element) => {
+          if (element) refs.current.set(key, element);
+          else refs.current.delete(key);
+        }}
+      />
+    );
   };
-  const card = (item: AttentionItem) => <AttentionCard key={keyOf(item)} project={props.project} item={item} onDone={() => setMoveFocus(true)} />;
   return (
     <section className="mt-8" aria-label={copy.project.forYou} data-testid="work-attention">
       <h2 className="mb-2 flex items-baseline gap-2 text-sm font-semibold text-foreground">
         {copy.project.forYou}
         <span className="text-xs font-medium text-subtle-foreground tabular-nums">{items.length}</span>
       </h2>
-      <div ref={list} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
         {shown.map(card)}
         {rest.length ? (
-          <Disclosure label={copy.attention.more(rest.length)}>
-            <div className="flex flex-col gap-3">{rest.map(card)}</div>
+          <Disclosure label={copy.attention.more(rest.length)} panelClassName="flex flex-col gap-3 ps-0 pt-2">
+            {rest.map(card)}
           </Disclosure>
         ) : null}
       </div>
@@ -310,7 +144,7 @@ function ChatRow(props: { project: Project; chat: Chat }) {
   return (
     <li className="border-b border-border last:border-b-0">
       <a href={href({ name: "project", projectId: props.project.id, chatId: chat.id })} className="-mx-1.5 flex min-h-12 items-center gap-2.5 rounded-lg px-1.5 py-2 text-sm transition-colors duration-100 hover:bg-hover">
-        {chat.routineId ? <Repeat className="size-4 shrink-0 text-subtle-foreground" aria-label={projectCopy.work.routineChat} /> : null}
+        {chat.routineId ? <Repeat className="size-4 shrink-0 text-subtle-foreground" aria-label={copy.project.work.routineChat} /> : null}
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium text-foreground">{chat.untitled ? copy.chat.untitled : chat.title}</span>
           {chat.preview ? <span className="block truncate text-xs text-muted-foreground">{chat.preview}</span> : null}
@@ -370,6 +204,10 @@ function MadeHere(props: { project: Project }) {
 // Suggestions: the project's commands and the trailing question of the newest chat
 // ---------------------------------------------------------------------------
 
+function messageText(message: Message): string {
+  return message.parts.map((part) => (part.type === "text" ? part.text : "")).join("").trim();
+}
+
 /** The last question the agent asked in a chat, as a sentence to answer, or null. */
 function trailingQuestion(messages: readonly Message[]): string | null {
   const last = [...messages].reverse().find((message) => message.role === "assistant" && messageText(message));
@@ -395,7 +233,7 @@ function Suggestions(props: { project: Project; newest: Chat | null; onPick: (te
   const question = useMemo(() => trailingQuestion(messages), [messages]);
   if (!commands.length && !question) return null;
   return (
-    <div className="mt-3 flex flex-wrap gap-2" aria-label={projectCopy.work.suggestions} data-testid="work-suggestions">
+    <div className="mt-3 flex flex-wrap gap-2" aria-label={copy.project.work.suggestions} data-testid="work-suggestions">
       {commands.map((command) => (
         <Button key={command.name} variant="secondary" size="sm" title={command.description ?? undefined} onClick={() => props.onPick(`/${command.name} `)}>
           /{command.name}
@@ -488,7 +326,7 @@ export function ProjectHome(props: { project: Project }) {
   const suggestions = !blocked ? <Suggestions project={project} newest={recent[0] ?? null} onPick={(text) => composer.current?.setText(text)} /> : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col" aria-label={projectCopy.work.label}>
+    <div className="flex h-full min-h-0 flex-col" aria-label={copy.project.work.label}>
       <main className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-4 pt-6 pb-10 sm:px-6 sm:pt-[8vh]">
           {smallUp ? (

@@ -117,13 +117,12 @@ export function useOpenedFile(projectId: string): string | null {
  * the column opens. Nothing navigates (S5): the chat stays where it is.
  */
 export function openProjectFile(file: SidecarFile, wide: boolean) {
-  useUi.getState().openSidecarFile(file, wide);
+  useUi.getState().showDetails(wide);
   setFileParam(file.path, file.projectId);
 }
 
 /** Closes the reader: the Details column shows its details again. */
 export function closeProjectFile() {
-  useUi.getState().closeSidecarFile();
   setFileParam(null, null);
 }
 

@@ -47,7 +47,8 @@ export const Callout = forwardRef<HTMLElement, CalloutProps>(function Callout(
       data-decision={decision ? "" : undefined}
       data-tone={tone}
       className={cn(
-        "bw-enter rounded-window bg-background p-5 text-foreground ring-1 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        // `outline-none` also sets `--tw-outline-style: none`, so the focus ring names its style again (V7: never a missing ring).
+        "bw-enter rounded-window bg-background p-5 text-foreground ring-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         decision ? "ring-amber-9/60" : tone === "failure" ? "ring-red-9/60" : "ring-border",
         className,
       )}

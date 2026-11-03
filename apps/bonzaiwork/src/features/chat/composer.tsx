@@ -16,9 +16,9 @@ import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 import { formatBytes } from "~/lib/format";
 import { chordLabel } from "~/lib/platform";
+import { INSERT_COMPOSER_TEXT_EVENT, insertedText } from "~/lib/shortcuts";
 import { readLocal, writeLocal } from "~/lib/storage";
 
-import { chatCopy } from "./copy";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -44,7 +44,7 @@ function RunModePill(props: { projectId: string }) {
   return (
     <Select
       variant="pill"
-      label={copy.settings.runMode}
+      label={copy.settings.runMode.question}
       value={mode.data.mode}
       onValueChange={(value) => {
         const next: RunMode = value === "approve" ? "approve" : value === "run-everything" ? "run-everything" : "default";
@@ -147,6 +147,23 @@ export const Composer = forwardRef<
     if (props.autoFocus && window.matchMedia("(pointer: fine)").matches) textarea.current?.focus();
   }, [props.autoFocus]);
 
+  // "Vraag hierover" on a result row (brief §6): the text lands in this composer, which takes focus.
+  useEffect(() => {
+    const onInsert = (event: Event) => {
+      const inserted = insertedText(event);
+      if (inserted === null) return;
+      setText((current) => (current.trim() ? `${current.replace(/\s+$/, "")} ${inserted}` : inserted));
+      window.requestAnimationFrame(() => {
+        const element = textarea.current;
+        if (!element) return;
+        element.focus();
+        element.setSelectionRange(element.value.length, element.value.length);
+      });
+    };
+    window.addEventListener(INSERT_COMPOSER_TEXT_EVENT, onInsert);
+    return () => window.removeEventListener(INSERT_COMPOSER_TEXT_EVENT, onInsert);
+  }, []);
+
   // The `/` menu: commands and skills of this project.
   const slash = /^\/([^\s]*)$/.exec(text);
   const filtered = useMemo<ComposerEntry[]>(() => {
@@ -204,8 +221,8 @@ export const Composer = forwardRef<
 
   const showStop = props.running && !text.trim() && !command && !waiting;
   const large = props.size === "large";
-  const placeholder = props.placeholder ?? (waiting ? chatCopy.composer.decisionPending : props.running ? chatCopy.composer.steer : copy.chat.composerPlaceholder);
-  const steerHints = props.running && !waiting && props.onQueue ? [{ keys: "⏎", label: chatCopy.composer.steerHint }, { keys: chordLabel("⏎"), label: chatCopy.composer.afterHint }] : null;
+  const placeholder = props.placeholder ?? (waiting ? copy.chat.composer.decisionPending : props.running ? copy.chat.composer.steer : copy.chat.composerPlaceholder);
+  const steerHints = props.running && !waiting && props.onQueue ? [{ keys: "⏎", label: copy.chat.composer.steerHint }, { keys: chordLabel("⏎"), label: copy.chat.composer.afterHint }] : null;
 
   return (
     <div
@@ -335,12 +352,12 @@ export const Composer = forwardRef<
           </Button>
         </Tooltip>
         {/* "/" as a labelled pill (brief §7, P3): the one entry point to skills; "/" in the field is the keyboard route (S6). */}
-        <Tooltip label={chatCopy.composer.skillsTitle} shortcut="/">
+        <Tooltip label={copy.chat.composer.skillsTitle} shortcut="/">
           <Button
             variant="quiet"
             size="sm"
             className="gap-1"
-            aria-label={chatCopy.composer.skillsTitle}
+            aria-label={copy.chat.composer.skillsTitle}
             disabled={Boolean(props.blocked) || waiting}
             data-testid="composer-skills"
             onClick={() => {
@@ -349,7 +366,7 @@ export const Composer = forwardRef<
             }}
           >
             <BookOpen />
-            {chatCopy.composer.skills}
+            {copy.chat.composer.skills}
           </Button>
         </Tooltip>
         {models.length ? (
@@ -390,9 +407,9 @@ export const Composer = forwardRef<
         <Popover.Portal>
           <Popover.Positioner anchor={container} side="top" align="start" sideOffset={6} collisionPadding={8} className="z-50">
             <Popover.Popup initialFocus={false} finalFocus={false} className="w-[min(var(--anchor-width),28rem)] max-h-[min(var(--available-height),20rem)] overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-popover outline-none">
-              <p className="px-2 pt-1 pb-1.5 text-xs text-subtle-foreground">{chatCopy.composer.skillsTitle}</p>
+              <p className="px-2 pt-1 pb-1.5 text-xs text-subtle-foreground">{copy.chat.composer.skillsTitle}</p>
               {filtered.length ? (
-                <ul id={listId} role="listbox" aria-label={chatCopy.composer.skillsTitle}>
+                <ul id={listId} role="listbox" aria-label={copy.chat.composer.skillsTitle}>
                   {filtered.map((entry, index) => (
                     <li
                       key={`${entry.kind}-${entry.name}`}
@@ -416,7 +433,7 @@ export const Composer = forwardRef<
                   ))}
                 </ul>
               ) : (
-                <p className="px-2 py-2 text-sm text-muted-foreground">{chatCopy.composer.noSkills}</p>
+                <p className="px-2 py-2 text-sm text-muted-foreground">{copy.chat.composer.noSkills}</p>
               )}
               {filtered.length ? <p className="px-2 pt-1.5 pb-1 text-[11px] text-subtle-foreground">{copy.chat.commandHint}</p> : null}
             </Popover.Popup>

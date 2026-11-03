@@ -18,7 +18,6 @@ import { FOCUS_COMPOSER_EVENT } from "~/lib/shortcuts";
 import { ModelsBlocked } from "../chat/blocked";
 import { Composer, type ComposerHandle, type ComposerSubmit } from "../chat/composer";
 import { useUi } from "../shell/ui-store";
-import { homeCopy } from "./copy";
 import { defaultProjectId } from "./model";
 
 /**
@@ -81,7 +80,7 @@ function KeyRow(props: { project: Project }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
       <KeyRound className="size-4 shrink-0" aria-hidden="true" />
-      <span>{userMode ? copy.keys.userMissing : homeCopy.keyLocked}</span>
+      <span>{userMode ? copy.keys.userMissing : copy.home.keyLocked}</span>
       <a className="font-medium text-foreground underline underline-offset-2" href={userMode ? href({ name: "settings", group: "toegang" }) : href({ name: "project-settings", projectId: props.project.id, group: "toegang" })}>
         {copy.home.linkKey}
       </a>

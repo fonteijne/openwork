@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { dateOf, datesBetween, dutchDuration, QUARTER_MINUTES, weekOf } from "@bonzaiwork/agenda/model";
-import { BookOpen, Check, Circle, CircleDot, FilePen, FileText, FolderOpen, GitBranch, Play, Repeat, RotateCcw, X } from "lucide-react";
+import { Check, Circle, CircleDot, FilePen, FileText, FolderOpen, GitBranch, MessageSquare, Play, Repeat, RotateCcw, X } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { keys, modelName, projectHasKey, useAgendaSettings, useBrain, useRefreshAttention, useRoutines, useStatus, useSummary, useUsage, useWorkflows } from "~/backend/queries";
@@ -23,14 +23,15 @@ import { projectRelativePath } from "~/lib/file-links";
 import { formatDateTime, formatMoney, formatTokens, formatWhen, relativeTime } from "~/lib/format";
 import { href, navigate } from "~/lib/router";
 import { describeSchedule } from "~/lib/schedule";
+import { insertComposerText } from "~/lib/shortcuts";
 import { touchedFiles } from "~/lib/tools";
 
 import { postText } from "../agenda/format";
+import { BrainLine } from "../brain/brain-line";
+import { deliverableOf, stageName } from "../brain/model";
 import { useStartChat } from "../brain/start-chat";
-import { brainStateLabel } from "../brain/status-pill";
 import { useOpenProjectFile, useOpenedFile } from "../chat/file-link";
 import { absoluteFilePath, FileView } from "../chat/sidecar";
-import { projectCopy } from "./copy";
 import { useProjectState, useRuntime } from "./runtime";
 
 const EMPTY: Message[] = [];
@@ -73,6 +74,8 @@ export function DocumentRow(props: {
   onOpen: () => void;
   /** The absolute path for "Tonen in map"; null hides the action (no desktop, P4 does not apply: it is the shell's feature). */
   revealPath: string | null;
+  /** "Vraag hierover": puts the document's name in the open composer (brief §6). */
+  onAsk?: () => void;
   changed?: boolean;
   dense?: boolean;
   testId?: string;
@@ -83,7 +86,7 @@ export function DocumentRow(props: {
       <button
         type="button"
         onClick={props.onOpen}
-        title={projectCopy.details.open}
+        title={copy.project.details.open}
         className={cn(
           "-ms-1.5 flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 text-start outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:outline-ring",
           props.dense ? "min-h-10 py-1.5" : "min-h-12 py-2",
@@ -95,9 +98,16 @@ export function DocumentRow(props: {
           {props.meta ? <span className="block truncate text-xs text-muted-foreground">{props.meta}</span> : null}
         </span>
       </button>
+      {props.onAsk ? (
+        <Tooltip label={copy.project.askAbout}>
+          <Button variant="quiet" size="icon-sm" aria-label={copy.project.askAbout} onClick={props.onAsk}>
+            <MessageSquare />
+          </Button>
+        </Tooltip>
+      ) : null}
       {props.revealPath && backend.capabilities.revealPath ? (
-        <Tooltip label={projectCopy.details.reveal}>
-          <Button variant="quiet" size="icon-sm" aria-label={projectCopy.details.reveal} onClick={() => void backend.desktop.revealPath(props.revealPath ?? "")}>
+        <Tooltip label={copy.project.details.reveal}>
+          <Button variant="quiet" size="icon-sm" aria-label={copy.project.details.reveal} onClick={() => void backend.desktop.revealPath(props.revealPath ?? "")}>
             <FolderOpen />
           </Button>
         </Tooltip>
@@ -106,26 +116,10 @@ export function DocumentRow(props: {
   );
 }
 
-/** The one-line brain state of a project, in words (brief §6: "Brein · één regel"). */
-function BrainLine(props: { project: Project }) {
-  const backend = useBackend();
-  const brain = useBrain(props.project.id);
-  const link = href({ name: "project-brain", projectId: props.project.id });
-  if (!backend.capabilities.brains) return <Locked>{copy.brain.locked}</Locked>;
-  return (
-    <a href={link} className="flex min-h-7 items-center gap-2 text-sm text-foreground hover:underline underline-offset-2">
-      <BookOpen className="size-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
-      <span className="min-w-0 truncate">{brain ? brainStateLabel(brain.status) : projectCopy.details.brainNone}</span>
-    </a>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Werkwijze: an ICM workflow as a stage bar with the one thing to do (plan §6.5), moved here
 // from the start page so the composer stays the only primary there (brief §6, P7).
 // ---------------------------------------------------------------------------
-
-const stageName = (stage: WorkflowStage) => stage.id.replace(/^\d{2}_/, "").replace(/[-_]+/g, " ");
 
 function StageMark(props: { stage: WorkflowStage }) {
   const { state } = props.stage;
@@ -190,7 +184,8 @@ function WorkflowBar(props: { project: Project; workflow: Workflow }) {
       </Button>
     );
   } else if (current.state === "check") {
-    note = projectCopy.details.stageQuestion(stageName(current));
+    // The question names the deliverable, not the folder id (assessment P-3).
+    note = copy.brain.workflow.question(deliverableOf(current));
     actions =
       current.check.kind === "script" ? (
         <Locked>{copy.brain.stageScriptLocked}</Locked>
@@ -252,7 +247,7 @@ function WorkflowsGroup(props: { project: Project }) {
   const list = workflows.data ?? [];
   if (!list.length) return null;
   return (
-    <Group title={projectCopy.details.workflow} testId="details-workflows">
+    <Group title={copy.project.details.workflow} testId="details-workflows">
       <div className="flex flex-col divide-y divide-border">
         {list.map((workflow) => (
           <WorkflowBar key={workflow.name} project={props.project} workflow={workflow} />
@@ -276,7 +271,7 @@ function useRunRoutine(projectId: string) {
     try {
       const started = await backend.routines.run(routine.id);
       const chatId = started.chatId;
-      toast(projectCopy.details.started, chatId ? { action: { label: projectCopy.work.attention.openChat, onClick: () => navigate({ name: "project", projectId, chatId }) } } : {});
+      toast(copy.project.details.started, chatId ? { action: { label: copy.project.work.attention.openChat, onClick: () => navigate({ name: "project", projectId, chatId }) } } : {});
       await Promise.all([client.invalidateQueries({ queryKey: keys.allRoutines }), refreshAttention()]);
     } catch (failure) {
       toast(errorText(failure), { tone: "error" });
@@ -301,7 +296,7 @@ function NextRoutineGroup(props: { project: Project }) {
   );
   if (!backend.capabilities.routines || !next || next.nextRunAt === null) return null;
   return (
-    <Group title={projectCopy.details.routine} testId="details-routine">
+    <Group title={copy.project.details.routine} testId="details-routine">
       <a href={href({ name: "project-routines", projectId: props.project.id, routineId: next.id })} className="block min-w-0 text-sm font-medium text-foreground hover:underline underline-offset-2">
         <span className="flex items-center gap-2">
           <Repeat className="size-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
@@ -309,10 +304,10 @@ function NextRoutineGroup(props: { project: Project }) {
         </span>
       </a>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{projectCopy.details.routineNext(formatWhen(next.nextRunAt))}</p>
+        <p className="text-sm text-muted-foreground">{copy.project.details.routineNext(formatWhen(next.nextRunAt))}</p>
         <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run(next)}>
           <Play />
-          {projectCopy.details.runNow}
+          {copy.project.details.runNow}
         </Button>
       </div>
     </Group>
@@ -333,7 +328,7 @@ function ChatRoutineGroup(props: { project: Project; chat: Chat }) {
     try {
       await backend.routines.update(routine.id, { state: "inactive" });
       await client.invalidateQueries({ queryKey: keys.allRoutines });
-      toast(projectCopy.details.paused);
+      toast(copy.project.details.paused);
     } catch (failure) {
       toast(errorText(failure), { tone: "error" });
     } finally {
@@ -341,17 +336,17 @@ function ChatRoutineGroup(props: { project: Project; chat: Chat }) {
     }
   };
   return (
-    <Group title={projectCopy.details.routine} testId="details-chat-routine">
+    <Group title={copy.project.details.routine} testId="details-chat-routine">
       <a href={href({ name: "project-routines", projectId: props.project.id, routineId: props.chat.routineId })} className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground hover:underline underline-offset-2">
         <Repeat className="size-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
-        <span className="truncate">{projectCopy.details.routineFrom(routine?.name ?? copy.chatList.routineChat)}</span>
+        <span className="truncate">{copy.project.details.routineFrom(routine?.name ?? copy.chatList.routineChat)}</span>
       </a>
       {routine ? (
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
           <p className="min-w-0 truncate text-sm text-muted-foreground">{describeSchedule(routine.schedule)}</p>
           {routine.state === "active" ? (
             <Button variant="quiet" size="sm" disabled={busy} onClick={() => void pause()}>
-              {projectCopy.details.pause}
+              {copy.project.details.pause}
             </Button>
           ) : (
             <span className="text-xs text-muted-foreground">{copy.routines.paused}</span>
@@ -404,17 +399,17 @@ function AgendaRow(props: { project: Project }) {
   const postLabel = post ? (post.label ?? postText(post)) : null;
   return (
     <p className="flex min-w-0 items-center gap-x-1.5 text-sm" data-testid="details-agenda-row" title={post ? postText(post) : undefined}>
-      <span className="shrink-0 text-foreground">{minutes === null ? <Skeleton className="inline-block h-3.5 w-24 align-middle" /> : projectCopy.details.weekLine(dutchDuration(minutes))}</span>
+      <span className="shrink-0 text-foreground">{minutes === null ? <Skeleton className="inline-block h-3.5 w-24 align-middle" /> : copy.project.details.weekLine(dutchDuration(minutes))}</span>
       <span aria-hidden="true" className="shrink-0 text-subtle-foreground">
         ·
       </span>
       {/* Amber only on the missing post: the one thing that needs attention (V2). */}
-      <span className={cn("min-w-0 flex-1 truncate", postLabel ? "text-muted-foreground" : "font-medium text-warning-foreground")}>{postLabel ? projectCopy.details.post(postLabel) : projectCopy.details.noPost}</span>
+      <span className={cn("min-w-0 flex-1 truncate", postLabel ? "text-muted-foreground" : "font-medium text-warning-foreground")}>{postLabel ? copy.project.details.post(postLabel) : copy.project.details.noPost}</span>
       <span aria-hidden="true" className="shrink-0 text-subtle-foreground">
         ·
       </span>
       <a href={settingsLink} className="shrink-0 font-medium text-electric-11 underline-offset-2 hover:underline">
-        {projectCopy.details.change}
+        {copy.project.details.change}
       </a>
     </p>
   );
@@ -433,14 +428,14 @@ function UsageLine(props: { project: Project }) {
       <Progress
         value={Math.min(spend, maxBudget)}
         max={maxBudget}
-        label={copy.sidecar.usage}
-        caption={projectCopy.details.usageCaption}
-        valueText={projectCopy.details.usageOf(formatMoney(spend, currency), formatMoney(maxBudget, currency))}
+        label={copy.project.details.usage}
+        caption={copy.project.details.usageCaption}
+        valueText={copy.project.details.usageOf(formatMoney(spend, currency), formatMoney(maxBudget, currency))}
         tone={ratio >= 1 ? "exceeded" : ratio >= 0.9 ? "warning" : "neutral"}
       />
     );
   }
-  if (summary.data?.tokens) return <span className="text-sm text-foreground">{projectCopy.details.usageTokens(formatTokens(summary.data.tokens.input), formatTokens(summary.data.tokens.output))}</span>;
+  if (summary.data?.tokens) return <span className="text-sm text-foreground">{copy.project.details.usageTokens(formatTokens(summary.data.tokens.input), formatTokens(summary.data.tokens.output))}</span>;
   if (summary.data) return <Locked>{copy.settings.usageLocked}</Locked>;
   return <Skeleton className="h-4 w-32" />;
 }
@@ -451,9 +446,9 @@ function ProjectGroup(props: { project: Project }) {
   const { project } = props;
   const key = status.data?.keyMode === "user" ? status.data.user : project.key;
   return (
-    <Group title={projectCopy.details.project} testId="details-project">
+    <Group title={copy.project.details.project} testId="details-project">
       <dl className="flex flex-col gap-1">
-        <Fact label={projectCopy.details.key}>{projectHasKey(status.data, project) ? copy.keys.linked(key.keyHint ?? "") : <Locked>{copy.keys.missing}</Locked>}</Fact>
+        <Fact label={copy.project.details.key}>{projectHasKey(status.data, project) ? copy.keys.linked(key.keyHint ?? "") : <Locked>{copy.keys.missing}</Locked>}</Fact>
       </dl>
       <div className="mt-2">
         <UsageLine project={project} />
@@ -462,12 +457,12 @@ function ProjectGroup(props: { project: Project }) {
         <AgendaRow project={project} />
       </div>
       {/* Path and shell actions stay behind a labelled row (P3). */}
-      <Disclosure label={projectCopy.details.technical} size="sm" className="-mx-1 mt-2" panelClassName="ps-6 pt-1 pb-1">
+      <Disclosure label={copy.project.details.technical} size="sm" className="-mx-1 mt-2" panelClassName="ps-6 pt-1 pb-1">
         <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
         {backend.capabilities.revealPath ? (
           <Button variant="secondary" size="sm" className="mt-2" onClick={() => void backend.desktop.revealPath(project.path)}>
             <FolderOpen />
-            {projectCopy.details.reveal}
+            {copy.project.details.reveal}
           </Button>
         ) : null}
       </Disclosure>
@@ -479,8 +474,8 @@ function ProjectGroup(props: { project: Project }) {
 function WorkDetails(props: { project: Project }) {
   return (
     <>
-      <Group title={projectCopy.details.brain} testId="details-brain">
-        <BrainLine project={props.project} />
+      <Group title={copy.project.details.brain} testId="details-brain">
+        <BrainLine projectId={props.project.id} />
       </Group>
       <WorkflowsGroup project={props.project} />
       <NextRoutineGroup project={props.project} />
@@ -498,7 +493,7 @@ function ResultGroup(props: { project: Project; chat: Chat }) {
   const files = useMemo(() => touchedFiles(messages), [messages]);
   const openFile = useOpenProjectFile(props.project, props.chat.id);
   return (
-    <Group title={projectCopy.details.result} testId="details-result">
+    <Group title={copy.project.details.result} testId="details-result">
       {files.length ? (
         <ul className="-mt-1 flex flex-col">
           {files.map((file) => {
@@ -507,17 +502,18 @@ function ResultGroup(props: { project: Project; chat: Chat }) {
               <DocumentRow
                 key={file.path}
                 name={file.name}
-                meta={file.changed ? projectCopy.details.changed : projectCopy.details.read}
+                meta={file.changed ? copy.project.details.changed : copy.project.details.read}
                 changed={file.changed}
                 dense
                 onOpen={() => (path ? openFile(path) : toast(copy.errors.not_found, { tone: "error" }))}
+                onAsk={() => insertComposerText(copy.project.details.askAboutText(file.name))}
                 revealPath={path ? absoluteFilePath(props.project, path) : null}
               />
             );
           })}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground">{projectCopy.details.resultEmpty}</p>
+        <p className="text-sm text-muted-foreground">{copy.project.details.resultEmpty}</p>
       )}
     </Group>
   );
@@ -527,8 +523,8 @@ function ChatBrainGroup(props: { project: Project }) {
   const brain = useBrain(props.project.id);
   if (!brain) return null;
   return (
-    <Group title={projectCopy.details.brain} testId="details-chat-brain">
-      <BrainLine project={props.project} />
+    <Group title={copy.project.details.brain} testId="details-chat-brain">
+      <BrainLine projectId={props.project.id} />
     </Group>
   );
 }
@@ -541,7 +537,7 @@ function RelatedGroup(props: { project: Project; chat: Chat }) {
   if (!parent && !subtasks.length) return null;
   const link = (chat: Chat) => href({ name: "project", projectId: props.project.id, chatId: chat.id });
   return (
-    <Group title={parent ? projectCopy.details.partOf : projectCopy.details.subtasks}>
+    <Group title={parent ? copy.project.details.partOf : copy.project.details.subtasks}>
       <ul className="-mx-1.5 flex flex-col">
         {[...(parent ? [parent] : []), ...subtasks].map((chat) => (
           <li key={chat.id}>
@@ -584,7 +580,7 @@ function ChatFacts(props: { project: Project; chat: Chat }) {
     try {
       await backend.chats.setNote(props.project.id, chat.id, note.trim() || null);
       runtime.upsertChat({ ...chat, note: note.trim() || null });
-      toast(projectCopy.details.noteSaved);
+      toast(copy.project.details.noteSaved);
     } catch (failure) {
       toast(errorText(failure), { tone: "error" });
     }
@@ -592,22 +588,22 @@ function ChatFacts(props: { project: Project; chat: Chat }) {
 
   return (
     <div className="px-4 py-2">
-      <Disclosure label={projectCopy.details.more} className="-mx-1" panelClassName="ps-1 pt-1 pb-2" testId="details-chat-more">
+      <Disclosure label={copy.project.details.more} className="-mx-1" panelClassName="ps-1 pt-1 pb-2" testId="details-chat-more">
         <dl className="flex flex-col gap-0.5">
-          <Fact label={projectCopy.details.status}>
-            <StatusChip status={chat.status} label={chat.status === "idle" ? copy.sidecar.statuses.idle : undefined} />
+          <Fact label={copy.project.details.status}>
+            <StatusChip status={chat.status} label={chat.status === "idle" ? copy.shell.status.idle : undefined} />
           </Fact>
-          <Fact label={projectCopy.details.model}>{modelName(status.data, chat.model) ?? "—"}</Fact>
-          <Fact label={projectCopy.details.started2}>{formatDateTime(chat.createdAt)}</Fact>
-          <Fact label={projectCopy.details.updated}>{relativeTime(chat.updatedAt)}</Fact>
-          <Fact label={projectCopy.details.tokens}>{tokens.input + tokens.output ? projectCopy.details.usageTokens(formatTokens(tokens.input), formatTokens(tokens.output)) : "—"}</Fact>
+          <Fact label={copy.project.details.model}>{modelName(status.data, chat.model) ?? "—"}</Fact>
+          <Fact label={copy.project.details.started2}>{formatDateTime(chat.createdAt)}</Fact>
+          <Fact label={copy.project.details.updated}>{relativeTime(chat.updatedAt)}</Fact>
+          <Fact label={copy.project.details.tokens}>{tokens.input + tokens.output ? copy.project.details.usageTokens(formatTokens(tokens.input), formatTokens(tokens.output)) : "—"}</Fact>
         </dl>
         {!chat.parentId ? (
           <div className="mt-2">
             <Select
-              label={projectCopy.details.group}
+              label={copy.project.details.group}
               value={chat.groupId ?? "__none"}
-              items={[{ value: "__none", label: projectCopy.details.noGroup }, ...groups.map((group) => ({ value: group.id, label: group.label }))]}
+              items={[{ value: "__none", label: copy.project.details.noGroup }, ...groups.map((group) => ({ value: group.id, label: group.label }))]}
               onValueChange={(value) => {
                 const groupId = value === "__none" ? null : value;
                 runtime.upsertChat({ ...chat, groupId });
@@ -623,8 +619,8 @@ function ChatFacts(props: { project: Project; chat: Chat }) {
           value={note}
           onChange={(event) => setNote(event.target.value)}
           onBlur={() => void saveNote()}
-          placeholder={projectCopy.details.notePlaceholder}
-          aria-label={projectCopy.details.note}
+          placeholder={copy.project.details.notePlaceholder}
+          aria-label={copy.project.details.note}
           rows={2}
           className="mt-2 min-h-12 text-sm"
         />
@@ -660,9 +656,9 @@ export function Details(props: { project: Project; chatId: string | null; onClos
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="details">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4" data-titlebar="sidecar">
-        <h2 className="text-sm font-semibold">{projectCopy.details.title}</h2>
+        <h2 className="text-sm font-semibold">{copy.project.details.title}</h2>
         {props.onClose ? (
-          <Button variant="quiet" size="icon-sm" aria-label={projectCopy.details.close} onClick={props.onClose}>
+          <Button variant="quiet" size="icon-sm" aria-label={copy.project.details.close} onClick={props.onClose}>
             <X />
           </Button>
         ) : null}

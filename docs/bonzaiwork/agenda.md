@@ -13,26 +13,42 @@ contract: [`frontend-contract.md`](./frontend-contract.md) §7.6, stand en afwij
 | Meting, opslag, routes, boekdocument | `packages/bonzaiwork-agenda` (fase 1) |
 | Pure helpers voor UI en demo (types, klok, `dayView`, `bookingDocument`) | `@bonzaiwork/agenda/model` |
 | `Backend.agenda` live en demo | `apps/bonzaiwork/src/backend/live/agenda.ts`, `backend/demo/agenda.ts` |
-| Pil in de bovenbalk (elke pagina) | `features/agenda/agenda-pill.tsx`, in `components/top-bar.tsx` |
+| Statusrij in de zijbalkvoet (elke pagina) | `features/agenda/agenda-status-row.tsx`, in `features/shell/sidebar.tsx` |
 | Paneel: overlay, vastgezette kolom, sheet op telefoons | `features/agenda/agenda-panel.tsx`, `Panel` in `components/ui/overlay.tsx` |
+| Dagkaart (totalen per post, "Kies post", "Niet geboekt") | `features/agenda/day-card.tsx`, `day-model.ts`, `post-picker.tsx` |
+| Weekstrook | `features/agenda/week-strip.tsx` |
 | Tijdlijn, toevoegen, wijzigen, ongedaan maken | `features/agenda/timeline.tsx`, `quarter-editor.tsx` |
-| Exporteer voor Bridge | `features/agenda/booking-export.tsx` |
-| Bridge-post per project, "Werkdag bijhouden" | `features/agenda/agenda-settings.tsx` (in projectinstellingen → Algemeen en app-instellingen) |
+| Boeken (in een chat, kopiëren, opslaan) | `features/agenda/booking-export.tsx` |
+| Bridge-post per project, "Werkdag bijhouden" | `features/agenda/agenda-settings.tsx` (in projectinstellingen → Project en app-instellingen) |
 | Open project melden | `features/agenda/presence.ts` (in `AppShell`) |
+| Nederlandse labels van het paneel | `features/agenda/copy.ts` (tot de samenvoeging in `src/copy.ts`) |
 
 **Bediening**
 
-- **Pil** rechts in de bovenbalk: "Project A sinds 10:15", "Away from BonzaiWork", of "Agenda" zonder data. Gedempt
-  als "Werkdag bijhouden" uit staat; met een slot als de lokale server nog geen agenda heeft.
-- **⌘J / Ctrl+J** of een klik op de pil opent en sluit het paneel. Het paneel is niet-modaal: je blijft typen in de
-  composer. Esc in het paneel sluit het; de focus gaat terug naar waar hij was. Esc in de composer laat het open.
+- **Statusrij** onderin de zijbalk (ui-ux-overhaul §4, beslissing A2): "Offertes 2026 · sinds 10:15" als je in een
+  project werkt, "Niet in BonzaiWork" als je dat niet doet (de data houden "Away from BonzaiWork"), of "Agenda" zonder
+  data. Gedempt als "Werkdag bijhouden" uit staat; met een slot als de lokale server nog geen agenda heeft. De tooltip
+  noemt ⌘J. Dezelfde `agenda-pill`-testid als de oude pil in de bovenbalk.
+- **⌘J / Ctrl+J** of een klik op de statusrij opent en sluit het paneel. Het paneel is niet-modaal: je blijft typen in
+  de composer. Esc in het paneel sluit het; de focus gaat terug naar waar hij was. Esc in de composer laat het open.
+- **Het paneel opent met de Dagkaart**: per Bridge-post de uren van de dag, rijen "Zonder post" met **Kies post** ter
+  plekke (recente posten, of "Andere post" met een entity-id), en "Niet geboekt" voor de tijd buiten BonzaiWork.
+  Kies post op een projectrij zet de Bridge-post van dat project (voor elke dag); op een eigen omschrijving corrigeert
+  hij die kwartieren, met "Ongedaan maken". Daaronder de **weekstrook** (ma–zo, uren per dag, een amberkleurige stip
+  waar een post ontbreekt; klik is die dag; "Vandaag" staat naast de datum) en de **tijdlijn**: blokken met een balk in
+  de projectkleur, "Niet in BonzaiWork" als hairline-grijs, amber alleen bij "Zonder post".
 - **Vastzetten** (vanaf 1280px): het paneel wordt een eigen kolom en blijft na een herstart staan. Zet je daarna de
   sidecar aan, dan klapt de agenda in (en andersom).
-- **Wijzigen**: klik op een blok of een los kwartier. Een gemeten away-blok opent als "Anders", zodat een meeting
-  snel een omschrijving en Bridge-post krijgt. "Terug naar meting" haalt je correctie weg. Na opslaan staat
-  "Gewijzigd · Ongedaan maken" onderin het paneel, nergens anders.
-- **Exporteer voor Bridge**: periode (vandaag, gisteren, deze week, vorige week of zelf kiezen, max 31 dagen), een
-  samenvatting, "Kopieer voor chat" en "Opslaan in Downloads" (met "Toon in map" in de desktop-app).
+- **Wijzigen**: klik op een blok of een los kwartier. De editor is een driekeuze **Project · Meeting of anders · Niet
+  boeken** met één tijdbereik; notitie en referentie staan onder "Meer". Een gemeten away-blok opent als "Meeting of
+  anders", zodat een meeting snel een omschrijving en Bridge-post krijgt. Esc annuleert; de knoppen Toevoegen en Boeken
+  blijven staan. "Terug naar meting" haalt je correctie weg. Na opslaan staat "Gewijzigd · Ongedaan maken" onderin het
+  paneel, nergens anders.
+- **Boeken**: periode (vandaag, gisteren, deze week, vorige week of zelf kiezen, max 31 dagen), het project waarin de
+  chat komt (onthouden per apparaat; projecten zonder key of model staan er vergrendeld bij), een samenvatting, en
+  **Boek in een chat**: een nieuwe chat in dat project krijgt het boekdocument als `.md`-bijlage en één openingszin; de
+  chat opent en de toast zegt "Geboekt in …". "Kopieer voor chat" en "Opslaan in Downloads" (met "Toon in map" in de
+  desktop-app) blijven als tweede weg.
 
 ## Zelf bekijken
 
@@ -46,10 +62,14 @@ met `OPENWORK_SERVER_HOOKS` naar `packages/bonzaiwork-server-hooks/dist/server-h
 (`pnpm --filter @bonzaiwork/server-hooks build`), en open de app met `?server=…&token=…&hostToken=…`.
 
 **Headless** (AGENTS.md "Verify changes headless"): Playwright tegen de demo of de live dev-server. Stabiele
-selectors: `agenda-pill`, `agenda-panel` (met `data-variant` `overlay`, `column` of `sheet`), `agenda-timeline`,
-`agenda-block`, `agenda-add`, `agenda-editor`, `agenda-editor-label`, `agenda-editor-save`, `agenda-notice`,
-`agenda-export-open`, `agenda-export`, `agenda-export-copy`, `agenda-export-save`, `bridge-post-entity`,
-`project-bridge-post`, `project-bridge-post-edit`, `bridge-post-save`, `agenda-close`.
+selectors: `agenda-pill`, `agenda-panel` (met `data-variant` `overlay`, `column` of `sheet`), `agenda-date`, `agenda-total`,
+`agenda-today`, `agenda-day-card`, `agenda-day-row` (met `data-missing` zonder post), `agenda-day-away`,
+`agenda-post-pick`, `agenda-post-option`, `agenda-week`, `agenda-timeline`, `agenda-block`, `agenda-add`,
+`agenda-editor`, `agenda-editor-label`, `agenda-editor-post`, `agenda-editor-save`, `agenda-notice`,
+`agenda-export-open`, `agenda-export`, `agenda-export-book`, `agenda-export-copy`, `agenda-export-save`,
+`bridge-post-entity`, `project-bridge-post`, `project-bridge-post-edit`, `bridge-post-save`, `agenda-close`.
+De demo meet pas kwartieren tot "nu": verschuif in een headless run de klok (bijvoorbeeld naar 16:40) om een gevulde
+dag te zien.
 
 ## Eerste test na de MVP
 
@@ -57,13 +77,11 @@ Uit plan §8, "Eerste test na de MVP":
 
 1. Werk een dag gewoon in twee of drie projecten, met een meeting tussendoor.
 2. Eind van de dag:
-   - vul in **Projectinstellingen → Algemeen → Bridge-post** de posten in die ontbreken (in het paneel staat bij
-     zo'n blok "Geen Bridge-post");
-   - open de agenda (⌘J), klik op het away-blok van de meeting, kies "Anders", schrijf "Meeting …" en kies of typ de
-     Bridge-post, en sla op;
-   - klik **Exporteer voor Bridge** → **Vandaag** → **Kopieer voor chat**.
-3. Plak het document in een gewone chat die de Bridge CLI kan gebruiken, en kijk of die de stappen uit plan §6.2
-   volgt: toegang, bestaande boekingen, posten controleren, voorstel, dry-run, goedkeuring, boeken, nalezen.
+   - open de agenda (⌘J) en kies op de Dagkaart bij elke rij "Zonder post" een post met **Kies post**;
+   - klik op het away-blok van de meeting, kies "Meeting of anders", schrijf "Meeting …", kies de Bridge-post en sla op;
+   - klik **Boeken** → **Vandaag** → **Boek in een chat**.
+3. Kijk of de chat die opent de stappen uit plan §6.2 volgt: toegang, bestaande boekingen, posten controleren,
+   voorstel, dry-run, goedkeuring, boeken, nalezen.
 4. Noteer wat niet klopte: toewijzing (plan §2.2–2.3), dagvenster, groepering, de instructietekst. Die punten gaan
    naar fase 3 of naar een bijgestelde regel.
 

@@ -21,7 +21,6 @@ import { isEditable } from "~/lib/shortcuts";
 import { fileName } from "~/lib/tools";
 
 import { isBrainRead } from "../brain/brain-permission";
-import { homeCopy } from "./copy";
 import { lastUserText } from "./model";
 
 const REVERSIBLE = new Set(["edit", "write", "patch"]);
@@ -29,8 +28,7 @@ const REVERSIBLE = new Set(["edit", "write", "patch"]);
 /**
  * The focused card shows its ring on any focus, not only `:focus-visible`: focus lands here by
  * script after an answer (brief §5) and the ring says where ⏎ and esc go (S6, V7: never a missing
- * focus ring). `outline-solid` is needed because Callout's `outline-none` also sets
- * `--tw-outline-style: none`, which `outline-2` alone would inherit (seam: fix in Callout).
+ * focus ring). `outline-solid` restores the style that Callout's `outline-none` clears.
  */
 const CARD = "focus:outline-solid focus:outline-2 focus:outline-offset-2 focus:outline-ring";
 
@@ -139,7 +137,7 @@ function PermissionCard(props: { item: Extract<AttentionItem, { kind: "permissio
   const { busy, act } = useCardAction(props.project, props.onResolved);
   const { item, project } = props;
   const request: PermissionRequest = item.request;
-  const action = isBrainRead(request) ? homeCopy.brainRead : (copy.permission.actions[request.action] ?? copy.permission.fallbackAction);
+  const action = isBrainRead(request) ? copy.home.brainRead : (copy.permission.actions[request.action] ?? copy.permission.fallbackAction);
   const resources = request.resources.map((resource) => (resource.includes("/") || resource.includes(".") ? fileName(resource) : resource));
   const [first, ...rest] = resources;
   const reply = (value: "once" | "always" | "reject") =>
@@ -354,7 +352,7 @@ function FailedChatCard(props: { item: Extract<AttentionItem, { kind: "chat_fail
   const { busy, act } = useCardAction(props.project, props.onResolved);
   const { item, project } = props;
   const kind = item.error.kind;
-  const fix = homeCopy.failureFix[kind];
+  const fix = copy.attention.chatFailed.fix[kind];
   const fixLink = fixHref(kind, project.id);
 
   const retry = () =>
@@ -372,7 +370,7 @@ function FailedChatCard(props: { item: Extract<AttentionItem, { kind: "chat_fail
           .send(project.id, item.chatId, { text: last.text, model, agent: null, attachments: [], command: null, skills: [] })
           .catch((failure: unknown) => toast(`${copy.chat.sendFailed} ${errorText(failure)}`, { tone: "error" }));
       },
-      { title: homeCopy.retried, action: openChatAction(project.id, item.chatId) },
+      { title: copy.home.retried, action: openChatAction(project.id, item.chatId) },
     );
 
   return (
@@ -382,10 +380,10 @@ function FailedChatCard(props: { item: Extract<AttentionItem, { kind: "chat_fail
       tabIndex={0}
       onKeyDown={cardKeys({ enter: retry })}
       testId="attention-failed"
-      label={copy.attention.chatFailed.title(homeCopy.failureReason[kind])}
+      label={copy.attention.chatFailed.title(copy.attention.chatFailed.reason[kind])}
       tone="failure"
       icon={<CircleAlert />}
-      title={copy.attention.chatFailed.title(homeCopy.failureReason[kind])}
+      title={copy.attention.chatFailed.title(copy.attention.chatFailed.reason[kind])}
       state={<Context project={project} title={item.chatTitle} at={item.at} />}
       actions={
         <>
@@ -422,7 +420,7 @@ function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>;
     void act(
       async () => {
         const run = await backend.routines.run(item.routineId);
-        toast(homeCopy.routineStarted, {
+        toast(copy.home.routineStarted, {
           action: {
             label: copy.attention.openChat,
             onClick: () => (run.chatId ? navigate({ name: "project", projectId: project.id, chatId: run.chatId }) : navigate({ name: "project-routines", projectId: project.id, routineId: item.routineId })),
@@ -433,6 +431,7 @@ function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>;
   const setModel = (model: string) => void act(() => backend.routines.update(item.routineId, { model }).then(() => undefined), { title: copy.routines.saved });
 
   const needsFix = item.reason === "needs_attention";
+  const current = props.routine?.model ?? item.model;
   const state = needsFix
     ? (item.detail ?? copy.attention.routine.attention)
     : item.reason === "missed"
@@ -457,7 +456,7 @@ function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>;
             <Select
               label={copy.routines.model}
               placeholder={copy.attention.routine.chooseModel}
-              value={props.routine?.model && models.some((model) => model.id === props.routine?.model) ? props.routine.model : null}
+              value={current && models.some((model) => model.id === current) ? current : null}
               onValueChange={setModel}
               disabled={busy}
               items={models.map((model) => ({ value: model.id, label: model.name }))}
@@ -475,7 +474,7 @@ function RoutineCard(props: { item: Extract<AttentionItem, { kind: "routine" }>;
           </Button>
         )
       }
-      link={<a href={routineHref}>{homeCopy.openRoutine}</a>}
+      link={<a href={routineHref}>{copy.home.openRoutine}</a>}
     />
   );
 }
@@ -492,9 +491,9 @@ function BrainCard(props: { item: Extract<AttentionItem, { kind: "brain" }>; pro
     item.state === "conflict" ? copy.attention.brain.conflict(status?.conflictBy ?? null) : item.state === "needs_trust" ? copy.attention.brain.needsTrust : copy.attention.brain.error;
   const sentence =
     item.state === "conflict"
-      ? homeCopy.conflictFiles(status?.conflictFiles.length ?? 0)
+      ? copy.home.conflictFiles(status?.conflictFiles.length ?? 0)
       : item.state === "needs_trust"
-        ? homeCopy.trustCount(status?.pendingTrust.length ?? 0)
+        ? copy.home.trustCount(status?.pendingTrust.length ?? 0)
         : (status?.error ?? copy.brain.states.error);
   const icon = item.state === "conflict" ? <GitMerge /> : item.state === "needs_trust" ? <ShieldQuestion /> : <CircleAlert />;
   return (
@@ -512,7 +511,7 @@ function BrainCard(props: { item: Extract<AttentionItem, { kind: "brain" }>; pro
       state={<Context project={project} at={item.at} extra={sentence} />}
       actions={
         <a href={target} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover pointer-coarse:h-10">
-          {homeCopy.openBrain}
+          {copy.home.openBrain}
           <Kbd>⏎</Kbd>
         </a>
       }
@@ -561,7 +560,7 @@ function ProposalCard(props: { item: Extract<AttentionItem, { kind: "proposal" }
           </Button>
         </>
       }
-      link={<a href={href({ name: "brain" })}>{homeCopy.yourBrain}</a>}
+      link={<a href={href({ name: "brain" })}>{copy.home.yourBrain}</a>}
     />
   );
 }

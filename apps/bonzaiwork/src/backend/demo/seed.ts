@@ -181,6 +181,15 @@ function project(
   };
 }
 
+/** The weekly schedule's last moment before `now`, in local time: the run the closed app missed. */
+function lastOccurrence(schedule: { daysOfWeek: number[]; hour: number; minute: number }, now: number): number {
+  const at = new Date(now);
+  at.setHours(schedule.hour, schedule.minute, 0, 0);
+  if (at.getTime() >= now) at.setDate(at.getDate() - 1);
+  while (!schedule.daysOfWeek.includes(at.getDay())) at.setDate(at.getDate() - 1);
+  return at.getTime();
+}
+
 function file(path: string, bytes: number, updatedAt: number): ProjectFile {
   return { path, bytes, updatedAt };
 }
@@ -516,6 +525,8 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
     chat(marketing, "c-news", "Nieuwsbrief november", tNews, tNews + 8 * MIN),
     chat(marketing, "c-linkedin", "LinkedIn-posts voor het webinar", tLinked, tLinked + 12 * MIN, { groupId: "g-social", model: "gpt-5-2" }),
     chat(marketing, "c-comp", "Concurrentieanalyse webdesignbureaus Utrecht", tComp, tComp + 20_000, { status: "running" }),
+    // An archived chat fills the collapsed tail of the sidebar list (brief §4).
+    chat(marketing, "c-okt", "Nieuwsbrief oktober", tNews - 30 * DAY, tNews - 30 * DAY + 9 * MIN, { archived: true }),
   );
   base.groups[marketing] = { groups: [{ id: "g-social", label: "Social" }], assignments: { "c-linkedin": "g-social" } };
   base.messages["c-news"] = [
@@ -701,7 +712,8 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
   const closing = { kind: "weekly" as const, timezone: zone, daysOfWeek: [5], hour: 16, minute: 0 };
   const social = { kind: "interval" as const, timezone: zone, everyHours: 3, startHour: 9, endHour: 18, daysOfWeek: [1, 2, 3, 4, 5] };
   const weekRun: RoutineRun = { id: "run-week-1", routineId: "r-week", trigger: "scheduled", status: "succeeded", skippedReason: null, chatId: "c-week", scheduledAt: tWeek, startedAt: tWeek, finishedAt: tWeek + 3 * MIN, error: null };
-  const inboxMissed: RoutineRun = { id: "run-inbox-2", routineId: "r-inbox", trigger: "scheduled", status: "skipped", skippedReason: "app_closed", chatId: null, scheduledAt: now - 20 * HOUR, startedAt: null, finishedAt: null, error: null };
+  // The missed run sits on the schedule's last 09:00 on a weekday, so the row's time matches its sentence.
+  const inboxMissed: RoutineRun = { id: "run-inbox-2", routineId: "r-inbox", trigger: "scheduled", status: "skipped", skippedReason: "app_closed", chatId: null, scheduledAt: lastOccurrence(inbox, now), startedAt: null, finishedAt: null, error: null };
   const inboxOk: RoutineRun = { id: "run-inbox-1", routineId: "r-inbox", trigger: "scheduled", status: "succeeded", skippedReason: null, chatId: "c-faq", scheduledAt: now - 2 * DAY, startedAt: now - 2 * DAY, finishedAt: now - 2 * DAY + 2 * MIN, error: null };
   const closingFailed: RoutineRun = { id: "run-close-1", routineId: "r-closing", trigger: "scheduled", status: "failed", skippedReason: null, chatId: null, scheduledAt: now - 5 * DAY, startedAt: now - 5 * DAY, finishedAt: now - 5 * DAY + 4_000, error: "Het model Mistral Large 3 is niet beschikbaar voor de key van dit project." };
   base.routines = [

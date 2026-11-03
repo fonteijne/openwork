@@ -15,7 +15,6 @@ import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
 
-import { settingsCopy } from "./copy";
 import { attempt, humanize, NAME_PATTERN, slugify } from "./shared";
 
 export type MethodScope = "project" | "global";
@@ -63,7 +62,7 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
   return (
     <>
       <Section
-        title={settingsCopy.methods.title}
+        title={copy.settings.methods.title}
         action={
           editable ? (
             <Menu
@@ -71,15 +70,15 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
               trigger={
                 <Button variant="quiet" size="sm" data-testid="settings-methods-new">
                   <Plus />
-                  {settingsCopy.methods.new}
+                  {copy.settings.methods.new}
                 </Button>
               }
             >
               <MenuItem icon={<ListChecks />} onClick={() => setCreating("skill")}>
-                {settingsCopy.methods.newSkill}
+                {copy.settings.methods.newSkill}
               </MenuItem>
               <MenuItem icon={<SlashSquare />} onClick={() => setCreating("command")}>
-                {settingsCopy.methods.newCommand}
+                {copy.settings.methods.newCommand}
               </MenuItem>
             </Menu>
           ) : undefined
@@ -87,7 +86,7 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
       >
         {props.projectId === null ? (
           <div className="py-3">
-            <Locked>{settingsCopy.methods.locked}</Locked>
+            <Locked>{copy.settings.methods.locked}</Locked>
           </div>
         ) : isLoading ? (
           <Skeleton className="my-3 h-4 w-48" />
@@ -97,7 +96,7 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
               key={`${method.kind}:${method.slug}`}
               label={method.title}
               hint={method.error ? <span className="text-destructive-foreground">{method.error}</span> : method.when || undefined}
-              value={method.kind === "command" ? <Chip mono>{settingsCopy.methods.commandChip(method.slug)}</Chip> : <Chip>{settingsCopy.methods.skillChip}</Chip>}
+              value={method.kind === "command" ? <Chip mono>{copy.settings.methods.commandChip(method.slug)}</Chip> : <Chip>{copy.settings.methods.skillChip}</Chip>}
               action={
                 editable ? (
                   <Menu
@@ -109,11 +108,11 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
                     }
                   >
                     <MenuItem icon={<Pencil />} onClick={() => setEditing(method)}>
-                      {settingsCopy.methods.edit}
+                      {copy.settings.methods.edit}
                     </MenuItem>
                     <MenuSeparator />
                     <MenuItem icon={<Trash2 />} danger onClick={() => setRemoving(method)}>
-                      {settingsCopy.methods.delete}
+                      {copy.settings.methods.delete}
                     </MenuItem>
                   </Menu>
                 ) : undefined
@@ -121,9 +120,9 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
             />
           ))
         ) : (
-          <p className="py-3 text-sm text-muted-foreground">{props.scope === "global" ? settingsCopy.methods.emptyGlobal : settingsCopy.methods.empty}</p>
+          <p className="py-3 text-sm text-muted-foreground">{props.scope === "global" ? copy.settings.methods.emptyGlobal : copy.settings.methods.empty}</p>
         )}
-        {props.projectId !== null && !editable ? <Locked className="pt-2">{settingsCopy.methods.readOnly}</Locked> : null}
+        {props.projectId !== null && !editable ? <Locked className="pt-2">{copy.settings.methods.readOnly}</Locked> : null}
       </Section>
 
       {props.projectId !== null ? (
@@ -149,9 +148,9 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
-        title={settingsCopy.methods.removeTitle(removing?.title ?? "")}
-        body={settingsCopy.methods.removeBody}
-        confirmLabel={settingsCopy.methods.delete}
+        title={copy.settings.methods.removeTitle(removing?.title ?? "")}
+        body={copy.settings.methods.removeBody}
+        confirmLabel={copy.settings.methods.delete}
         onConfirm={() => {
           const method = removing;
           setRemoving(null);
@@ -160,7 +159,7 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
             if (method.kind === "skill") await backend.config.removeSkill(scopeId, method.slug);
             else await backend.config.removeCommand(scopeId, method.slug);
             await refresh();
-          }, settingsCopy.methods.removed);
+          }, copy.settings.methods.removed);
         }}
       />
     </>
@@ -171,7 +170,7 @@ export function MethodsSection(props: { projectId: string | null; scope: MethodS
 function SlugState(props: { slug: string; existing: boolean; kind: "skill" | "command" }) {
   if (!props.slug) return null;
   return (
-    <span className="font-mono text-xs">{props.kind === "command" ? settingsCopy.methods.typed(props.slug) : props.existing ? props.slug : settingsCopy.methods.savedAs(props.slug)}</span>
+    <span className="font-mono text-xs">{props.kind === "command" ? copy.settings.methods.typed(props.slug) : props.existing ? props.slug : copy.settings.methods.savedAs(props.slug)}</span>
   );
 }
 
@@ -191,21 +190,21 @@ export function SkillEditor(props: { open: boolean; onOpenChange: (open: boolean
     if (!props.open) return;
     setTitle(props.skill ? humanize(props.skill.name) : "");
     setWhen(props.skill?.description ?? "");
-    setContent(existing.data?.content ?? (props.skill ? "" : settingsCopy.methods.stepsStarter));
+    setContent(existing.data?.content ?? (props.skill ? "" : copy.settings.methods.stepsStarter));
     setError(null);
   }, [props.open, props.skill, existing.data]);
   const slug = props.skill?.name ?? slugify(title);
 
   const save = async () => {
-    if (!title.trim()) return setError(settingsCopy.methods.titleRequired);
-    if (!NAME_PATTERN.test(slug)) return setError(settingsCopy.methods.titleRequired);
+    if (!title.trim()) return setError(copy.settings.methods.titleRequired);
+    if (!NAME_PATTERN.test(slug)) return setError(copy.settings.methods.titleRequired);
     setBusy(true);
     try {
       // The title stays readable in the file: a skill's first line is its heading.
       const body = content.trim().startsWith("#") ? content : `# ${title.trim()}\n\n${content}`;
       await backend.config.saveSkill(props.scopeId, { name: slug, description: when.trim(), content: body });
       await props.onSaved?.();
-      toast(settingsCopy.methods.saved);
+      toast(copy.settings.methods.saved);
       props.onOpenChange(false);
     } catch (failure) {
       setError(errorText(failure));
@@ -218,7 +217,7 @@ export function SkillEditor(props: { open: boolean; onOpenChange: (open: boolean
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={props.skill ? humanize(props.skill.name) : settingsCopy.methods.skillTitle}
+      title={props.skill ? humanize(props.skill.name) : copy.settings.methods.skillTitle}
       size="lg"
       footer={
         <>
@@ -232,11 +231,11 @@ export function SkillEditor(props: { open: boolean; onOpenChange: (open: boolean
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label={settingsCopy.methods.titleLabel} hint={<SlugState slug={slug} existing={Boolean(props.skill)} kind="skill" />}>
-          {(id, describedBy) => <Input id={id} aria-describedby={describedBy} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={settingsCopy.methods.titlePlaceholder} disabled={Boolean(props.skill)} />}
+        <Field label={copy.settings.methods.titleLabel} hint={<SlugState slug={slug} existing={Boolean(props.skill)} kind="skill" />}>
+          {(id, describedBy) => <Input id={id} aria-describedby={describedBy} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={copy.settings.methods.titlePlaceholder} disabled={Boolean(props.skill)} />}
         </Field>
-        <Field label={settingsCopy.methods.when}>{(id) => <Input id={id} value={when} onChange={(event) => setWhen(event.target.value)} placeholder={settingsCopy.methods.whenPlaceholder} />}</Field>
-        <Field label={settingsCopy.methods.steps}>{(id) => <Textarea id={id} value={content} onChange={(event) => setContent(event.target.value)} rows={10} className="leading-relaxed" />}</Field>
+        <Field label={copy.settings.methods.when}>{(id) => <Input id={id} value={when} onChange={(event) => setWhen(event.target.value)} placeholder={copy.settings.methods.whenPlaceholder} />}</Field>
+        <Field label={copy.settings.methods.steps}>{(id) => <Textarea id={id} value={content} onChange={(event) => setContent(event.target.value)} rows={10} className="leading-relaxed" />}</Field>
         {error ? (
           <p className="text-sm text-destructive-foreground" role="alert">
             {error}
@@ -264,13 +263,13 @@ function CommandEditor(props: { open: boolean; onOpenChange: (open: boolean) => 
   const slug = props.command?.name ?? slugify(title);
 
   const save = async () => {
-    if (!title.trim() || !NAME_PATTERN.test(slug)) return setError(settingsCopy.methods.titleRequired);
-    if (!template.trim()) return setError(settingsCopy.methods.templateRequired);
+    if (!title.trim() || !NAME_PATTERN.test(slug)) return setError(copy.settings.methods.titleRequired);
+    if (!template.trim()) return setError(copy.settings.methods.templateRequired);
     setBusy(true);
     try {
       await backend.config.saveCommand(props.scopeId, { name: slug, description: when.trim() || null, template, scope: props.scope });
       await props.onSaved?.();
-      toast(settingsCopy.methods.saved);
+      toast(copy.settings.methods.saved);
       props.onOpenChange(false);
     } catch (failure) {
       setError(errorText(failure));
@@ -283,7 +282,7 @@ function CommandEditor(props: { open: boolean; onOpenChange: (open: boolean) => 
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={props.command ? `/${props.command.name}` : settingsCopy.methods.commandTitle}
+      title={props.command ? `/${props.command.name}` : copy.settings.methods.commandTitle}
       footer={
         <>
           <Button variant="secondary" onClick={() => props.onOpenChange(false)} disabled={busy}>
@@ -296,13 +295,13 @@ function CommandEditor(props: { open: boolean; onOpenChange: (open: boolean) => 
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label={settingsCopy.methods.titleLabel} hint={<SlugState slug={slug} existing={Boolean(props.command)} kind="command" />}>
-          {(id, describedBy) => <Input id={id} aria-describedby={describedBy} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={settingsCopy.methods.titlePlaceholder} disabled={Boolean(props.command)} />}
+        <Field label={copy.settings.methods.titleLabel} hint={<SlugState slug={slug} existing={Boolean(props.command)} kind="command" />}>
+          {(id, describedBy) => <Input id={id} aria-describedby={describedBy} value={title} onChange={(event) => setTitle(event.target.value)} placeholder={copy.settings.methods.titlePlaceholder} disabled={Boolean(props.command)} />}
         </Field>
-        <Field label={settingsCopy.methods.when} optional>
-          {(id) => <Input id={id} value={when} onChange={(event) => setWhen(event.target.value)} placeholder={settingsCopy.methods.whenPlaceholder} />}
+        <Field label={copy.settings.methods.when} optional>
+          {(id) => <Input id={id} value={when} onChange={(event) => setWhen(event.target.value)} placeholder={copy.settings.methods.whenPlaceholder} />}
         </Field>
-        <Field label={settingsCopy.methods.template} hint={settingsCopy.methods.templateHint}>
+        <Field label={copy.settings.methods.template} hint={copy.settings.methods.templateHint}>
           {(id, describedBy) => <Textarea id={id} aria-describedby={describedBy} value={template} onChange={(event) => setTemplate(event.target.value)} rows={5} />}
         </Field>
         {error ? (

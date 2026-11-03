@@ -18,7 +18,6 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
 
-import { settingsCopy } from "./copy";
 import { attempt, humanize, NAME_PATTERN } from "./shared";
 
 /** Services people add often: one click fills name and address (assessment I-6). */
@@ -67,7 +66,7 @@ const CHIP_STATUS: Record<ConnectionStatus, ChipStatus> = { connected: "idle", d
 export function connectionsSummary(connections: readonly Connection[]): string {
   const connected = connections.filter((connection) => connection.status === "connected").length;
   const attention = connections.filter((connection) => connection.status === "needs_auth" || connection.status === "failed").length;
-  return connections.length ? settingsCopy.connectionsSummary(connected, attention) || settingsCopy.connections.status.disabled : settingsCopy.none;
+  return connections.length ? copy.settings.connectionsSummary(connected, attention) || copy.settings.connections.status.disabled : copy.settings.none;
 }
 
 /**
@@ -95,11 +94,11 @@ export function ConnectionsSection(props: { projectId: string }) {
               void attempt(async () => {
                 await backend.config.signOutConnection(props.projectId, connection.name);
                 await refresh();
-              }, settingsCopy.connections.signedOut)
+              }, copy.settings.connections.signedOut)
             }
           >
             <LogIn />
-            {settingsCopy.connections.signIn}
+            {copy.settings.connections.signIn}
           </Button>
         );
       case "failed":
@@ -112,18 +111,18 @@ export function ConnectionsSection(props: { projectId: string }) {
                 await backend.config.setConnectionEnabled(props.projectId, connection.name, false);
                 await backend.config.setConnectionEnabled(props.projectId, connection.name, true);
                 await refresh();
-              }, settingsCopy.connections.retried)
+              }, copy.settings.connections.retried)
             }
           >
             <RefreshCw />
-            {settingsCopy.connections.retry}
+            {copy.settings.connections.retry}
           </Button>
         );
       default:
         return (
           <Switch
             checked={connection.enabled}
-            label={settingsCopy.connections.toggle(connectionLabel(connection.name), connection.enabled)}
+            label={copy.settings.connections.toggle(connectionLabel(connection.name), connection.enabled)}
             onCheckedChange={(enabled) =>
               void attempt(async () => {
                 await backend.config.setConnectionEnabled(props.projectId, connection.name, enabled);
@@ -138,11 +137,11 @@ export function ConnectionsSection(props: { projectId: string }) {
   return (
     <>
       <Section
-        title={settingsCopy.connections.title}
+        title={copy.settings.connections.title}
         action={
           <Button variant="quiet" size="sm" onClick={() => setAdding(true)} data-testid="settings-connection-add">
             <Plus />
-            {settingsCopy.connections.add}
+            {copy.settings.connections.add}
           </Button>
         }
       >
@@ -161,7 +160,7 @@ export function ConnectionsSection(props: { projectId: string }) {
               value={
                 <StatusChip
                   status={CHIP_STATUS[connection.status]}
-                  label={settingsCopy.connections.status[connection.status]}
+                  label={copy.settings.connections.status[connection.status]}
                   detail={connection.status === "failed" && connection.error ? `· ${connection.error}` : undefined}
                 />
               }
@@ -177,11 +176,11 @@ export function ConnectionsSection(props: { projectId: string }) {
                     }
                   >
                     <MenuItem icon={<Info />} onClick={() => setDetails(connection)}>
-                      {settingsCopy.connections.technical}
+                      {copy.settings.connections.technical}
                     </MenuItem>
                     <MenuSeparator />
                     <MenuItem icon={<Trash2 />} danger onClick={() => setRemoving(connection)}>
-                      {settingsCopy.connections.remove}
+                      {copy.settings.connections.remove}
                     </MenuItem>
                   </Menu>
                 </>
@@ -189,25 +188,25 @@ export function ConnectionsSection(props: { projectId: string }) {
             />
           ))
         ) : (
-          <p className="py-3 text-sm text-muted-foreground">{settingsCopy.connections.empty}</p>
+          <p className="py-3 text-sm text-muted-foreground">{copy.settings.connections.empty}</p>
         )}
       </Section>
       <ConnectionDialog open={adding} onOpenChange={setAdding} projectId={props.projectId} />
       <Dialog open={details !== null} onOpenChange={(open) => !open && setDetails(null)} title={details ? connectionLabel(details.name) : ""}>
         {details ? (
           <div className="flex flex-col">
-            <Row label={settingsCopy.connections.name} value={<Chip mono>{details.name}</Chip>} />
-            <Row label={settingsCopy.connections.kind} value={details.kind === "remote" ? settingsCopy.connections.remote : settingsCopy.connections.local} />
-            <Row label={details.kind === "remote" ? settingsCopy.connections.url : settingsCopy.connections.command} value={<span className="break-all font-mono text-xs">{details.target}</span>} className="[&>div:last-child]:max-w-full [&>div:last-child>div]:whitespace-normal" />
+            <Row label={copy.settings.connections.name} value={<Chip mono>{details.name}</Chip>} />
+            <Row label={copy.settings.connections.kind} value={details.kind === "remote" ? copy.settings.connections.remote : copy.settings.connections.local} />
+            <Row label={details.kind === "remote" ? copy.settings.connections.url : copy.settings.connections.command} value={<span className="break-all font-mono text-xs">{details.target}</span>} className="[&>div:last-child]:max-w-full [&>div:last-child>div]:whitespace-normal" />
           </div>
         ) : null}
       </Dialog>
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
-        title={settingsCopy.connections.removeTitle(removing ? connectionLabel(removing.name) : "")}
-        body={settingsCopy.connections.removeBody}
-        confirmLabel={settingsCopy.connections.remove}
+        title={copy.settings.connections.removeTitle(removing ? connectionLabel(removing.name) : "")}
+        body={copy.settings.connections.removeBody}
+        confirmLabel={copy.settings.connections.remove}
         onConfirm={() => {
           const connection = removing;
           setRemoving(null);
@@ -215,7 +214,7 @@ export function ConnectionsSection(props: { projectId: string }) {
             void attempt(async () => {
               await backend.config.removeConnection(props.projectId, connection.name);
               await refresh();
-            }, settingsCopy.connections.removed);
+            }, copy.settings.connections.removed);
         }}
       />
     </>
@@ -248,7 +247,7 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
     try {
       await backend.config.addConnection(props.projectId, input);
       await client.invalidateQueries({ queryKey: keys.connections(props.projectId) });
-      toast(settingsCopy.connections.added);
+      toast(copy.settings.connections.added);
       props.onOpenChange(false);
     } catch (failure) {
       setError(errorText(failure));
@@ -257,8 +256,8 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
     }
   };
   const save = () => {
-    if (!NAME_PATTERN.test(name)) return setError(settingsCopy.connections.nameHint);
-    if (!target.trim()) return setError(kind === "remote" ? settingsCopy.connections.url : settingsCopy.connections.command);
+    if (!NAME_PATTERN.test(name)) return setError(copy.settings.connections.nameHint);
+    if (!target.trim()) return setError(kind === "remote" ? copy.settings.connections.url : copy.settings.connections.command);
     void add(kind === "remote" ? { name, kind, url: target.trim() } : { name, kind, command: target.trim() });
   };
 
@@ -266,7 +265,7 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={settingsCopy.connections.add}
+      title={copy.settings.connections.add}
       footer={
         custom ? (
           <>
@@ -282,7 +281,7 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
     >
       <div className="flex flex-col gap-4">
         {!custom ? (
-          <div role="group" aria-label={settingsCopy.connections.catalog} className="flex flex-col">
+          <div role="group" aria-label={copy.settings.connections.catalog} className="flex flex-col">
             {CATALOG.map((entry) => (
               <button
                 key={entry.name}
@@ -300,31 +299,31 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
               <span aria-hidden="true" className="flex size-7 items-center justify-center rounded-md ring-1 ring-inset ring-border">
                 <Plus className="size-4" />
               </span>
-              {settingsCopy.connections.other}
+              {copy.settings.connections.other}
             </button>
           </div>
         ) : (
           <>
-            <Field label={settingsCopy.connections.name} hint={settingsCopy.connections.nameHint}>
+            <Field label={copy.settings.connections.name} hint={copy.settings.connections.nameHint}>
               {(id, describedBy) => <Input id={id} aria-describedby={describedBy} value={name} onChange={(event) => setName(event.target.value.toLowerCase())} autoFocus />}
             </Field>
-            <Field label={settingsCopy.connections.kind}>
+            <Field label={copy.settings.connections.kind}>
               {(id) => (
                 <div id={id}>
                   <SegmentedControl
-                    label={settingsCopy.connections.kind}
+                    label={copy.settings.connections.kind}
                     value={kind}
                     onValueChange={setKind}
                     fill
                     items={[
-                      { value: "remote", label: settingsCopy.connections.remote },
-                      { value: "local", label: settingsCopy.connections.local },
+                      { value: "remote", label: copy.settings.connections.remote },
+                      { value: "local", label: copy.settings.connections.local },
                     ]}
                   />
                 </div>
               )}
             </Field>
-            <Field label={kind === "remote" ? settingsCopy.connections.url : settingsCopy.connections.command}>
+            <Field label={kind === "remote" ? copy.settings.connections.url : copy.settings.connections.command}>
               {(id) => <Input id={id} value={target} onChange={(event) => setTarget(event.target.value)} className="font-mono" placeholder={kind === "remote" ? "https://…" : "npx -y …"} />}
             </Field>
           </>

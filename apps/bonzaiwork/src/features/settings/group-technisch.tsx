@@ -10,7 +10,6 @@ import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
 import { copy } from "~/copy";
 import { formatDateTime } from "~/lib/format";
 
-import { settingsCopy } from "./copy";
 
 /**
  * Technisch group (brief §6; P3): the full path, the engine, plugins (locked until they exist),
@@ -24,24 +23,24 @@ export function TechnischGroup(props: { project: Project }) {
   const demo = backend.mode === "demo";
   return (
     <div className="flex flex-col gap-8">
-      <Section title={settingsCopy.technical.title}>
+      <Section title={copy.settings.technical.title}>
         <Row
-          label={settingsCopy.technical.path}
+          label={copy.settings.technical.path}
           value={<span className="font-mono text-xs">{props.project.path}</span>}
           action={
             backend.capabilities.revealPath ? (
               <Button variant="secondary" size="sm" onClick={() => void backend.desktop.revealPath(props.project.path)}>
                 <FolderOpen />
-                {settingsCopy.project.reveal}
+                {copy.settings.project.reveal}
               </Button>
             ) : undefined
           }
         />
-        <Row label={settingsCopy.technical.engine} value={versions.isLoading ? <Skeleton className="h-4 w-24" /> : (versions.data?.engine ?? (demo ? copy.boot.demoBadge : "—"))} />
-        <Row label={settingsCopy.technical.server} value={versions.isLoading ? <Skeleton className="h-4 w-24" /> : (versions.data?.server ?? (demo ? copy.boot.demoBadge : "—"))} />
-        <Row label={settingsCopy.technical.plugins} value={<Locked>{settingsCopy.technical.pluginsLocked}</Locked>} />
+        <Row label={copy.settings.technical.engine} value={versions.isLoading ? <Skeleton className="h-4 w-24" /> : (versions.data?.engine ?? (demo ? copy.boot.demoBadge : "—"))} />
+        <Row label={copy.settings.technical.server} value={versions.isLoading ? <Skeleton className="h-4 w-24" /> : (versions.data?.server ?? (demo ? copy.boot.demoBadge : "—"))} />
+        <Row label={copy.settings.technical.plugins} value={<Locked>{copy.settings.technical.pluginsLocked}</Locked>} />
       </Section>
-      <Disclosure label={settingsCopy.technical.activity} trailing={audit.data ? settingsCopy.changes(audit.data.length) : undefined} testId="settings-activity" panelClassName="ps-0 pt-0">
+      <Disclosure label={copy.settings.technical.activity} trailing={audit.data ? copy.settings.changes(audit.data.length) : undefined} testId="settings-activity" panelClassName="ps-0 pt-0">
         <div className="border-t border-border">
           {audit.isLoading ? (
             <Skeleton className="my-3 h-4 w-48" />
@@ -58,7 +57,7 @@ export function TechnischGroup(props: { project: Project }) {
               />
             ))
           ) : (
-            <p className="py-3 text-sm text-muted-foreground">{settingsCopy.technical.activityEmpty}</p>
+            <p className="py-3 text-sm text-muted-foreground">{copy.settings.technical.activityEmpty}</p>
           )}
         </div>
       </Disclosure>
