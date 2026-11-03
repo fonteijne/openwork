@@ -26,7 +26,11 @@ export type CalloutProps = Omit<HTMLAttributes<HTMLDivElement>, "title"> & {
   label: string;
   /** The card's own chords for assistive tech (`aria-keyshortcuts`), e.g. "Enter Escape". */
   keyShortcuts?: string;
-  /** Extra content under the state line (RadioCards, a text field). */
+  /**
+   * Extra content under the state line (RadioCards, a text field). When the card is capped in
+   * height (`min-h-0` in a bounded flex column, like the chat dock), only this part scrolls: the
+   * sentence, the state line and the actions stay in view (T4).
+   */
   children?: ReactNode;
   testId?: string;
 };
@@ -62,7 +66,7 @@ export const Callout = forwardRef<HTMLDivElement, CalloutProps>(function Callout
       data-tone={tone}
       className={cn(
         // `outline-none` also sets `--tw-outline-style: none`, so the focus ring names its style again (V7: never a missing ring).
-        "bw-enter rounded-window bg-background p-5 text-foreground ring-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        "bw-enter flex flex-col rounded-window bg-background p-5 text-foreground ring-1 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         decision ? "ring-amber-9/60" : tone === "failure" ? "ring-red-9/60" : "ring-border",
         className,
       )}
@@ -73,18 +77,18 @@ export const Callout = forwardRef<HTMLDivElement, CalloutProps>(function Callout
           {label}
         </span>
       )}
-      <div className="flex items-start gap-3">
+      <div className="flex min-h-0 gap-3">
         <span
           aria-hidden="true"
           className={cn(
-            "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full [&_svg]:size-4",
+            "mt-0.5 flex self-start size-7 shrink-0 items-center justify-center rounded-full [&_svg]:size-4",
             tone === "failure" ? "bg-red-3 text-red-11" : decision ? "bg-electric-3 text-electric-11" : "bg-muted text-muted-foreground",
           )}
         >
           {icon}
         </span>
-        <div className="min-w-0 flex-1">
-          <p id={`${id}-title`} className="text-sm font-semibold leading-snug text-foreground">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <p id={`${id}-title`} className="shrink-0 text-sm font-semibold leading-snug text-foreground">
             {title}
             {chip ? (
               <>
@@ -96,13 +100,14 @@ export const Callout = forwardRef<HTMLDivElement, CalloutProps>(function Callout
             ) : null}
           </p>
           {state ? (
-            <p id={`${id}-state`} className="mt-0.5 text-sm text-muted-foreground">
+            <p id={`${id}-state`} className="mt-0.5 shrink-0 text-sm text-muted-foreground">
               {state}
             </p>
           ) : null}
-          {children ? <div className="mt-3">{children}</div> : null}
+          {/* -m-1 p-1 keeps the focus rings of the fields inside visible once the body scrolls (V7); the fade says more is hidden. */}
+          {children ? <div className="-mx-1 mt-2 -mb-1 min-h-0 overflow-y-auto overscroll-contain p-1 bw-scroll-fade">{children}</div> : null}
           {actions || link ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="mt-3 flex shrink-0 flex-wrap items-center gap-2">
               {actions}
               {link ? <span className="ms-auto text-sm font-medium text-electric-11 [&_a]:underline-offset-2 [&_a:hover]:underline">{link}</span> : null}
             </div>

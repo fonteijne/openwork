@@ -442,6 +442,25 @@
   to { transform: none; }
 }
 
+/*
+ * A body that scrolls inside a card (Callout) fades out at the edge where more is hidden, so a
+ * long question never looks finished while options are still below (overlay scrollbars hide the
+ * bar). Without overflow the scroll timeline is inactive and nothing fades.
+ */
+@property --bw-fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --bw-fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes bw-scroll-fade {
+  0% { --bw-fade-top: 0px; --bw-fade-bottom: 1.5rem; }
+  8% { --bw-fade-top: 1.5rem; }
+  92% { --bw-fade-bottom: 1.5rem; }
+  100% { --bw-fade-top: 1.5rem; --bw-fade-bottom: 0px; }
+}
+.bw-scroll-fade {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--bw-fade-top), #000 calc(100% - var(--bw-fade-bottom)), transparent 100%);
+  animation: bw-scroll-fade linear both;
+  animation-timeline: scroll(self);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
