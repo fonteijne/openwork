@@ -478,9 +478,8 @@ export class BrainSync {
           : `${path} is een bron en blijft zoals hij was; zet een nieuwe versie als nieuw bestand in references/.`);
       }
       if (plan.invalid.length) {
-        const files = plan.invalid.map((item) => item.path);
-        this.problem = { kind: "error", cause: "content", message: SYNC_MESSAGES.invalidKnowledge(files) };
-        return { blockedBy: files[0] };
+        this.problem = { kind: "error", cause: "content", message: SYNC_MESSAGES.invalidKnowledge(plan.invalid) };
+        return { blockedBy: plan.invalid[0].path };
       }
       await this.writeFiles(plan.write);
       await this.regenerateIndexes();
