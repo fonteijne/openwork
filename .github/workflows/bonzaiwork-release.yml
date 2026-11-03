@@ -1,0 +1,106 @@
+name: BonzaiWork release (macOS)
+
+# Builds a BonzaiWork release for macOS arm64 from one tested commit
+# (docs/bonzaiwork/alfa-release.md): .dmg and .zip, ad-hoc signed (no Developer
+# ID yet), no notarization, no update feed. The build is kept as a workflow
+# artifact for 14 days; sharing it with testers is done by hand.
+#
+# Start it by pushing a tag bonzaiwork-v<version> on the tested nightly commit,
+# or with "Run workflow" and that tag or commit. The version in the tag must be
+# the one in apps/bonzaiwork/package.json.
+#
+# Needs the repository secret BONZAIWORK_LITELLM_BASE_URL (baked into the app,
+# O3). Optional repository variables: BONZAIWORK_DEFAULT_MODEL,
+# BONZAIWORK_KEY_MODE, BONZAIWORK_PREFERRED_MODELS.
+
+on:
+  push:
+    tags: ["bonzaiwork-v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or commit to build (the commit you tested on nightly)"
+        required: true
+
+concurrency:
+  group: bonzaiwork-release-${{ inputs.ref || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Version
+        id: version
+        env:
+          REF: ${{ inputs.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./apps/bonzaiwork/package.json").version')"
+          case "$REF" in
+            bonzaiwork-v*)
+              if [ "$REF" != "bonzaiwork-v$version" ]; then
+                echo "::error::Tag $REF does not match apps/bonzaiwork/package.json ($version)."
+                exit 1
+              fi
+              ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Building BonzaiWork $version from $(git rev-parse HEAD)"
+      - name: LiteLLM URL is set
+        env:
+          BONZAIWORK_LITELLM_BASE_URL: ${{ secrets.BONZAIWORK_LITELLM_BASE_URL }}
+        run: |
+          if [ -z "$BONZAIWORK_LITELLM_BASE_URL" ]; then
+            echo "::error::Set the repository secret BONZAIWORK_LITELLM_BASE_URL (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.4.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: pnpm install --frozen-lockfile
+      - name: Package (dmg + zip, arm64, ad-hoc signed)
+        env:
+          BONZAIWORK_LITELLM_BASE_URL: ${{ secrets.BONZAIWORK_LITELLM_BASE_URL }}
+          BONZAIWORK_DEFAULT_MODEL: ${{ vars.BONZAIWORK_DEFAULT_MODEL }}
+          BONZAIWORK_KEY_MODE: ${{ vars.BONZAIWORK_KEY_MODE }}
+          BONZAIWORK_PREFERRED_MODELS: ${{ vars.BONZAIWORK_PREFERRED_MODELS }}
+          # No Developer ID yet: never pick up a certificate from the runner's keychain.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: node apps/bonzaiwork/scripts/package.mjs --mac dmg zip --arm64 --publish never
+      - name: Check the bundle
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          out=apps/desktop/dist-electron/bonzaiwork
+          app="$out/mac-arm64/BonzaiWork.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$VERSION"
+          test -f "$out/bonzaiwork-mac-arm64-$VERSION.dmg"
+          test -f "$out/bonzaiwork-mac-arm64-$VERSION.zip"
+          (cd "$out" && shasum -a 256 "bonzaiwork-mac-arm64-$VERSION.dmg" "bonzaiwork-mac-arm64-$VERSION.zip" > SHA256SUMS.txt)
+          cat "$out/SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bonzaiwork-${{ steps.version.outputs.version }}-mac-arm64
+          path: |
+            apps/desktop/dist-electron/bonzaiwork/bonzaiwork-mac-arm64-${{ steps.version.outputs.version }}.dmg
+            apps/desktop/dist-electron/bonzaiwork/bonzaiwork-mac-arm64-${{ steps.version.outputs.version }}.zip
+            apps/desktop/dist-electron/bonzaiwork/SHA256SUMS.txt
+          retention-days: 14
+          if-no-files-found: error

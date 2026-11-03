@@ -29,6 +29,7 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
+docs/bonzaiwork/alfa-release.md  de eerste alfa: beslissingen, releaseprocedure, tekst voor testers, bekende beperkingen
 docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest is, en regels daarvoor
 docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
 docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per kwartier je werkdag bijhoudt
@@ -43,7 +44,7 @@ packages/bonzaiwork-feedback/    "Feedback sturen": screenshot, opgeschoonde log
 apps/server/src/downstream-hooks.ts   het aanhaakpunt in de server (nieuw bestand)
 apps/desktop/electron-builder.bonzaiwork.mjs   builder-config (nieuw bestand)
 PATCHES.md, bonzaiwork.upstream.json, scripts/bonzaiwork/check-patches.mjs
-.github/workflows/bonzaiwork.yml
+.github/workflows/bonzaiwork.yml, .github/workflows/bonzaiwork-release.yml (macOS-alfa, alfa-release.md)
 ```
 
 ### Hoe het in elkaar zit
@@ -194,6 +195,7 @@ Status in `fonteijne/openwork` (02-11-2026):
 | Workflow | Bestand | Stand | Reden |
 |---|---|---|---|
 | BonzaiWork | `bonzaiwork.yml` | aan | onze CI |
+| BonzaiWork release (macOS) | `bonzaiwork-release.yml` | aan | alfa-build op een `bonzaiwork-v*`-tag ([`alfa-release.md`](./alfa-release.md)) |
 | CodeQL | `codeql.yml` | aan | vond al een echt probleem (ReDoS) |
 | Feature registry check | `features-check.yml` | aan | slaagt zonder secrets, alleen bij wijzigingen aan feature-registry of UI-guardrails |
 | Warden, Warden quick review | `warden.yml`, `warden-quick.yml` | **uit** | hebben `WARDEN_OPENAI_API_KEY` nodig; zonder die sleutel slaat quick review alles over en kost hij alleen een run |
@@ -339,6 +341,11 @@ pnpm --filter @bonzaiwork/app dev              # http://127.0.0.1:5183/?server=h
 Gebruik voor development een lokale LiteLLM (§7: geen tweede provider, ook niet tijdelijk).
 
 ## Volgende stappen
+
+De eerste alfa (`0.1.0-alpha.1`, macOS arm64, met de hand gedeeld) staat in
+[`alfa-release.md`](./alfa-release.md), met de releaseworkflow `.github/workflows/bonzaiwork-release.yml`.
+Wat daarna moet, staat in dat document onder "Na de alfa"; de punten hieronder blijven gelden.
+
 
 1. O1 beslissen (keys per gebruiker of per project) en O4 afronden (appId, signing, updater-host).
 2. Werkstroom C afmaken: updater-hook, CDP-poort, Den-/docs-URL's, branding (O5).

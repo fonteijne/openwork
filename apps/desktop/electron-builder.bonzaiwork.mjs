@@ -36,6 +36,11 @@ function resolveExtends(name) {
 const upstream = resolveExtends("electron-builder.yml");
 const productName = "BonzaiWork";
 const publishUrl = process.env.BONZAIWORK_PUBLISH_URL?.trim();
+// BonzaiWork's own version (apps/bonzaiwork/package.json), not upstream's 0.0.0-dev: it names the
+// artifacts and is what the app reports (feedback, About). docs/bonzaiwork/alfa-release.md.
+const version = JSON.parse(readFileSync(join(here, "../bonzaiwork/package.json"), "utf8")).version;
+// Without a Developer ID (CSC_LINK/CSC_NAME), sign ad hoc: an unsigned arm64 app does not start at all.
+const hasSigningIdentity = Boolean(process.env.CSC_LINK?.trim() || process.env.CSC_NAME?.trim());
 
 const withOurUi = (resources) => (resources ?? []).map((entry) =>
   isObject(entry) && entry.from === "../app/dist" ? { ...entry, from: "../bonzaiwork/dist" } : entry);
@@ -47,7 +52,7 @@ const config = {
   productName,
   protocols: [],
   directories: { ...upstream.directories, output: "dist-electron/bonzaiwork" },
-  extraMetadata: { main: "bonzaiwork/main.mjs", name: "bonzaiwork", productName, desktopName: "nl.bonzaiwork.desktop" },
+  extraMetadata: { main: "bonzaiwork/main.mjs", name: "bonzaiwork", productName, version, desktopName: "nl.bonzaiwork.desktop" },
   files: [...upstream.files, { from: "../bonzaiwork/dist-electron", to: "bonzaiwork" }],
   // The git brains use (scripts/bonzaiwork/fetch-git.mjs, docs/bonzaiwork/project-breinen-plan.md §3.1);
   // main.ts points BONZAIWORK_GIT_DIRECTORY at it. Without it, brains use git from PATH.
@@ -61,6 +66,7 @@ const config = {
   linux: { ...upstream.linux, executableName: "bonzaiwork" },
   mac: {
     ...upstream.mac,
+    ...(hasSigningIdentity ? {} : { identity: "-" }),
     extendInfo: Object.fromEntries(Object.entries(upstream.mac?.extendInfo ?? {})
       .map(([key, value]) => [key, typeof value === "string" ? value.replaceAll("OpenWork", productName) : value])),
   },

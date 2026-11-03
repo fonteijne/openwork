@@ -13,6 +13,7 @@ import { parseArgs } from "node:util";
 
 const ENABLED = new Set([
   ".github/workflows/bonzaiwork.yml",
+  ".github/workflows/bonzaiwork-release.yml",
   ".github/workflows/upstream-sync.yml",
   ".github/workflows/codeql.yml",
   ".github/workflows/features-check.yml",
