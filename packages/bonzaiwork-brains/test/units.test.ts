@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { bundledGit, createGit } from "../src/git.ts";
+import { SYNC_MESSAGES } from "../src/messages.ts";
 import { scanForSecrets } from "../src/secrets.ts";
 import { commandRunsShell, mcpServerNames, riskKind, sparsePatterns, withLocalExcludes } from "../src/trust.ts";
 
@@ -20,6 +21,16 @@ describe("geheimenscan (plan §7.2)", () => {
       { path: "knowledge/d.md", content: null },
     ]);
     expect(hits.map((hit) => hit.path)).toEqual([".env", "config/.env.production", "keys/id_ed25519", "knowledge/a.md", "knowledge/b.md"]);
+  });
+
+  test("de regel van de eerste treffer, en een melding met alle bestanden", () => {
+    const hits = scanForSecrets([
+      { path: "a.md", content: "# A\n\nghp_abcdefghijklmnopqrstuvwxyz0123456789AB\nsk-1234567890abcdefghijklmn" },
+      { path: ".env", content: "A=1" },
+    ]);
+    expect(hits).toEqual([{ path: "a.md", reason: "GitHub-token", line: 3 }, { path: ".env", reason: "omgevingsbestand" }]);
+    expect(SYNC_MESSAGES.secret(hits.slice(0, 1))).toBe("Niet gedeeld: a.md (GitHub-token, regel 3) lijkt een wachtwoord of sleutel te bevatten. Haal het weg en probeer opnieuw.");
+    expect(SYNC_MESSAGES.secret(hits)).toBe("Niet gedeeld: 2 bestanden lijken een wachtwoord of sleutel te bevatten: a.md (GitHub-token, regel 3); .env (omgevingsbestand). Haal ze weg en probeer opnieuw.");
   });
 });
 

@@ -302,6 +302,28 @@ describe("wat er meegaat", () => {
     await a.write("knowledge/notitie.md", "zonder sleutel\n");
     expect((await a.sync.finishTurn({ title: "Opgeruimd", chatId: "ses_g" })).status.state).toBe("synced");
   });
+
+  test("alle bestanden met een geheim staan in één melding, met regel, zonder de sleutel zelf", async () => {
+    world = await createWorld();
+    const a = await world.user("Anna");
+    const key = "sk-1234567890abcdefghijklmn";
+    await a.write("knowledge/a.md", `# A\n\nAuthorization: Bearer ${key}\n`);
+    await a.write("knowledge/b.md", "# B\nghp_abcdefghijklmnopqrstuvwxyz0123456789AB\n");
+    const turn = await a.sync.finishTurn({ title: "Geheimen", chatId: "ses_g2" });
+    expect(turn).toMatchObject({ committed: false, shared: false, blockedBy: "knowledge/a.md" });
+    expect(turn.status).toMatchObject({ state: "error", fixInNotes: true });
+    expect(turn.status.error).toContain("2 bestanden");
+    expect(turn.status.error).toContain("knowledge/a.md (API-sleutel, regel 3)");
+    expect(turn.status.error).toContain("knowledge/b.md (GitHub-token, regel 2)");
+    expect(turn.status.error).not.toContain(key);
+    // Fixing one leaves the other named; fixing both shares.
+    await a.write("knowledge/a.md", "# A\n\nAuthorization: Bearer REDACTED\n");
+    const half = await a.sync.finishTurn({ title: "Half", chatId: "ses_g2" });
+    expect(half.status.error).toContain("knowledge/b.md");
+    expect(half.status.error).not.toContain("knowledge/a.md");
+    await a.write("knowledge/b.md", "# B\n");
+    expect((await a.sync.finishTurn({ title: "Opgeruimd", chatId: "ses_g2" })).status.state).toBe("synced");
+  });
 });
 
 describe("vertrouwen (plan §7.1)", () => {

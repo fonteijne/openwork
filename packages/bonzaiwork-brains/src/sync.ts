@@ -7,7 +7,7 @@ import { describeConcept, isConceptPath, isKnowledgePath, isReserved, KNOWLEDGE,
 import { applyTemplate } from "./template.ts";
 import { remoteProblemMessage, SYNC_MESSAGES } from "./messages.ts";
 import type { ProposalService } from "./proposals.ts";
-import { scanForSecrets } from "./secrets.ts";
+import { scanForSecrets, type SecretHit } from "./secrets.ts";
 import { classifyGitError, type RemoteProblem } from "./ssh.ts";
 import { findTrustItems, personalExcludes, sparsePatterns, unsafePath, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
 
@@ -358,7 +358,7 @@ export class BrainSync {
    * that were shared already, and new Markdown. Other new files and files
    * over the size limit are reported, never staged.
    */
-  private async stage(): Promise<{ staged: boolean; blockedBy?: string }> {
+  private async stage(): Promise<{ staged: boolean; secrets?: SecretHit[] }> {
     const limit = this.options.sizeLimitBytes ?? SIZE_LIMIT;
     const tracked = splitNul(await this.ok(["ls-files", "-z", "--modified", "--deleted"]));
     const untrackedFiles = splitNul(await this.ok(["ls-files", "-z", "--others", "--exclude-standard"]));
@@ -387,10 +387,10 @@ export class BrainSync {
       const content = size <= SECRET_SCAN_LIMIT ? (await this.run(["show", `:${path}`])).stdout : null;
       return { path, content };
     }));
-    const [hit] = scanForSecrets(files);
-    if (hit) {
+    const secrets = scanForSecrets(files);
+    if (secrets.length) {
       await this.run(["reset", "-q"]);
-      return { staged: false, blockedBy: hit.path };
+      return { staged: false, secrets };
     }
     return { staged: (await this.run(["diff", "--cached", "--quiet"])).exitCode === 1 };
   }
@@ -398,10 +398,10 @@ export class BrainSync {
   private async commit(message: string, actor: "ai" | "own", note: string): Promise<{ committed: boolean; blockedBy?: string }> {
     const content = await this.content(actor, note);
     if (content.blockedBy) return { committed: false, blockedBy: content.blockedBy };
-    const { staged, blockedBy } = await this.stage();
-    if (blockedBy) {
-      this.problem = { kind: "error", cause: "secret", message: SYNC_MESSAGES.secret(blockedBy) };
-      return { committed: false, blockedBy };
+    const { staged, secrets } = await this.stage();
+    if (secrets?.length) {
+      this.problem = { kind: "error", cause: "secret", message: SYNC_MESSAGES.secret(secrets) };
+      return { committed: false, blockedBy: secrets[0].path };
     }
     // The checks passed: an earlier block is over, also when the fix left nothing new to record
     // (the file was put back or removed), or the brain stays stopped on a solved problem (#23).
@@ -874,9 +874,9 @@ export class BrainSync {
       return false;
     }
     // The chat rewrote these notes: the same secrets check as every other commit (plan §7.2).
-    const [hit] = scanForSecrets(merged);
-    if (hit) {
-      this.problem = { kind: "conflict", message: SYNC_MESSAGES.secret(hit.path), files: [hit.path], by, merging: true };
+    const secrets = scanForSecrets(merged);
+    if (secrets.length) {
+      this.problem = { kind: "conflict", message: SYNC_MESSAGES.secret(secrets), files: secrets.map((hit) => hit.path), by, merging: true };
       return false;
     }
     if (files.length) await this.ok(["add", "--", ...files]);
