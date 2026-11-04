@@ -26,6 +26,7 @@ import {
   type WorkbotStep,
   type WorkbotPage,
   type WorkbotTask,
+  type WorkbotThread,
   type WorkbotTurn,
 } from "./data";
 import { AppMark, AttachButton, FileBadge, FilesButton, FilesPanel, ImageThumb, isImage, kindLabel, SentAttachments, UploadTray, useFileDrop, type Upload } from "./files";
@@ -55,8 +56,14 @@ import { WorkbotCommandPalette, type WorkbotPaletteTab } from "./command-palette
  * page v4 (screens 1–4) for the thread and v5 (screens 5–8) for files.
  */
 
+/**
+ * The conversation is read newest first: a first page small enough to answer quickly, then the rest of a full page in
+ * the background, then a page more each time the person asks for earlier messages, up to the limit.
+ */
+const FIRST_TURNS = 8;
 const PAGE_TURNS = 30;
 const MAX_TURNS = 200;
+const earlierWindow = (current: number) => Math.min(MAX_TURNS, current < PAGE_TURNS ? PAGE_TURNS : current + PAGE_TURNS);
 const COLUMN = "min-w-0 w-full max-w-[640px]";
 
 function newMessageId() {
@@ -77,7 +84,12 @@ export function WorkbotScreen({ host }: { host: WorkbotHost }) {
   setWorkbotHost(host);
   const sideChats = host.sideChats === true;
   const composers = useMemo(() => new Map<string | null, ComposerState>(), [host.identity?.organizationId, host.identity?.principalId]);
-  useEffect(() => () => { for (const owner of composers.values()) owner.dispose(); }, [composers]);
+  // Disposed a tick after unmount, so a remount of the same owners (React's StrictMode check) keeps what was typed.
+  const disposeComposers = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    clearTimeout(disposeComposers.current);
+    return () => { disposeComposers.current = setTimeout(() => { for (const owner of composers.values()) owner.dispose(); }, 0); };
+  }, [composers]);
   const [workspaceDrafts, setWorkspaceDrafts] = useState(false);
   const [chat, openChat] = useChatLocation(sideChats, workspaceDrafts ? () => false : undefined);
   const [chatsOpen, setChatsOpen] = useState(false);
@@ -122,7 +134,7 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
   const queryClient = useQueryClient();
   const draft = useSyncExternalStore(composerState.subscribe, composerState.getSnapshot, composerState.getSnapshot);
   const { pending } = draft;
-  const [turnWindow, setTurnWindow] = useState(PAGE_TURNS);
+  const [turnWindow, setTurnWindow] = useState(FIRST_TURNS);
   const [filesOpen, setFilesOpen] = useState(false);
   // Once activated, keep this shell mounted even when the flag is revoked: draft editors must survive.
   const [teaching, setTeaching] = useState<BrowserTeachingContext>();
@@ -224,6 +236,13 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
   const editMessage = useEditWorkbotMessage();
   const uploads = { uploads: draft.uploads, add: composerState.add, remove: composerState.removeUpload, retry: composerState.retryUpload };
   const data = thread.data?.available ? thread.data : null;
+  // Once the newest messages are on screen, the rest of the first page is read behind them.
+  const earlierToRead = data?.hasEarlier === true && !thread.isPlaceholderData;
+  useEffect(() => {
+    if (earlierToRead && turnWindow < PAGE_TURNS) setTurnWindow(PAGE_TURNS);
+  }, [earlierToRead, turnWindow]);
+  // The page, header and message box show before the conversation is read; only the thread waits for it.
+  const loading = thread.isPending;
   useEffect(() => {
     if (!guided || !host.documents || !data) return;
     for (const turn of data.turns) {
@@ -337,13 +356,13 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
   if (workspaceShell) {
     const name = data?.name ?? "Workbot";
     const busy = data?.status === "busy" || pending.some(entry => !entry.failed);
-    const empty = !data?.turns.length && !pending.length;
+    const empty = !loading && !data?.turns.length && !pending.length;
     const starting = empty && (start.isPending || greetingAwaited);
-    const conversation = data ? <Conversation
-      turns={data.turns}
+    const conversation = data || loading ? <Conversation
+      turns={data?.turns ?? []} loading={loading}
       canChange={!busy} onEdit={editTurn} editErrors={editErrors} pending={pending} live={stream.live}
-      hasEarlier={data.hasEarlier} earlierLimit={turnWindow >= MAX_TURNS && !thread.isPlaceholderData} loadingEarlier={thread.isFetching && thread.isPlaceholderData}
-      onLoadEarlier={() => setTurnWindow(current => Math.min(MAX_TURNS, current + PAGE_TURNS))}
+      hasEarlier={data?.hasEarlier ?? false} earlierLimit={turnWindow >= MAX_TURNS && !thread.isPlaceholderData} loadingEarlier={thread.isFetching && thread.isPlaceholderData}
+      onLoadEarlier={() => setTurnWindow(earlierWindow)}
       onRetry={entry => submit(entry.text, entry)}
       onRetryTurn={turn => {
         if (turn.greeting) { setGreetingAwaited(true); start.mutate(); return; }
@@ -356,13 +375,12 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
     /> : null;
     const composer = <WorkbotComposer teaching={teaching} text={draft.text} onText={composerState.setText} name={name} busy={busy} stopping={stop.isPending} filesEnabled={filesEnabled} nativeDictation={host.nativeDictation}
       uploads={uploads.uploads} onFiles={addFiles} onRemoveUpload={uploads.remove} onRetryUpload={uploads.retry}
-      onSend={text => submit(text)} onStop={() => stop.mutate()} autoFocus={false} disabled={!data} />;
+      onSend={text => submit(text)} onStop={() => stop.mutate()} autoFocus={false} disabled={!data && !loading} />;
     const firstName = user?.name?.trim().split(/\s+/)[0] ?? null;
-    const home = thread.isPending ? <div className="flex flex-1 items-center justify-center" aria-busy="true" aria-label="Loading conversation"><span className="h-5 w-40 rounded bg-[var(--wb-chip)]" /></div>
-      : !data ? <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center text-[13px] text-[var(--wb-muted)]" role="status"><p>Couldn't load your conversation.</p><button type="button" className="rounded-lg px-3 py-2 underline focus-visible:shadow-[var(--wb-focus)]" onClick={() => void thread.refetch()}>Try again</button></div>
+    const home = !data && !loading ? <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center text-[13px] text-[var(--wb-muted)]" role="status"><p>Couldn't load your conversation.</p><button type="button" className="rounded-lg px-3 py-2 underline focus-visible:shadow-[var(--wb-focus)]" onClick={() => void thread.refetch()}>Try again</button></div>
       : welcome === "showing" ? <Welcome name={name} firstName={firstName} onBegin={() => { if (start.isIdle) { setGreetingAwaited(true); start.mutate(); } }} onDone={() => setWelcome("done")} />
-      : empty && side ? <SideChatStart name={name} organizationName={data.organizationName}>{composer}</SideChatStart>
-      : empty && !starting ? <FirstOpen name={name} organizationName={data.organizationName} firstName={firstName} onSuggestion={text => submit(text)} error={start.isError ? start.error instanceof WorkbotSendError && start.error.accessReason ? <AccessRecovery reason={start.error.accessReason} onRetry={() => { setGreetingAwaited(true); start.mutate(); }} /> : <ErrorLine action={{ label: "Try again", onClick: () => { setGreetingAwaited(true); start.mutate(); } }}>{HELLO_FAILED}</ErrorLine> : null}>{composer}</FirstOpen>
+      : data && empty && side ? <SideChatStart name={name} organizationName={data.organizationName}>{composer}</SideChatStart>
+      : data && empty && !starting ? <FirstOpen name={name} organizationName={data.organizationName} firstName={firstName} onSuggestion={text => submit(text)} error={start.isError ? start.error instanceof WorkbotSendError && start.error.accessReason ? <AccessRecovery reason={start.error.accessReason} onRetry={() => { setGreetingAwaited(true); start.mutate(); }} /> : <ErrorLine action={{ label: "Try again", onClick: () => { setGreetingAwaited(true); start.mutate(); } }}>{HELLO_FAILED}</ErrorLine> : null}>{composer}</FirstOpen>
       : <>{conversation}<div className="flex shrink-0 justify-center px-3 pb-4 pt-3"><div className={COLUMN}>{composer}</div></div></>;
     return <OpenFileContext.Provider value={setPreview}>
       <OpenDocumentContext.Provider value={tab === "documents" && documentContext?.kind === "document" ? documentContext.fileId : null}>
@@ -394,7 +412,7 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
           {previewFile && <PreviewPanel file={previewFile} onClose={() => setPreview(null)} />}
           </div>
           <div hidden={!(host.workspaceAssistant || host.browserDemonstrations && tab === "computer") || tab === "home"}><WorkspaceAssistant name={name} context={currentContext} includeContext={includeContext} onIncludeContext={setIncludeContext}
-            composer={composer} conversation={conversation} onDocument={navigateFromChat} onComputer={navigateComputerFromChat} unavailable={!data} active={(host.workspaceAssistant === true || host.browserDemonstrations === true && tab === "computer") && tab !== "home"}
+            composer={composer} conversation={conversation} onDocument={navigateFromChat} onComputer={navigateComputerFromChat} unavailable={!data && !loading} active={(host.workspaceAssistant === true || host.browserDemonstrations === true && tab === "computer") && tab !== "home"}
             reveal={revealChat} stayOpen={guided} /></div>
           {filesEnabled && <FilesPanel open={filesOpen} onClose={() => setFilesOpen(false)} assistantName={name} onOpenFile={file => { setFilesOpen(false); setPreview(file); }} />}
         </div>
@@ -424,8 +442,7 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
       </div>
     );
   }
-  if (thread.isPending) return <WorkbotSkeleton />;
-  if (thread.isError && !thread.data) {
+  if (!loading && thread.isError && !thread.data) {
     return (
       <Centered>
         <p className="text-[14px] text-[var(--wb-text)]">Couldn&apos;t load your conversation.</p>
@@ -435,7 +452,7 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
       </Centered>
     );
   }
-  if (!data) {
+  if (!loading && !data) {
     const notEnabled = thread.data?.available === false && thread.data.reason === "workbot_not_enabled";
     return (
       <Centered>
@@ -446,13 +463,16 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
     );
   }
 
-  const busy = data.status === "busy" || pending.some((entry) => !entry.failed);
-  const empty = data.turns.length === 0 && pending.length === 0;
+  // Until the conversation is first read, the page is drawn around an empty one: the message box works, a message
+  // sent shows straight away, and the thread fills in when it arrives.
+  const shown = data ?? LOADING_THREAD;
+  const busy = shown.status === "busy" || pending.some((entry) => !entry.failed);
+  const empty = !loading && shown.turns.length === 0 && pending.length === 0;
   const firstName = user?.name?.trim().split(/\s+/)[0] ?? null;
-  if (welcome === "showing" || (welcome === "pending" && pending.length === 0 && needsWelcome(data.turns))) {
+  if (!loading && (welcome === "showing" || (welcome === "pending" && pending.length === 0 && needsWelcome(shown.turns)))) {
     return (
       <Welcome
-        name={data.name}
+        name={shown.name}
         firstName={firstName}
         // Start only after the person finishes or skips connecting their apps.
         onBegin={() => {
@@ -472,7 +492,7 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
       nativeDictation={host.nativeDictation}
       text={draft.text}
       onText={composerState.setText}
-      name={data.name}
+      name={shown.name}
       busy={busy}
       stopping={stop.isPending}
       filesEnabled={filesEnabled}
@@ -490,25 +510,25 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
     <OpenFileContext.Provider value={setPreview}>
     <div className="workbot flex h-dvh flex-col bg-[var(--wb-bg)] antialiased">
       <WorkbotHeader
-        name={data.name}
-        organizationName={data.organizationName}
+        name={shown.name}
+        organizationName={shown.organizationName}
         userName={user?.name ?? null}
         files={filesEnabled ? <FilesButton open={filesOpen} onOpen={() => setFilesOpen(true)} /> : null}
         chats={navigation && !chatId ? <ChatsButton onOpen={navigation.openChats} /> : null}
         title={navigation && chatId ? <SideChatTitle title={navigation.title} onBack={() => navigation.openChat(null)} /> : null}
-        remove={navigation && chatId && data.turns.length > 0 ? <RemoveChatButton chatId={chatId} title={navigation.title} onRemoved={() => { composerState.dispose(); navigation.openChat(null); }} /> : null}
+        remove={navigation && chatId && shown.turns.length > 0 ? <RemoveChatButton chatId={chatId} title={navigation.title} onRemoved={() => { composerState.dispose(); navigation.openChat(null); }} /> : null}
         nav={!chatId ? <WorkbotNav tab={tab} onTab={setTab} /> : null}
-        answered={hasAnsweredTurn(data.turns)}
+        answered={hasAnsweredTurn(shown.turns)}
         search={palette}
       />
       <div className="flex min-h-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {empty && side ? (
-        <SideChatStart name={data.name} organizationName={data.organizationName}>{composer}</SideChatStart>
+        <SideChatStart name={shown.name} organizationName={shown.organizationName}>{composer}</SideChatStart>
       ) : empty && !starting ? (
         <FirstOpen
-          name={data.name}
-          organizationName={data.organizationName}
+          name={shown.name}
+          organizationName={shown.organizationName}
           firstName={firstName}
           onSuggestion={(text) => submit(text)}
           error={start.isError ? start.error instanceof WorkbotSendError && start.error.accessReason ? <AccessRecovery reason={start.error.accessReason} onRetry={() => { setGreetingAwaited(true); start.mutate(); }} /> : <ErrorLine action={{ label: "Try again", onClick: () => { setGreetingAwaited(true); start.mutate(); } }}>{HELLO_FAILED}</ErrorLine> : null}
@@ -518,16 +538,17 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
       ) : (
         <>
           <Conversation
-            turns={data.turns}
+            turns={shown.turns}
+            loading={loading}
             canChange={!busy}
             onEdit={editTurn}
             editErrors={editErrors}
             pending={pending}
             live={stream.live}
-            hasEarlier={data.hasEarlier}
+            hasEarlier={shown.hasEarlier}
             earlierLimit={turnWindow >= MAX_TURNS && !thread.isPlaceholderData}
             loadingEarlier={thread.isFetching && thread.isPlaceholderData}
-            onLoadEarlier={() => setTurnWindow((current) => Math.min(MAX_TURNS, current + PAGE_TURNS))}
+            onLoadEarlier={() => setTurnWindow(earlierWindow)}
             onRetry={(entry) => submit(entry.text, entry)}
             onRetryTurn={(turn) => {
               if (turn.greeting) {
@@ -542,10 +563,10 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
             onSwitch={(text) => submit(text, undefined, false, true)}
             starting={starting}
             intro={
-              data.hasEarlier
+              loading || shown.hasEarlier
                 ? null
                 : (() => {
-                    const hello = data.turns[0];
+                    const hello = shown.turns[0];
                     const at = hello?.sentAt ?? pending[0]?.sentAt ?? Date.now();
                     // A hello that failed before writing anything leaves the drawn greeting in its place, the same
                     // as one that couldn't start; its turn then adds only the line saying it didn't work.
@@ -555,7 +576,7 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
                     // Workbot fills in their day.
                     const spoken = side;
                     // Workbot's own hello carries the time; the drawn greeting brings its own.
-                    return { at: spoken ? 0 : at, joined: helloFailed, node: <Intro name={data.name} organizationName={data.organizationName} firstName={firstName} at={at} spoken={spoken} followed={followed} /> };
+                    return { at: spoken ? 0 : at, joined: helloFailed, node: <Intro name={shown.name} organizationName={shown.organizationName} firstName={firstName} at={at} spoken={spoken} followed={followed} /> };
                   })()
             }
           />
@@ -573,7 +594,7 @@ function ChatScreen({ host, composerState, navigation, onDraftsChange }: { host:
         <FilesPanel
           open={filesOpen}
           onClose={() => setFilesOpen(false)}
-          assistantName={data.name}
+          assistantName={shown.name}
           onOpenFile={(file) => {
             setFilesOpen(false);
             setPreview(file);
@@ -620,24 +641,16 @@ function Centered({ children }: { children: ReactNode }) {
   return <div className="workbot flex h-dvh flex-col items-center justify-center bg-[var(--wb-bg)] px-6 text-center">{children}</div>;
 }
 
-/** Matches the conversation layout: header, a few lines of thread, the composer. */
-function WorkbotSkeleton() {
+/** The conversation as it's drawn before its first read: Workbot's default name, nothing in it yet. */
+const LOADING_THREAD: Extract<WorkbotThread, { available: true }> = { available: true, name: "Workbot", organizationName: "", status: "idle", turns: [], hasEarlier: false, filesEnabled: false };
+
+/** Where the thread will be while it is first read: a few lines in the shape of a conversation. */
+function ThreadPlaceholder() {
   return (
-    <div className="workbot flex h-dvh flex-col bg-[var(--wb-bg)]" aria-busy="true">
-      <div className="flex h-12 items-center gap-2.5 border-b border-[var(--wb-hairline)] px-4 sm:h-15 sm:px-6">
-        <span className="h-7 w-7 rounded-[9px] bg-[var(--wb-bubble)] sm:h-7.5 sm:w-7.5" />
-        <span className="h-4 w-20 rounded bg-[var(--wb-bubble)]" />
-      </div>
-      <div className="flex flex-1 flex-col items-center justify-end px-4 pb-2 sm:px-10">
-        <div className={`${COLUMN} flex flex-col gap-[3px]`}>
-          <span className="ml-auto h-[38px] w-48 rounded-[20px] rounded-br-md bg-[var(--wb-bubble)]" />
-          <span className="mt-3.5 h-6 w-40 rounded bg-[var(--wb-chip)]" />
-          <span className="mt-1.5 h-24 w-[70%] rounded-[20px] rounded-bl-md bg-[var(--wb-surface)] shadow-[var(--wb-card-shadow)]" />
-        </div>
-      </div>
-      <div className="flex justify-center px-3 pb-3 pt-3 sm:px-10 sm:pb-7">
-        <div className={`${COLUMN} h-[50px] rounded-full bg-[var(--wb-surface)] shadow-[var(--wb-composer-shadow)] sm:h-13`} />
-      </div>
+    <div className="flex flex-col gap-[3px] pb-8" role="progressbar" aria-busy="true" aria-label="Loading conversation">
+      <span className="ml-auto h-[38px] w-48 rounded-[20px] rounded-br-md bg-[var(--wb-bubble)]" />
+      <span className="mt-3.5 h-6 w-40 rounded bg-[var(--wb-chip)]" />
+      <span className="mt-1.5 h-24 w-[70%] rounded-[20px] rounded-bl-md bg-[var(--wb-surface)] shadow-[var(--wb-card-shadow)]" />
     </div>
   );
 }
@@ -895,10 +908,11 @@ function SideChatStart(props: { name: string; organizationName: string; children
   );
 }
 
-type Row = { key: string; at: number; turn: WorkbotTurn | null; pending: Pending | null };
+/** `pending`: a message the conversation doesn't have yet; `turn` is then that message as the turn it becomes. */
+type Row = { key: string; at: number; turn: WorkbotTurn; pending: Pending | null };
 
 /** A new timestamp shows when the day changes or after a quiet hour, like a messaging app. */
-function showsTimestamp(previous: Row | undefined, row: Row) {
+function showsTimestamp(previous: { at: number } | undefined, row: { at: number }) {
   if (!row.at) return false;
   if (!previous?.at) return true;
   return new Date(previous.at).toDateString() !== new Date(row.at).toDateString() || row.at - previous.at > 60 * 60_000;
@@ -906,6 +920,8 @@ function showsTimestamp(previous: Row | undefined, row: Row) {
 
 function Conversation(props: {
   turns: WorkbotTurn[];
+  /** The conversation hasn't been read yet: a placeholder stands where it will be, above anything just sent. */
+  loading?: boolean;
   pending: Pending[];
   live: Record<string, LiveText>;
   hasEarlier: boolean;
@@ -932,10 +948,11 @@ function Conversation(props: {
   const content = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   const known = new Set(props.turns.map((turn) => turn.id));
-  // A pending message and its turn share a key, so the bubble never re-mounts when the turn arrives.
+  // A pending message and its turn share a key and both show as a TurnView, so neither the bubble nor the dots under it
+  // re-mount when the turn arrives.
   const rows: Row[] = [
     ...props.turns.map((turn) => ({ key: turn.id, at: turn.sentAt ?? 0, turn, pending: null })),
-    ...props.pending.filter((entry) => !known.has(entry.id)).map((entry) => ({ key: entry.id, at: entry.sentAt, turn: null, pending: entry })),
+    ...props.pending.filter((entry) => !known.has(entry.id)).map((entry) => ({ key: entry.id, at: entry.sentAt, turn: pendingTurn(entry), pending: entry })),
   ];
   const lastTurnId = props.turns.at(-1)?.id;
   // One indicator, at the end of the thread, says a reply is on its way and none of it shows yet. Background tasks
@@ -972,6 +989,25 @@ function Conversation(props: {
     return () => observer.disconnect();
   }, []);
 
+  // Earlier messages arrive above what the person is reading: unless they're following the newest message, the row
+  // that was first stays where it was on screen, and what arrived is above it to scroll up to. Its bottom is kept,
+  // since a timestamp above its message goes once an earlier message from the same hour is above it.
+  const anchor = useRef<{ key: string; offset: number } | null>(null);
+  const firstKey = rows[0]?.key;
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const offset = (key: string) => {
+      const row = node.querySelector(`[data-workbot-row="${CSS.escape(key)}"]`);
+      return row ? row.getBoundingClientRect().bottom - node.getBoundingClientRect().top + node.scrollTop : null;
+    };
+    const previous = anchor.current;
+    const moved = previous && !pinned.current ? offset(previous.key) : null;
+    if (previous && moved !== null && moved !== previous.offset) node.scrollTop += moved - previous.offset;
+    const top = firstKey === undefined ? null : offset(firstKey);
+    anchor.current = firstKey === undefined || top === null ? null : { key: firstKey, offset: top };
+  });
+
   // Sending always brings the conversation back to the newest message.
   const pendingCount = props.pending.length;
   useLayoutEffect(() => {
@@ -992,7 +1028,7 @@ function Conversation(props: {
     >
       <div ref={content} className="flex min-h-full flex-col items-center justify-end px-4 pb-2 pt-6 sm:px-10">
         <div className={`${COLUMN} flex flex-col`}>
-          {props.hasEarlier && props.earlierLimit ? (
+          {props.loading ? <ThreadPlaceholder /> : props.hasEarlier && props.earlierLimit ? (
             <p className="mb-6 text-center text-[12px] text-[var(--wb-muted)]" role="status">History limit reached. Earlier messages aren&apos;t available here.</p>
           ) : props.hasEarlier ? (
             <button
@@ -1011,32 +1047,26 @@ function Conversation(props: {
           <ol className="flex flex-col" aria-label="Conversation">
             {rows.map((row, index) => {
               // The greeting has its own time; the first message only gets one after a quiet hour or a new day.
-              const previous = rows[index - 1] ?? (props.intro?.at ? { key: "intro", at: props.intro.at, turn: null, pending: null } : undefined);
+              const previous = rows[index - 1] ?? (props.intro?.at ? { at: props.intro.at } : undefined);
               const stamp = showsTimestamp(previous, row);
               return (
-                <li key={row.key} className={`flex flex-col gap-1 ${index > 0 ? (stamp ? "pt-9" : "pt-8") : stamp && props.intro ? "pt-1" : ""}`}>
+                <li key={row.key} data-workbot-row={row.key} className={`flex flex-col gap-1 ${index > 0 ? (stamp ? "pt-9" : "pt-8") : stamp && props.intro ? "pt-1" : ""}`}>
                   {stamp ? <Timestamp at={row.at} /> : null}
-                  {row.turn ? (
-                    <TurnView
-                      canChange={props.canChange}
-                      onEdit={props.onEdit}
-                      editError={props.editErrors[row.turn.id] ?? null}
-                      turn={row.turn}
-                      live={props.live[row.turn.id] ?? null}
-                      latest={row.turn.id === lastTurnId && props.pending.every((entry) => known.has(entry.id))}
-                      newestText={row.turn.id === newestText}
-                      previews={previews.current}
-                      onRetry={() => row.turn && props.onRetryTurn(row.turn)}
-                      onSuggestion={props.onSuggestion}
-                      onSwitch={props.onSwitch}
-                    />
-                  ) : row.pending ? (
-                    <PendingView
-                      entry={row.pending}
-                      onRetry={() => row.pending && props.onRetry(row.pending)}
-                      waiting={row.pending.id === lastPending}
-                    />
-                  ) : null}
+                  <TurnView
+                    canChange={props.canChange}
+                    onEdit={props.onEdit}
+                    editError={row.pending ? null : (props.editErrors[row.turn.id] ?? null)}
+                    turn={row.turn}
+                    pending={row.pending}
+                    live={row.pending ? null : (props.live[row.turn.id] ?? null)}
+                    // A message still sending is answered next when it is the newest one waiting.
+                    latest={row.pending ? row.pending.id === lastPending : row.turn.id === lastTurnId && props.pending.every((entry) => known.has(entry.id))}
+                    newestText={row.turn.id === newestText}
+                    previews={previews.current}
+                    onRetry={() => (row.pending ? props.onRetry(row.pending) : props.onRetryTurn(row.turn))}
+                    onSuggestion={props.onSuggestion}
+                    onSwitch={props.onSwitch}
+                  />
                 </li>
               );
             })}
@@ -1133,6 +1163,8 @@ function OwnMessage(props: {
   onEdit: (turn: WorkbotTurn, text: string) => void;
   /** Why the last edit of this message didn't go through. */
   error: string | null;
+  /** A message that didn't send: dimmed, without Edit (Send again sits under it). */
+  failed?: boolean;
 }) {
   const { turn, error } = props;
   const originalText = readWorkbotCorrectionPrompt(turn.text).text;
@@ -1213,7 +1245,7 @@ function OwnMessage(props: {
   return (
     <div className="flex flex-col items-end gap-1">
       <SentContext context={turn.context} />
-      <UserBubble text={turn.text} reaction={turn.reaction} action={<EditButton disabled={!props.canChange} onClick={() => setMode("editing")} />} />
+      <UserBubble text={turn.text} reaction={turn.reaction} muted={props.failed} action={props.failed ? undefined : <EditButton disabled={!props.canChange} onClick={() => setMode("editing")} />} />
       {error ? <ErrorLine align="end">{error}</ErrorLine> : null}
     </div>
   );
@@ -1319,35 +1351,30 @@ function pendingAttachments(entry: Pending): { attachments: WorkbotAttachment[];
   return { attachments: [...entry.attachments, ...attachments], urls };
 }
 
-/** `waiting`: this message's answer comes next, so it shows the waiting dots its turn will show. */
-function PendingView({ entry, onRetry, waiting }: { entry: Pending; onRetry: () => void; waiting: boolean }) {
-  const { attachments, urls } = pendingAttachments(entry);
-  const uploading = entry.uploads.some((upload) => upload.status === "uploading");
-  return (
-    <>
-      <SentAttachments attachments={attachments} localUrls={urls} />
-      {/* Holds Edit's place while sending, so the bubble doesn't move when its turn arrives. */}
-      <SentContext context={entry.context} />
-      <UserBubble text={entry.correctionReference ? workbotCorrectionPrompt(readBrowserSkillRunPrompt(entry.text), entry.correctionReference) : readBrowserSkillRunPrompt(entry.text)} muted={Boolean(entry.failed)} action={entry.failed ? undefined : <EditButton disabled />} />
-      {entry.failed ? (
-        entry.accessIssue ? <AccessRecovery reason={entry.accessIssue} onRetry={onRetry} /> : <ErrorLine align="end" action={{ label: "Send again", onClick: onRetry }}>{entry.failed}</ErrorLine>
-      ) : uploading || waiting ? (
-        // The rows its turn will show, so nothing moves when the turn arrives.
-        <>
-          <Gap />
-          <div className="flex flex-col">
-            {uploading ? (
-              <QuietLine label="Uploading your files" />
-            ) : (
-              <WaitingSlot>
-                <TypingDots />
-              </WaitingSlot>
-            )}
-          </div>
-        </>
-      ) : null}
-    </>
-  );
+/**
+ * A message not in the conversation yet, as the turn it becomes: queued, with nothing answered. TurnView shows both,
+ * so the bubble, Edit's place and the waiting dots stay the same elements when the turn arrives.
+ */
+function pendingTurn(entry: Pending): WorkbotTurn {
+  return {
+    id: entry.id,
+    text: entry.correctionReference ? workbotCorrectionPrompt(readBrowserSkillRunPrompt(entry.text), entry.correctionReference) : readBrowserSkillRunPrompt(entry.text),
+    context: entry.context,
+    navigation: [],
+    sentAt: entry.sentAt,
+    finishedAt: null,
+    status: "queued",
+    attachments: pendingAttachments(entry).attachments,
+    outputs: [],
+    reaction: null,
+    parts: [],
+    modelSteps: 0,
+    error: null,
+    retryable: true,
+    tasks: [],
+    greeting: false,
+    suggestions: [],
+  };
 }
 
 /** Ticks once a second while mounted. */
@@ -1648,8 +1675,9 @@ function replyProgress(turn: WorkbotTurn, live: LiveText | null) {
   const working = turn.status === "working" || turn.status === "queued";
   // The model call in progress (not stored yet): its text so far, and whether it has started a step.
   const current = working && live && live.step >= turn.modelSteps ? live : null;
-  // Live text is trimmed like the stored text, so a finished bubble carries on instead of starting over.
-  const liveText = withoutNextLine((current?.text ?? "").trimStart());
+  // Live text is trimmed like the stored text (both ends), so a finished bubble carries on instead of starting over:
+  // a shown "Done.\n" that the stored "Done." doesn't start with would type the bubble out again.
+  const liveText = withoutNextLine((current?.text ?? "").trim());
   const last = turn.parts.at(-1);
   // Its computer starting before the step is stored: its card shows right away, after what it just said.
   const starting = working && !turn.greeting && current?.working?.on === "computer" ? current.working : null;
@@ -1681,6 +1709,8 @@ function TurnView(props: {
   onEdit: (turn: WorkbotTurn, text: string) => void;
   editError: Error | string | null;
   turn: WorkbotTurn;
+  /** The message as sent from this page, until the conversation has it (`turn` is then pendingTurn's). */
+  pending?: Pending | null;
   live: LiveText | null;
   latest: boolean;
   /** This turn holds the newest of Workbot's words in the conversation: the only ones still revealing. */
@@ -1690,8 +1720,10 @@ function TurnView(props: {
   onSuggestion: (text: string) => void;
   onSwitch: (text: string) => void;
 }) {
-  const { turn } = props;
+  const { turn, pending = null } = props;
   const { working, liveText, starting, lastIsLive } = replyProgress(turn, props.live);
+  // A message still sending waits on its files first, in the place the dots take next.
+  const uploading = pending !== null && !pending.failed && pending.uploads.some((upload) => upload.status === "uploading");
   // An answer watched while it was written keeps revealing at its pace once it's stored; answers already done when the
   // page opened show at once.
   const watched = useRef(working);
@@ -1732,7 +1764,7 @@ function TurnView(props: {
   });
   if (working && props.live) {
     for (const entry of props.live.earlier ?? []) {
-      const text = withoutNextLine(entry.text.trimStart());
+      const text = withoutNextLine(entry.text.trim());
       if (entry.step >= turn.modelSteps && text) items.push({ kind: "text", key: `text-${entry.step}`, text });
     }
   }
@@ -1755,7 +1787,7 @@ function TurnView(props: {
     if (dots || running) setHeld(true);
     else if (!answering || liveText) setHeld(false);
   }, [dots, running, answering, liveText]);
-  const slot = answering && !liveText && (dots || held || running);
+  const slot = uploading || (answering && !liveText && (dots || held || running));
   const copyText = parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n\n");
   const offers = useMemo(() => (turn.status === "done" ? documentLinks(copyText) : []), [turn.status, copyText]);
   // One computer, so only the newest reply that used its screen offers to open it, already while it works. Commands run
@@ -1764,12 +1796,15 @@ function TurnView(props: {
   const usedComputer = props.latest && ((starting !== null && !starting.background) || parts.some((part) => part.kind === "steps" && part.steps.some(onScreen)));
   return (
     <>
-      <SentAttachments attachments={turn.attachments} localUrls={props.previews} />
-      {turn.text && !turn.greeting ? (
-        <OwnMessage turn={turn} canChange={props.canChange && turn.status !== "queued"} onEdit={props.onEdit} error={props.editError instanceof WorkbotSendError && props.editError.accessReason ? null : props.editError instanceof Error ? props.editError.message : props.editError} />
+      <SentAttachments attachments={turn.attachments} localUrls={pending ? { ...props.previews, ...pendingAttachments(pending).urls } : props.previews} />
+      {pending || (turn.text && !turn.greeting) ? (
+        <OwnMessage turn={turn} failed={Boolean(pending?.failed)} canChange={props.canChange && turn.status !== "queued"} onEdit={props.onEdit} error={props.editError instanceof WorkbotSendError && props.editError.accessReason ? null : props.editError instanceof Error ? props.editError.message : props.editError} />
       ) : (
         <UserBubble text={turn.text} reaction={turn.reaction} />
       )}
+      {pending?.failed ? (
+        pending.accessIssue ? <AccessRecovery reason={pending.accessIssue} onRetry={props.onRetry} /> : <ErrorLine align="end" action={{ label: "Send again", onClick: props.onRetry }}>{pending.failed}</ErrorLine>
+      ) : null}
       {items.length > 0 || slot ? <Gap /> : null}
       {/* What it said and what it did, in the order it happened: "On it." · the computer card · the answer. */}
       <div className="group/answer flex flex-col">
@@ -1787,7 +1822,7 @@ function TurnView(props: {
             <StepsSegment key={item.key} steps={item.steps} live={item.live} />
           ),
         )}
-        {slot ? <WaitingSlot>{runningApps ? <StepsSegment steps={runningApps.steps} live /> : dots ? <TypingDots /> : null}</WaitingSlot> : null}
+        {slot ? <WaitingSlot>{uploading ? <QuietLine label="Uploading your files" /> : runningApps ? <StepsSegment steps={runningApps.steps} live /> : dots ? <TypingDots /> : null}</WaitingSlot> : null}
       </div>
       <DocumentOffers links={offers} />
       <DocumentNavigationStatus receipts={turn.navigation} />

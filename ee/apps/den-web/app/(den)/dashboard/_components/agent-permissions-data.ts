@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AGENT_HARNESS_PERMISSION_KEYS,
   normalizeAgentPermissionSettings,
   type AgentPermissionSettings,
 } from "@openwork/types/den/agent-permissions";
@@ -8,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { getErrorMessage, getRequestError, requestJson } from "../../_lib/den-flow";
 import { ORG_SCOPE_HEADER } from "../../_lib/org-scope";
+import { orgFeatureEnabled } from "../../_lib/den-org";
+import { markFeatureUsed } from "../../_lib/feature-usage";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 
 const AGENT_PERMISSIONS_PATH = "/v1/agent-permissions";
@@ -71,7 +74,7 @@ export function useAgentPermissions(orgId: string, enabled = true) {
     queryFn: async ({ signal }): Promise<AgentPermissionPolicies> => {
       const { response, payload } = await requestJson(
         AGENT_PERMISSIONS_PATH,
-        { method: "GET", headers: { [ORG_SCOPE_HEADER]: orgId }, cache: "no-store", signal },
+        { method: "GET", headers: { [ORG_SCOPE_HEADER]: orgId, "X-OpenWork-Browser-Upload-Permissions": "1" }, cache: "no-store", signal },
         15000,
       );
       if (!response.ok) {
@@ -97,7 +100,7 @@ function scopePath(scopeId: AgentPermissionScopeId): string {
 /** Saves each scope's settings in turn; the first failure stops and is thrown. */
 export function useSaveAgentPermissions(orgId: string) {
   const queryClient = useQueryClient();
-  const { runReauthableAction } = useOrgDashboard();
+  const { runReauthableAction, orgContext } = useOrgDashboard();
   return useMutation({
     mutationKey: [...agentPermissionsQueryKey(orgId), "save"],
     retry: false,
@@ -108,12 +111,18 @@ export function useSaveAgentPermissions(orgId: string) {
             scopePath(change.scopeId),
             {
               method: "PUT",
-              headers: { [ORG_SCOPE_HEADER]: orgId, "content-type": "application/json" },
+              headers: { [ORG_SCOPE_HEADER]: orgId, "content-type": "application/json", "X-OpenWork-Browser-Upload-Permissions": "1" },
               body: JSON.stringify({ settings: change.settings }),
             },
             15000,
           );
           if (!response.ok) throw getRequestError(payload, response, `Couldn't save agent permissions (${response.status}).`);
+          if (orgFeatureEnabled(orgContext, "agentHarnessPermissions") && AGENT_HARNESS_PERMISSION_KEYS.some((key) => change.settings[key] !== undefined)) {
+            markFeatureUsed("agentHarnessPermissions");
+          }
+          if (orgFeatureEnabled(orgContext, "browserUploadPermissions") && change.settings.browserUploads !== undefined) {
+            markFeatureUsed("browserUploadPermissions");
+          }
         }
       });
     },
@@ -132,7 +141,7 @@ export function useRemoveTeamAgentPermissions(orgId: string, teamId: string) {
       await runReauthableAction("remove-team-agent-permissions", async () => {
         const { response, payload } = await requestJson(
           scopePath(teamId),
-          { method: "DELETE", headers: { [ORG_SCOPE_HEADER]: orgId } },
+          { method: "DELETE", headers: { [ORG_SCOPE_HEADER]: orgId, "X-OpenWork-Browser-Upload-Permissions": "1" } },
           15000,
         );
         if (!response.ok) throw getRequestError(payload, response, `Couldn't remove these agent permissions (${response.status}).`);

@@ -11,7 +11,7 @@ Each view is its own rollout (both on `cloud` and `self_hosted`, owned by
 
 | Flag | What Workbot gets | Off |
 |---|---|---|
-| `browserUse` (default off) | The **Browser** view and the `desktop` tool's browser operations. Teaching browser tasks (`browserDemonstrations`) and the page stream (`browserLiveView`) need it too. | No Browser view; the model is offered only the native desktop, and the runner refuses browser calls. |
+| `browserUse` (default off) | The **Browser** view and the `desktop` tool's browser operations. It includes the page stream; teaching browser tasks (`browserDemonstrations`) needs it too. | No Browser view; the model is offered only the native desktop, and the runner refuses browser calls. |
 | `computerUse` | The **Computer** view and the `desktop` tool's native-app operations (`computer_*`). | No Computer view; the model is offered only the browser, and the runner refuses native-app calls. |
 
 Workspaces that had Workbot's computer before the split keep the Computer view
@@ -27,10 +27,16 @@ the runner has a computer.
 
 The two views use one conversation computer:
 
-- **Browser** (`/browser`) streams the Chromium window, including its tabs and address bar.
+- **Browser** (`/browser`) streams the page itself with Workbot's tabs and
+  address bar. It is included in `browserUse`, without a separate live-view
+  gate. Computers whose image predates page streaming still fall back to
+  noVNC; remove that transport fallback when those images are unsupported.
+  Den and Workbot keep the `browserLiveView` response field derived from
+  browser access for older clients; remove it when those clients are unsupported.
 - **Computer** (`/computer`) streams the entire Linux desktop.
 - **Take control** interrupts Workbot's current turn, pauses both browser and
-  computer tools, and enables native mouse/keyboard input through noVNC.
+  computer tools, and enables input through the page stream (Browser) or
+  noVNC (Computer and older browser images).
 - **Return to Workbot** ends the manual connection and releases the tools.
 - **Pause** suspends the VM; reopening the tab leaves it paused until **Resume**.
   Memory, browser tabs and unsaved applications survive VM pause/resume.
@@ -162,6 +168,11 @@ person's Files are copied in again on next use. Computers from before this
 existed carry only `/workspace`. An idle replacement happens only when both
 carry over. **Rebuild computer** still starts clean, carrying nothing.
 
+A sandbox gateway's template is rebuilt by hand, so a replacement can come up on
+the same older image. The computer then stays where it is and the runner tries
+again a day later, or 10 minutes later if the computer can't serve this runner
+at all.
+
 ### Freestyle instead of Daytona
 
 Freestyle runs the same desktop from a snapshot captured while the desktop is
@@ -185,15 +196,22 @@ HEADLESS_COMPUTER_DOMAIN=computers.example.com
 ```
 
 The production deploy (`celld-runner-deploy.yml`) builds the snapshot itself
-when the configured slug was built for a different image. A guest-only change
-builds nothing: the runner installs its guest into the computers it starts. It
-uses the runner's `FREESTYLE_API_KEY`, names the snapshot after the new image,
-and bundles the runner with that slug. A later run with the same image finds the
-snapshot already built. If the build fails, the deploy stops before the fleet
-changes. Building a snapshot also gives the earlier `workbot-desktop-freestyle-…`
-snapshots a 14-day deletion window: Freestyle deletes one once no computer has
-been created from it for 14 days, so a recent one stays available to roll back
-to.
+when the configured slug was built for a different image. It uses the runner's
+`FREESTYLE_API_KEY`, names the snapshot after the new image, and bundles the
+runner with that slug. A later run with the same image finds the snapshot already
+built. If the build fails, the deploy stops before the fleet changes. Building a
+snapshot also gives the earlier `workbot-desktop-freestyle-…` snapshots a 14-day
+deletion window: Freestyle deletes one once no computer has been created from it
+for 14 days, so a recent one stays available to roll back to.
+
+A guest-only change needs no new image. The deploy layers the runner's guest onto
+the image's snapshot (`snapshot:build:freestyle-guest`), which takes seconds, and
+bundles the runner with `workbot-desktop-freestyle-<image>-<guest>`, so a new
+computer skips installing the guest on first open. Each new layer gives the
+earlier layers the same 14-day window, and the image's snapshot stays. If the
+layer fails, the deploy carries on with the image's snapshot and the runner
+installs its guest, as it does into every computer that already exists.
+
 The plain `HEADLESS_COMPUTER_SNAPSHOT` variable in the `celld-production`
 GitHub environment overrides the same field in `CELLD_RUNNER_VARS`; set it to a
 slug not named by the builder to choose a snapshot by hand, which the deploy
@@ -207,6 +225,28 @@ for the next turn. The builder installs the desktop on Freestyle's Ubuntu base,
 with Chromium for Testing in place of Debian's package and patched Node 24.x
 (24.22.1 or newer). A runtime change is an image change: deploying it builds a
 new snapshot, and existing computers move to it as described above.
+
+### Through a sandbox gateway
+
+The `sandboxGateway` feature flag moves one organization's Workbot computers onto
+the runner's sandbox gateway (Differently) while every other organization keeps
+the runner's own Freestyle or Daytona account. The gateway holds those provider
+keys and picks the provider by its own policies. Configure it on the runner with
+its own settings, apart from `HEADLESS_COMPUTER`:
+
+```dotenv
+SANDBOX_GATEWAY=differently
+SANDBOX_GATEWAY_URL=https://differently.example.com
+SANDBOX_GATEWAY_API_KEY=<project-scoped key>
+SANDBOX_GATEWAY_TEMPLATE=<template mapped to the desktop image>
+```
+
+With the flag on and the gateway down or unable to start a computer, new
+computers are made on the runner's own provider, and the runner logs the change.
+A computer already on the gateway stays there, and the gateway's own refusals
+(quotas, placement policy) are errors, never a reason to go around it.
+Organizations without the flag never use the gateway. See the runner's
+[sandbox gateway notes](../../ee/apps/headless-runner/README.md#sandbox-gateway).
 
 ## Transport and rollout
 

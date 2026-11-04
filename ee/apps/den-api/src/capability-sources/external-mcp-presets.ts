@@ -5,6 +5,7 @@
  * so an org admin can add them once, org-wide, in Den, instead of every
  * device connecting to them separately.
  */
+import { mcpRegistrationStatusSchema, type McpRegistrationStatus } from "@openwork/types/den/mcp-registration"
 import { z } from "zod"
 
 export type ExternalMcpPreset = {
@@ -19,6 +20,12 @@ export type ExternalMcpPreset = {
   defaultOAuthClientId?: string
   authorizationServerIssuer?: string
   defaultOAuthScopes?: readonly string[]
+  /** Extra scopes the provider offers that are requested only after an admin explicitly chooses them. */
+  optionalOAuthScopes?: readonly string[]
+  /** What OpenWork last learned about signing in to this provider; absent until it has been checked. */
+  registrationStatus?: McpRegistrationStatus
+  /** Response only: the redirect URL an admin registers in the provider's OAuth app. */
+  oauthCallbackUrl?: string
 }
 
 export const externalMcpPresetResponseSchema = z.object({
@@ -32,6 +39,9 @@ export const externalMcpPresetResponseSchema = z.object({
   defaultOAuthClientId: z.string().min(1).optional(),
   authorizationServerIssuer: z.string().url().optional(),
   defaultOAuthScopes: z.array(z.string()).optional(),
+  optionalOAuthScopes: z.array(z.string()).optional().describe("Extra scopes the provider offers. Never requested by default; setup requests them only after an admin explicitly chooses them."),
+  registrationStatus: mcpRegistrationStatusSchema.optional(),
+  oauthCallbackUrl: z.string().url().optional().describe("For presets that need a pre-registered OAuth app: the exact redirect URL to register in it. Absent when this deployment has no public API URL."),
 }).meta({ ref: "ExternalMcpPresetResponse" })
 
 export const externalMcpPresetListResponseSchema = z.object({
@@ -111,6 +121,30 @@ export const EXTERNAL_MCP_PRESETS: ExternalMcpPreset[] = [
       "mpim:history",
       "users:read",
     ],
+    // The rest of the user scopes Slack's MCP server offers. Never requested by
+    // default: guided Slack setup asks the admin to choose them explicitly
+    // ("Read and act"), and that choice is saved as the connection's scopes.
+    optionalOAuthScopes: [
+      "canvases:read",
+      "canvases:write",
+      "channels:read",
+      "channels:write",
+      "emoji:read",
+      "files:read",
+      "files:write",
+      "groups:read",
+      "groups:write",
+      "im:read",
+      "im:write",
+      "lists:read",
+      "lists:write",
+      "mpim:read",
+      "mpim:write",
+      "reactions:read",
+      "reactions:write",
+      "search:read.users",
+      "users:read.email",
+    ],
   },
   {
     presetId: "exa",
@@ -139,17 +173,11 @@ export const EXTERNAL_MCP_PRESETS: ExternalMcpPreset[] = [
 ]
 
 /**
- * Additional reviewed official MCP server presets, gated behind the
- * `expandedMcpPresets` feature flag (default off). Each URL and its OAuth
+ * Additional reviewed official MCP server presets. Each URL and its OAuth
  * protected-resource metadata were verified by probing the public
  * `/.well-known/oauth-protected-resource` endpoint; advertisement is not a
  * successful connection. OAuth presets reuse the existing CIMD/DCR pipeline
  * (`packages/enterprise-mcp-client`); no new auth path is added.
- *
- * With the flag off these never appear in the catalog or preset list; existing
- * connections made while the flag was on keep working because
- * `external-mcp-auth-policy` matches against `ALL_EXTERNAL_MCP_PRESETS`
- * (every known preset), not just the gated catalog list.
  */
 export const EXTERNAL_MCP_PRESETS_EXPANDED: readonly ExternalMcpPreset[] = [
   {
@@ -192,6 +220,13 @@ export const EXTERNAL_MCP_PRESETS_EXPANDED: readonly ExternalMcpPreset[] = [
     displayName: "Fireflies",
     description: "Search your Fireflies meeting notes and transcripts. Sign in with your Fireflies account.",
     url: "https://api.fireflies.ai/mcp",
+    authType: "oauth",
+  },
+  {
+    presetId: "grafana",
+    displayName: "Grafana Cloud",
+    description: "Query metrics, logs, traces, and profiles, and review dashboards, alerts, and incidents. Sign in with your Grafana Cloud account and choose read, query, or write access on Grafana's consent screen.",
+    url: "https://mcp.grafana.com/mcp",
     authType: "oauth",
   },
   {
@@ -268,18 +303,30 @@ export const EXTERNAL_MCP_PRESETS_EXPANDED: readonly ExternalMcpPreset[] = [
 
 /**
  * Every known preset (core + expanded), used by `external-mcp-auth-policy`
- * so an existing connection to an expanded-preset server keeps its preset
- * auth behavior even when the `expandedMcpPresets` flag is off.
+ * so every connection to an expanded-preset server keeps its preset auth behavior.
  */
 export const ALL_EXTERNAL_MCP_PRESETS: readonly ExternalMcpPreset[] = [
   ...EXTERNAL_MCP_PRESETS,
   ...EXTERNAL_MCP_PRESETS_EXPANDED,
 ]
 
+/**
+ * One preset as the catalog returns it. Presets that need a pre-registered
+ * OAuth app carry the redirect URL the admin registers in it, so setup can
+ * show it (and prefill a provider app manifest) before any connection exists.
+ */
+export function externalMcpPresetForResponse(
+  preset: ExternalMcpPreset,
+  extra: { registrationStatus?: McpRegistrationStatus; oauthCallbackUrl?: string | null },
+): ExternalMcpPreset {
+  return {
+    ...preset,
+    ...(extra.registrationStatus && extra.registrationStatus !== "unknown" ? { registrationStatus: extra.registrationStatus } : {}),
+    ...(preset.requiresOAuthClient && extra.oauthCallbackUrl ? { oauthCallbackUrl: extra.oauthCallbackUrl } : {}),
+  }
+}
+
 /** Presets shown in the connector catalog and the add-connection preset list. */
-export function externalMcpPresetsForCatalog(options: { expanded?: boolean } = {}): ExternalMcpPreset[] {
-  const { expanded = false } = options
-  return expanded
-    ? [...EXTERNAL_MCP_PRESETS, ...EXTERNAL_MCP_PRESETS_EXPANDED]
-    : [...EXTERNAL_MCP_PRESETS]
+export function externalMcpPresetsForCatalog(): ExternalMcpPreset[] {
+  return [...ALL_EXTERNAL_MCP_PRESETS]
 }

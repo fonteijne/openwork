@@ -1,6 +1,8 @@
 import { and, eq, gt, isNull, sql } from "@openwork-ee/den-db/drizzle"
 import { AuthAccountTable, AuthUserTable, InvitationTable, MemberTable, OrganizationTable, RateLimitTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
+import { withoutAgentHarnessRules, withoutBrowserUploadRules, type AgentPermissionRule } from "@openwork/types/den/agent-permissions"
+import { BILLING_PLAN_TIERS } from "@openwork/types/den/billing-plans"
 import { desktopConfigSchema } from "@openwork/types/den/desktop-policies"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
@@ -38,6 +40,8 @@ const meResponseSchema = z.object({
 const meOrganizationsResponseSchema = z.object({
   orgs: z.array(z.object({
     id: denTypeIdSchema("organization"),
+    planTier: z.enum(BILLING_PLAN_TIERS),
+    isSandbox: z.boolean(),
     isActive: z.boolean(),
   }).passthrough()),
   activeOrgId: denTypeIdSchema("organization").nullable(),
@@ -136,7 +140,8 @@ function normalizeNamePart(value: string) {
 
 async function checkDownloadLinkRateLimit(userId: string, now: number) {
   const key = `me:send-download-link:${userId}`
-  const [row] = await db
+  // primary: the counter is read back right after earlier requests wrote it.
+  const [row] = await db.$primary
     .select({ id: RateLimitTable.id, count: RateLimitTable.count, lastRequest: RateLimitTable.lastRequest })
     .from(RateLimitTable)
     .where(eq(RateLimitTable.key, key))
@@ -446,7 +451,7 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
     describeRoute({
       tags: ["Users"],
       summary: "Get current user's desktop config",
-      description: "Returns the authenticated desktop app restrictions for the caller's active organization, including the caller's agent permissions as ordered OpenCode permission rules and the model new chats start with (defaultModel, applied by OpenCode v2 desktops only) when the organization has chosen one the caller can use.",
+      description: "Returns the authenticated desktop app restrictions for the caller's active organization, including the caller's agent permissions as ordered OpenCode permission rules and the model new chats start with (defaultModel, applied by OpenCode v2 desktops only) when the organization has chosen one the caller can use. Computer use, Mac app scripting and outside-folder rules are delivered only when agentHarnessPermissions is enabled for the caller. Computer use rules and their scripting dependency additionally require the caller's computerUse feature. X-OpenWork-Browser-Upload-Permissions: 1 clients receive browserUploadPermissions with the verified organization and member scope, and browser_upload rules only when enabled for the caller. Older clients receive a conservative website block when an active managed upload rule cannot be enforced.",
       responses: {
         200: jsonResponse("Current user desktop config returned successfully.", meDesktopConfigResponseSchema),
         401: jsonResponse("The caller must be signed in to read desktop config.", unauthorizedSchema),
@@ -462,7 +467,16 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         orgMemberId: currentMember.id,
       })
       const features = await getOrganizationFeatures(organization.id, { userId: currentMember.userId })
-      const agentPermissions = { rules: await readAgentPermissionRulesForMember({ organizationId: organization.id, orgMemberId: currentMember.id }) }
+      const rules = await readAgentPermissionRulesForMember({ organizationId: organization.id, orgMemberId: currentMember.id, computerUseEnabled: features.computerUse })
+      const supportsBrowserUploads = c.req.header("X-OpenWork-Browser-Upload-Permissions") === "1"
+      const visibleRules = features.agentHarnessPermissions ? rules : withoutAgentHarnessRules(rules)
+      const deliveredRules: AgentPermissionRule[] = features.browserUploadPermissions && supportsBrowserUploads ? visibleRules : withoutBrowserUploadRules(visibleRules)
+      // Published clients drop unknown actions. Refuse browsing conservatively
+      // rather than silently dropping an active managed upload permission.
+      if (features.browserUploadPermissions && !supportsBrowserUploads && rules.some((rule) => rule.action === "browser_upload")) {
+        deliveredRules.push({ action: "webfetch", resource: "*", effect: "deny", source: "Browser upload policy requires an updated OpenWork app" })
+      }
+      const agentPermissions = { rules: deliveredRules }
       // The model new chats start with; only v2 desktops apply it. A failure leaves desktops on their own default.
       const defaultModel = await desktopConfigDefaultModel({ organizationId: organization.id, memberId: currentMember.id })
       const automations = automationAvailabilityFor({
@@ -479,12 +493,14 @@ export function registerMeRoutes<T extends { Variables: AuthContextVariables & P
         dashboardEnabled: env.dashboardsEnabled,
         // Compatibility field for published desktops: Connect is always on.
         connectEnabled: true,
-        liveProviderSync: features.liveProviderSync,
-        nativeAffordanceCodeMode: features.nativeAffordanceCodeMode,
+        liveProviderSync: true,
+        nativeAffordanceCodeMode: true,
+        opencodeV2Only: features.opencodeV2Only,
         // Compatibility fields for published desktops: both behaviors are now always on.
         localProviderMirror: true,
         removeOpencodeZen: true,
         agentPermissions,
+        ...(supportsBrowserUploads ? { browserUploadPermissions: { enabled: features.browserUploadPermissions, organizationId: organization.id, memberId: currentMember.id } } : {}),
         ...(defaultModel ? { defaultModel } : {}),
         ...(Array.isArray(metadata.allowedDesktopVersions)
           ? { allowedDesktopVersions: metadata.allowedDesktopVersions }
