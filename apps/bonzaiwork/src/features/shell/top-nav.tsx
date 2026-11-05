@@ -126,7 +126,7 @@ function AccountMenu() {
     <Menu
       align="end"
       trigger={
-        <button type="button" aria-label={shellCopy.nav.account} className="flex size-11 shrink-0 items-center justify-center rounded-full bg-ink text-base font-bold text-surface">
+        <button type="button" aria-label={shellCopy.nav.account} data-testid="help-menu" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-ink text-base font-bold text-surface">
           {shellCopy.nav.you.slice(0, 1)}
         </button>
       }
