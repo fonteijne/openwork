@@ -4,7 +4,7 @@ Eigen desktop-app op basis van OpenWork, met een eigen UI en LiteLLM als enige p
 De opdracht staat in [`referentie.md`](./referentie.md). Dit document beschrijft wat er gebouwd is,
 hoe het geverifieerd is, waar we van de referentie afwijken en wat er nog openstaat.
 
-Stand: upstream `dev` op `2aa4481` (`v0.18.63` + upstream `dev` t/m #6620), gemerged in `main` via PR #1. Getest op Linux (CI, stand-in LiteLLM) en macOS arm64 (echte LiteLLM).
+Stand: upstream-release `v0.18.64` (`44c7074`), gemerged in `nightly` via fonteijne/openwork#31. Getest op Linux (CI, stand-in LiteLLM). De test op macOS arm64 met echte LiteLLM is voor deze release nog niet gedaan; de vorige stand (`2aa4481`, `v0.18.63`) is daar wel op getest.
 
 ## Genomen beslissingen
 
@@ -202,7 +202,9 @@ Status in `fonteijne/openwork` (02-11-2026):
 
 Alle andere upstream-workflows draaien op `push` naar `dev`, een schema of releases, en publiceren, hebben
 hun secrets nodig of wachten eindeloos op hun Blacksmith-runners. `scripts/bonzaiwork/fork-workflows.mjs`
-zet ze bij elke upstream-sync uit, ook workflows die upstream nieuw toevoegt. Alleen de lijst `ENABLED` in
+zet ze bij elke upstream-sync uit, ook workflows die upstream nieuw toevoegt. De job `fork-workflows` in
+`bonzaiwork.yml` doet dat ook na elke push naar `nightly`, zodat workflows die met een gemergde sync-PR
+binnenkomen meteen uitgaan en hun runs voor die commit worden geannuleerd. Alleen de lijst `ENABLED` in
 dat script blijft aan (de tabel hierboven plus `upstream-sync.yml`). Een workflow weer aanzetten: voeg hem
 eerst aan `ENABLED` toe, anders zet de volgende sync hem weer uit.
 
@@ -318,7 +320,7 @@ git checkout --theirs pnpm-lock.yaml && pnpm install                    # bij ee
 # bonzaiwork.upstream.json → commit van v0.18.64
 node scripts/bonzaiwork/check-patches.mjs                              # werkt PATCHES.md bij
 pnpm --filter @bonzaiwork/litellm e2e
-# workflows die upstream sinds de vorige sync toevoegde: de volgende Upstream sync-run zet ze uit (zie "CI")
+# workflows die upstream sinds de vorige sync toevoegde: de BonzaiWork-CI zet ze uit na de merge in nightly (zie "CI")
 BONZAIWORK_LITELLM_BASE_URL=http://127.0.0.1:4010 node apps/bonzaiwork/scripts/package.mjs --dir --linux
 xvfb-run -a node apps/bonzaiwork/scripts/smoke-packaged.mjs
 ```

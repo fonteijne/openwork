@@ -108,7 +108,7 @@ if (conflicts.length) {
 for (const path of patchedChanged) todo.push(`Onze patch in \`${path}\` naast de upstream-wijziging leggen (zie hieronder) en \`PATCHES.md\` bijwerken als de hook verschoof.`);
 if (!conflicts.length && !patchesOk) todo.push("PATCHES-check groen maken (uitvoer hieronder).");
 for (const [path, why] of watchChanged) todo.push(`\`${path}\` nalopen: ${why}.`);
-if (workflows.some(([, status]) => status === "A")) todo.push("Nieuwe upstream-workflows: controleren of ze uit staan (zie \"Workflows\").");
+if (workflows.some(([, status]) => status === "A")) todo.push("Nieuwe upstream-workflows: na de merge controleren dat de job `fork-workflows` van de BonzaiWork-CI op `nightly` ze heeft uitgezet (zie \"Workflows\").");
 todo.push(
   "BonzaiWork-CI groen: typecheck, unit-tests, engine-E2E en de verpakte smoketest.",
   `\`Stand:\` in \`docs/bonzaiwork/README.md\` bijwerken naar ${args.tag ? `\`${args.tag}\`` : "deze upstream-commit"}.`,
