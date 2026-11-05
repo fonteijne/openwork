@@ -13,7 +13,12 @@ describe("routes (brief §3)", () => {
   });
 
   it("gives a project its tabs", () => {
-    expect(parse("#/p/p-offertes")).toEqual({ name: "project", projectId: "p-offertes", chatId: null });
+    expect(parse("#/p/p-offertes")).toEqual({ name: "project-overview", projectId: "p-offertes" });
+    expect(parse("#/p/p-offertes/chats")).toEqual({ name: "project", projectId: "p-offertes", chatId: null });
+    expect(href({ name: "project", projectId: "p-offertes", chatId: null })).toBe("#/p/p-offertes/chats");
+    expect(parse("#/p/p-offertes/todos")).toEqual({ name: "project-todos", projectId: "p-offertes" });
+    expect(parse("#/p/p-offertes/afronden")).toEqual({ name: "project-complete", projectId: "p-offertes" });
+    expect(routeTab(parse("#/p/p-offertes"))).toBe("overview");
     expect(parse("#/p/p-offertes/c/c-index")).toEqual({ name: "project", projectId: "p-offertes", chatId: "c-index" });
     expect(parse("#/p/p-offertes/bestanden")).toEqual({ name: "project-files", projectId: "p-offertes" });
     expect(parse("#/p/p-offertes/routines/r-week")).toEqual({ name: "project-routines", projectId: "p-offertes", routineId: "r-week" });
@@ -31,6 +36,30 @@ describe("routes (brief §3)", () => {
     expect(href({ name: "project-settings", projectId: "x", section: "files" })).toBe("#/p/x/bestanden");
     expect(href({ name: "project-settings", projectId: "x", section: "general" })).toBe("#/p/x/instellingen");
     expect(settingsGroupOf("activity")).toBe("technisch");
+  });
+
+  it("has the cockpit's pages, each with a round trip through href", () => {
+    const routes = [
+      { name: "plan" },
+      { name: "agent", chatId: null },
+      { name: "agent", chatId: "c-1" },
+      { name: "inbox" },
+      { name: "runs" },
+      { name: "run", runId: "RUN-0417" },
+      { name: "delegate", todoId: "t-3" },
+      { name: "delegate", todoId: null },
+      { name: "approval", approvalId: "OUT-0093" },
+      { name: "library" },
+      { name: "library-shelf", shelfId: "s-team" },
+      { name: "library-page", pageId: "pg-privacy" },
+      { name: "library-proposal", proposalId: "vs-12" },
+      { name: "activity", view: "all" },
+      { name: "activity", view: "sent" },
+      { name: "project-new", fromProjectId: null, fromChatId: null },
+      { name: "project-new", fromProjectId: "p-mijn-brein", fromChatId: "c-1" },
+      { name: "settings", group: "verbindingen" },
+    ] as const;
+    for (const route of routes) expect(parse(href(route))).toEqual(route);
   });
 
   it("has app-level pages and a not-found route", () => {

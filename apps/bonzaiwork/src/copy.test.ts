@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { copy } from "./copy";
 
+/** The cockpit's copy modules (`src/copy/*.ts`), each exporting one table. */
+const modules = import.meta.glob<Record<string, unknown>>("./copy/*.ts", { eager: true });
+
 /** Every user-visible string in the copy table, with its path ("settings.usageLocked"). */
 function strings(value: unknown, path: string, out: Array<[string, string]>): Array<[string, string]> {
   if (typeof value === "string") out.push([path, value]);
@@ -22,7 +25,8 @@ function strings(value: unknown, path: string, out: Array<[string, string]>): Ar
 describe("copy", () => {
   it("never names the vendor, the workspace or MCP to the person (brief §10, C3)", () => {
     // Keys may carry engine names (`litellm_unreachable` is an error kind); values never do.
-    const offending = strings(copy, "", []).filter(([, text]) => /litellm|\bworkspace\b|\bMCP\b/i.test(text));
+    const tables: Array<[string, unknown]> = [["copy", copy], ...Object.entries(modules).flatMap(([file, module]) => Object.entries(module).map(([name, table]): [string, unknown] => [`${file}:${name}`, table]))];
+    const offending = tables.flatMap(([name, table]) => strings(table, name, [])).filter(([, text]) => /litellm|\bworkspace\b|\bMCP\b/i.test(text));
     expect(offending).toEqual([]);
   });
 });

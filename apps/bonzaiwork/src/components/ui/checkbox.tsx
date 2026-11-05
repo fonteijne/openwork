@@ -21,16 +21,16 @@ export function Checkbox(props: {
   className?: string;
 }) {
   return (
-    <label className={cn("flex min-h-8 cursor-default select-none items-center gap-2.5 rounded-lg px-1 text-sm text-foreground has-[[data-disabled]]:opacity-45 pointer-coarse:min-h-10", props.className)}>
+    <label className={cn("flex min-h-8 cursor-default select-none items-center gap-2.5 rounded-lg px-1 text-base text-foreground has-[[data-disabled]]:opacity-45 pointer-coarse:min-h-10", props.className)}>
       <CheckboxPrimitive.Root
         checked={props.checked}
         onCheckedChange={(checked) => props.onCheckedChange(checked)}
         disabled={props.disabled}
         aria-label={props.label}
-        className="flex size-4 shrink-0 items-center justify-center rounded-[0.25rem] ring-1 ring-inset ring-input outline-none transition-[background-color,box-shadow] duration-100 focus-visible:ring-2 focus-visible:ring-ring data-[checked]:bg-primary data-[checked]:ring-primary"
+        className="flex size-5 shrink-0 items-center justify-center rounded-[4px] ring-[1.5px] ring-inset ring-ink outline-none transition-[background-color,box-shadow] duration-100 focus-visible:ring-2 focus-visible:ring-ring data-[checked]:bg-primary data-[checked]:ring-primary"
       >
         <CheckboxPrimitive.Indicator className="text-primary-foreground">
-          <Check className="size-3" strokeWidth={2.5} aria-hidden="true" />
+          <Check className="size-3.5" strokeWidth={2.5} aria-hidden="true" />
         </CheckboxPrimitive.Indicator>
       </CheckboxPrimitive.Root>
       <span className="min-w-0 flex-1 truncate">{props.children}</span>

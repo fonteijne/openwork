@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Menu as MenuIcon, PanelRight } from "lucide-react";
+import { PanelRight } from "lucide-react";
 
 import { copy } from "~/copy";
 import { useUi } from "~/features/shell/ui-store";
 import { cn } from "~/lib/cn";
 import { chord } from "~/lib/shortcuts";
-import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
+import { useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { Button } from "./ui/button";
 import { Tooltip } from "./ui/tooltip";
@@ -25,10 +25,6 @@ export const TopBarHost = createContext<TopBarHostSlots | null>(null);
  */
 export function TopBar(props: { children?: ReactNode; actions?: ReactNode; className?: string; leading?: ReactNode; details?: boolean }) {
   const host = useContext(TopBarHost);
-  const desktop = useMediaQuery(DESKTOP);
-  const collapsed = useUi((state) => state.sidebarCollapsed);
-  const setDrawer = useUi((state) => state.setDrawer);
-  const toggleSidebar = useUi((state) => state.toggleSidebar);
 
   if (host) {
     return (
@@ -39,24 +35,12 @@ export function TopBar(props: { children?: ReactNode; actions?: ReactNode; class
     );
   }
 
-  const menuButton = (
-    <Button
-      variant="quiet"
-      size="icon"
-      className="-ms-1"
-      aria-label={desktop ? copy.shell.sidebarExpand : copy.nav.openMenu}
-      onClick={() => (desktop ? toggleSidebar() : setDrawer(true))}
-    >
-      <MenuIcon />
-    </Button>
-  );
-
+  // The cockpit's top navigation sits above every page; this is the page's own slim header row.
   return (
-    <header className={cn("flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 pt-[env(safe-area-inset-top)] lg:px-4", props.className)} data-titlebar="page">
-      {props.leading ?? (!desktop ? menuButton : null)}
-      {desktop && collapsed ? menuButton : null}
+    <header className={cn("flex min-h-16 shrink-0 items-center gap-3 border-b border-line bg-surface px-6 lg:px-12", props.className)}>
+      {props.leading}
       <div className="flex min-w-0 flex-1 items-center gap-2">{props.children}</div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-2">
         {props.actions}
         {props.details ? <DetailsToggle /> : null}
       </div>
@@ -96,11 +80,11 @@ export const PAGE_TITLE = "[data-page-title]";
 /** A heading is not a control: focus put there by script draws no ring (it only tells assistive tech where it is). */
 export const PAGE_TITLE_FOCUS = "outline-none";
 
-/** 16px/600: the title owns the bar (V1 allows ≤ 20px). */
+/** 22px/600: the title of a page header row. */
 export function PageTitle(props: { children: ReactNode }) {
   useDocumentTitle(typeof props.children === "string" ? props.children : null);
   return (
-    <h1 tabIndex={-1} data-page-title="" className={cn("truncate text-lg font-semibold tracking-tight text-foreground", PAGE_TITLE_FOCUS)}>
+    <h1 tabIndex={-1} data-page-title="" className={cn("truncate text-xl font-semibold tracking-tight text-foreground", PAGE_TITLE_FOCUS)}>
       {props.children}
     </h1>
   );

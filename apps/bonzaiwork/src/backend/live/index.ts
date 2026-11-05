@@ -27,6 +27,7 @@ import {
 
 import { createAgendaClient } from "./agenda";
 import { createBrainsClient } from "./brains";
+import { createLiveCockpit } from "./cockpit";
 import { hasDesktopBridge, openExternal, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
 import { engine, createTranslator, followEvents, PROVIDER_ID, type EngineTarget, type NativeSession } from "./engine";
 import { enc, probe, request, type Connection } from "./http";
@@ -1128,6 +1129,8 @@ export async function createLiveBackend(): Promise<Backend> {
     },
 
     agenda: createAgendaClient(req, { available: agendaOnServer }),
+
+    cockpit: createLiveCockpit(() => backend),
 
     feedback: {
       async collect(notes) {

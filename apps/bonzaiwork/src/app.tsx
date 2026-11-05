@@ -9,8 +9,8 @@ import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
 import { navigate, routeProjectId, routeTab, useRoute, type Route } from "~/lib/router";
 
-import { HomePage } from "./features/home/home-page";
 import { AppShell } from "./features/shell/app-shell";
+import { TodayPage } from "./features/today/today-page";
 
 // Vandaag ships with the first load; every other page is its own chunk, fetched on first visit
 // (the project page a little earlier, below).
@@ -23,6 +23,19 @@ const RoutinesPage = lazy(() => import("./features/routines/routines-page").then
 const AppSettingsPage = lazy(() => import("./features/settings/app-settings").then((module) => ({ default: module.AppSettingsPage })));
 const PersonalPage = lazy(() => import("./features/brain/personal-page").then((module) => ({ default: module.PersonalPage })));
 const Onboarding = lazy(() => import("./features/onboarding/onboarding").then((module) => ({ default: module.Onboarding })));
+const PlanPage = lazy(() => import("./features/today/plan-page").then((module) => ({ default: module.PlanPage })));
+const InboxPage = lazy(() => import("./features/inbox/inbox-page").then((module) => ({ default: module.InboxPage })));
+const AgentPage = lazy(() => import("./features/agent/agent-page").then((module) => ({ default: module.AgentPage })));
+const RunsPage = lazy(() => import("./features/runs/runs-page").then((module) => ({ default: module.RunsPage })));
+const RunPage = lazy(() => import("./features/runs/run-page").then((module) => ({ default: module.RunPage })));
+const DelegatePage = lazy(() => import("./features/runs/delegate-page").then((module) => ({ default: module.DelegatePage })));
+const ApprovalPage = lazy(() => import("./features/approvals/approval-page").then((module) => ({ default: module.ApprovalPage })));
+const LibraryHome = lazy(() => import("./features/library/library-home").then((module) => ({ default: module.LibraryHome })));
+const ShelfPage = lazy(() => import("./features/library/shelf-page").then((module) => ({ default: module.ShelfPage })));
+const LibraryPageView = lazy(() => import("./features/library/page-view").then((module) => ({ default: module.LibraryPageView })));
+const ProposalPage = lazy(() => import("./features/library/proposal-page").then((module) => ({ default: module.ProposalPage })));
+const ActivityPage = lazy(() => import("./features/activity/activity-page").then((module) => ({ default: module.ActivityPage })));
+const NewProjectPage = lazy(() => import("./features/projects/new-project-page").then((module) => ({ default: module.NewProjectPage })));
 
 const INTENT_EVENTS = ["pointerover", "touchstart", "focusin"] as const;
 
@@ -54,12 +67,18 @@ function prefetchProjectPage(): () => void {
 /** A page chunk is still on its way: keep the page frame, show its shape. */
 function PageSkeleton() {
   return (
-    <div className="flex h-full flex-col" aria-busy="true" aria-label={copy.boot.connecting}>
-      <div className="h-12 shrink-0 border-b border-border" data-titlebar="page" />
-      <div className="mx-auto mt-10 flex w-full max-w-3xl flex-col gap-4 px-6">
+    <div className="flex flex-col" aria-busy="true" aria-label={copy.boot.connecting}>
+      <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-5 px-6 pb-12 pt-16 lg:px-12">
+        <Skeleton className="h-4 w-48" />
+        <Skeleton className="h-14 w-2/3" />
         <Skeleton className="h-6 w-1/2" />
-        <Skeleton className="h-14 w-full" />
-        <Skeleton className="h-14 w-full" />
+      </div>
+      <div className="flex-1 bg-surface-alt">
+        <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-4 px-6 py-16 lg:px-12">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
       </div>
     </div>
   );
@@ -72,32 +91,23 @@ function PageSkeleton() {
  */
 function ShellSkeleton() {
   return (
-    <div className="flex h-dvh bg-background" aria-busy="true" aria-label={copy.boot.connecting}>
-      <div className="hidden w-64 flex-col gap-2 border-e border-border bg-sidebar p-3 lg:flex">
-        <div className="flex h-8 items-center gap-2 px-1">
-          <BrandMark />
-          <span className="text-sm font-semibold text-foreground">{copy.appName}</span>
+    <div className="flex h-dvh flex-col bg-background" aria-busy="true" aria-label={copy.boot.connecting}>
+      <div className="flex h-[72px] shrink-0 items-center gap-6 border-b border-border px-6 lg:h-[92px] lg:px-12" data-titlebar="page">
+        <BrandMark className="size-9" />
+        <span className="hidden text-lg font-extrabold xl:inline">{copy.appName}</span>
+        <div className="hidden gap-8 lg:flex">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-4 w-16" />
         </div>
-        <Skeleton className="mt-3 h-7 w-full" />
-        <Skeleton className="h-7 w-full" />
-        <Skeleton className="h-7 w-4/5" />
-        <Skeleton className="h-7 w-full" />
-        <Skeleton className="mt-6 h-7 w-full" />
-        <Skeleton className="h-7 w-full" />
-        <Skeleton className="h-7 w-4/5" />
       </div>
-      <div className="flex flex-1 flex-col">
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 lg:px-4" data-titlebar="page">
-          <BrandMark className="lg:hidden" />
-          <span className="text-sm font-semibold text-foreground lg:hidden">{copy.appName}</span>
-        </div>
-        {/* The Vandaag shape (brief §11): the composer card, the "Voor jou" heading, two cards. */}
-        <div className="mx-auto mt-10 flex w-full max-w-3xl flex-col gap-4 px-6">
-          <Skeleton className="h-28 w-full rounded-shell" />
-          <Skeleton className="mt-4 h-4 w-20" />
-          <Skeleton className="h-24 w-full rounded-window" />
-          <Skeleton className="h-24 w-full rounded-window" />
-        </div>
+      {/* The Vandaag shape: hero, then the "Needs you" band. */}
+      <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-5 px-6 pt-16 lg:px-12">
+        <Skeleton className="h-4 w-56" />
+        <Skeleton className="h-14 w-2/3" />
+        <Skeleton className="h-6 w-1/2" />
+        <Skeleton className="mt-8 h-72 w-full rounded-panel" />
       </div>
     </div>
   );
@@ -153,7 +163,33 @@ function Page(props: { route: Route }) {
   switch (route.name) {
     case "home":
     case "onboarding":
-      return <HomePage />;
+      return <TodayPage />;
+    case "plan":
+      return <PlanPage />;
+    case "inbox":
+      return <InboxPage />;
+    case "agent":
+      return <AgentPage chatId={route.chatId} />;
+    case "runs":
+      return <RunsPage />;
+    case "run":
+      return <RunPage runId={route.runId} />;
+    case "delegate":
+      return <DelegatePage todoId={route.todoId} />;
+    case "approval":
+      return <ApprovalPage approvalId={route.approvalId} />;
+    case "library":
+      return <LibraryHome />;
+    case "library-shelf":
+      return <ShelfPage shelfId={route.shelfId} />;
+    case "library-page":
+      return <LibraryPageView pageId={route.pageId} />;
+    case "library-proposal":
+      return <ProposalPage proposalId={route.proposalId} />;
+    case "activity":
+      return <ActivityPage view={route.view} />;
+    case "project-new":
+      return <NewProjectPage fromProjectId={route.fromProjectId} fromChatId={route.fromChatId} />;
     case "projects":
       return <ProjectsPage />;
     case "routines":
@@ -171,7 +207,7 @@ function Page(props: { route: Route }) {
 
 /** Without a project, the app-level pages go to #/welkom (brief §3). */
 function needsOnboarding(route: Route): boolean {
-  return route.name === "home" || route.name === "projects" || route.name === "routines" || route.name === "settings" || route.name === "brain" || route.name === "onboarding";
+  return route.name === "home" || route.name === "projects" || route.name === "routines" || route.name === "settings" || route.name === "brain" || route.name === "onboarding" || route.name === "plan" || route.name === "runs";
 }
 
 export function App() {

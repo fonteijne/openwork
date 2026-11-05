@@ -5,14 +5,14 @@ import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
 
 const CONTROL =
-  "w-full bg-background px-3.5 text-sm text-foreground ring-1 ring-inset ring-input placeholder:text-subtle-foreground transition-[box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 aria-invalid:ring-red-9 max-sm:text-[16px]";
+  "w-full bg-surface-raised px-4 text-base text-foreground ring-1 ring-inset ring-input placeholder:text-subtle-foreground transition-[box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 aria-invalid:ring-red-9 max-sm:text-[16px]";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...props }, ref) {
-  return <input ref={ref} className={cn(CONTROL, "h-8 rounded-full pointer-coarse:h-10", className)} {...props} />;
+  return <input ref={ref} className={cn(CONTROL, "h-11 rounded-[6px]", className)} {...props} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...props }, ref) {
-  return <textarea ref={ref} className={cn(CONTROL, "min-h-20 resize-y rounded-2xl py-2.5 leading-relaxed", className)} {...props} />;
+  return <textarea ref={ref} className={cn(CONTROL, "min-h-24 resize-y rounded-[6px] py-3 leading-relaxed", className)} {...props} />;
 });
 
 /** Label above, control, then an error or hint. One of hint or error, never both. */
@@ -22,13 +22,13 @@ export function Field(props: { label: ReactNode; hint?: ReactNode; error?: strin
   const message = props.error ?? props.hint;
   return (
     <div className={cn("flex flex-col gap-1.5", props.className)}>
-      <label htmlFor={id} className="text-sm font-medium text-foreground">
+      <label htmlFor={id} className="text-base font-semibold text-foreground">
         {props.label}
         {props.optional ? <span className="ms-1.5 font-normal text-subtle-foreground">({copy.common.optional})</span> : null}
       </label>
       {props.children(id, message ? messageId : undefined)}
       {message ? (
-        <p id={messageId} className={cn("text-xs", props.error ? "text-destructive-foreground" : "text-muted-foreground")} role={props.error ? "alert" : undefined}>
+        <p id={messageId} className={cn("text-sm", props.error ? "text-destructive-foreground" : "text-muted-foreground")} role={props.error ? "alert" : undefined}>
           {message}
         </p>
       ) : null}

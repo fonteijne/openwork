@@ -174,6 +174,24 @@ function parseTabRoute(project: Project, tab: ProjectTab): Route {
       return { name: "project-brain", projectId: project.id };
     case "settings":
       return { name: "project-settings", projectId: project.id, group: "project" };
+    case "overview":
+      return { name: "project-overview", projectId: project.id };
+    case "todos":
+      return { name: "project-todos", projectId: project.id };
+    case "runs":
+      return { name: "project-runs", projectId: project.id };
+    case "outputs":
+      return { name: "project-outputs", projectId: project.id };
+    case "sources":
+      return { name: "project-sources", projectId: project.id };
+    case "decisions":
+      return { name: "project-decisions", projectId: project.id };
+    case "activity":
+      return { name: "project-activity", projectId: project.id };
+    case "edit":
+      return { name: "project-edit", projectId: project.id };
+    case "complete":
+      return { name: "project-complete", projectId: project.id };
   }
 }
 

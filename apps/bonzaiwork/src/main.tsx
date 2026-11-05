@@ -11,6 +11,8 @@ import { watchRouteHistory } from "./lib/router";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
 // Variable Manrope, split by unicode range: only the Latin file downloads.
 import "@fontsource-variable/manrope/wght.css";
+// Instrument Serif italic: only the accent word in a page title uses it (Latin subset).
+import "@fontsource/instrument-serif/latin-400-italic.css";
 import "./styles.css";
 
 watchErrors();
