@@ -39,11 +39,11 @@ bevestigen, en toestemming die actie, gegevens en risico noemt.
 | Agent: personal chats, Conversation | `#/agent[/c/:chat]` | `features/agent/agent-page.tsx` |
 | Command palette | ⌘K | `features/shell/command-palette.tsx` |
 | Projects | `#/projecten` | `features/projects/projects-page.tsx` |
-| Project home, tabbladen | `#/p/:id[/todos\|runs\|chats\|uitvoer\|bronnen\|besluiten\|activiteit]` | `features/project/project-page.tsx` |
-| Project chat met runkaart | `#/p/:id/c/:chat` | `features/project/…` + `features/chat/*` |
+| Project home, tabbladen | `#/p/:id[/todos\|runs\|chats\|uitvoer\|bronnen\|besluiten\|activiteit]` | `features/project/project-page.tsx`, `overview-tab.tsx`, `list-tabs.tsx` |
+| Project chat met runkaart | `#/p/:id/c/:chat` | `features/project/chats-tab.tsx`, `run-card.tsx` + `features/chat/*` |
 | New project | `#/projecten/nieuw[/:project/:chat]` | `features/projects/new-project-page.tsx` |
-| Edit project | `#/p/:id/bewerken` | `features/project/…` |
-| Complete a project | `#/p/:id/afronden` | `features/project/…` |
+| Edit project | `#/p/:id/bewerken` | `features/project/edit-page.tsx` |
+| Complete a project | `#/p/:id/afronden` | `features/project/complete-page.tsx` |
 | Runs | `#/runs` | `features/runs/runs-page.tsx` |
 | Run detail + stage review, Interrupted run | `#/runs/:id` | `features/runs/run-page.tsx` |
 | Delegate | `#/delegeren[/:todo]` | `features/runs/delegate-page.tsx` |
@@ -51,9 +51,9 @@ bevestigen, en toestemming die actie, gegevens en risico noemt.
 | Library, plank, pagina | `#/bibliotheek`, `/plank/:id`, `/pagina/:id` | `features/library/*` |
 | Library change review | `#/bibliotheek/voorstel/:id` | `features/library/proposal-page.tsx` |
 | Activity + sent log | `#/activiteit[/verzonden]` | `features/activity/activity-page.tsx` |
-| Settings: connections and keys | `#/instellingen` (`verbindingen`) | `features/settings/app-settings.tsx` |
-| Settings: agent and permissions | `#/instellingen/agent` | `features/settings/…` |
-| Settings: workspaces | `#/instellingen/werkwijzen` | `features/settings/…` |
+| Settings: connections and keys | `#/instellingen` (`verbindingen`) | `features/settings/app-settings.tsx`, `app-verbindingen.tsx` |
+| Settings: agent and permissions | `#/instellingen/agent` | `features/settings/app-agent.tsx` |
+| Settings: workspaces | `#/instellingen/werkwijzen` | `features/settings/app-werkwijzen.tsx` |
 | Onboarding | `#/welkom` | `features/onboarding/onboarding.tsx` |
 
 De bestaande onderdelen blijven bereikbaar: Bestanden, Routines, Brein en Instellingen als tabbladen
@@ -89,3 +89,13 @@ of **projectkey** (zie `copy.test.ts`).
 
 Nieuwe teksten staan per onderdeel in `apps/bonzaiwork/src/copy/*.ts`; `copy.test.ts` controleert ze
 samen met `copy.ts`.
+
+## Bekende open punten
+
+- **Opslag**: aangepaste mailtekst in een goedkeuring, vastgezette bronnen bij een nieuw project, de
+  limieten per run en het indelen van een nieuw hulpmiddel hebben nog geen backendveld; de schermen
+  zeggen dat in plaats van te doen alsof.
+- **Meldingen**: de schakelaars in Instellingen › Meldingen worden bewaard maar sturen nog niets aan.
+- **Datumvelden** gebruiken de datumkiezer van het systeem; in een Engelstalige browser staat die in
+  de Amerikaanse notatie.
+- De demo bewaart zijn toestand onder `bonzaiwork.demo.v6.*`; een oudere opgeslagen demo begint opnieuw.
