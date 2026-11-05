@@ -64,6 +64,7 @@ async function bounded(work, timeoutMs, signal) {
  *   resourcesPath?: string,
  *   appRoot?: string,
  *   fileExists?: (candidate: string) => boolean,
+ *   installHelper?: (binary: string) => Promise<string>,
  *   spawnChild?: typeof spawn,
  *   onSetupReturn?: () => unknown,
  *   permissionEntry?: () => Promise<string>,
@@ -76,6 +77,7 @@ export function createLocalComputerAdapter({
   resourcesPath = process.resourcesPath,
   appRoot = defaultAppRoot,
   fileExists = existsSync,
+  installHelper = async (binary) => binary,
   spawnChild = spawn,
   onSetupReturn = () => {},
   permissionEntry = async () => "",
@@ -122,9 +124,15 @@ export function createLocalComputerAdapter({
     if (platform !== "darwin" || Number.parseInt(osRelease, 10) < 23 || !/^\d+\./.test(osRelease)) {
       return { readiness: "unsupported", detail: "This Mac requires macOS 14 or later for Computer Use." };
     }
-    const binary = helperCandidates().find((candidate) => candidate && fileExists(candidate));
-    if (!binary) {
+    const found = helperCandidates().find((candidate) => candidate && fileExists(candidate));
+    if (!found) {
       return { readiness: "unavailable", detail: "The Computer Use helper is missing from this OpenWork build. Rebuild or reinstall OpenWork." };
+    }
+    let binary;
+    try {
+      binary = await installHelper(found);
+    } catch {
+      return { readiness: "unavailable", detail: "OpenWork could not set up the Computer Use helper on this Mac. Free up disk space or reinstall OpenWork." };
     }
     try {
       const child = spawnChild(binary, ["--check"], { env, stdio: ["ignore", "pipe", "ignore"] });
@@ -405,7 +413,7 @@ export function createLocalComputerAdapter({
       const hex = (value) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
       const shown = typeof presence?.name === "string" && presence.name.trim() && hex(presence.color)
         ? { OPENWORK_COMPUTER_USE_PRESENCE: JSON.stringify({ name: presence.name.trim().slice(0, 32), color: presence.color }) } : {};
-      // Set only while `computerUseBackground` is on: the helper then works behind other windows.
+      // Parallel local sessions work behind other windows; the helper chooses foreground when an app needs it.
       const delivery = background ? { OPENWORK_COMPUTER_USE_DELIVERY: "background" } : {};
       const transport = new StdioClientTransport({ command: state.binary, args: ["mcp-embedded"], env: { ...env, ...shown, ...delivery }, stderr: "ignore" });
       let closed = false;

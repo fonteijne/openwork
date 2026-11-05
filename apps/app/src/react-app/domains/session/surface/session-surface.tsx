@@ -1,6 +1,9 @@
 /** @jsxImportSource react */
 import { openMemberApiKeyDialog } from "../../connections/member-api-key-dialog";
 import { childOrigin, rememberChildOrigin, prepareChildReturn, consumeChildReturn, registerChildDraftPersistence } from "@/lib/child-navigation";
+import { remoteSessionRouteId } from "@/lib/remote-session-route";
+import type { RemoteThreadStart } from "@/lib/remote-session-thread";
+import { rememberRemoteHelperOrigin } from "@/react-app/domains/session/remote-threads/remote-helper-navigation";
 import { verifyChildTarget } from "@/lib/verify-child-target";
 import { isTaskToolPart, taskChildSessionId } from "@/lib/build-in-tools";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
@@ -120,6 +123,10 @@ import { PermissionApprovalPanel } from "@/react-app/domains/session/chat/permis
 import { ComputerRequestPanel } from "@/react-app/domains/session/computer/computer-request-panel";
 import { useComputerRequest, useComputerStore } from "@/react-app/domains/session/computer/computer-store";
 import { QuestionPanel } from "@/react-app/domains/session/modals/question-modal";
+import { ComposerSubagentTracker, currentTurnSubagentParts, useComposerRemoteTasks } from "@/react-app/domains/session/surface/composer/composer-subagent-tracker";
+import { ComposerBackgroundTasks } from "@/react-app/domains/session/surface/composer/composer-background-tasks";
+import { sessionBackgroundShells, settleBackgroundShell, useBackgroundShellStore } from "@/react-app/domains/session/status/background-shell-store";
+import { useDesktopFeature } from "@/react-app/domains/session/status/use-desktop-feature";
 import { QueuedMessagesPanel } from "@/react-app/domains/session/modals/queued-messages-panel";
 import { deriveOpenTargets, sameOpenTargets, type OpenTarget } from "@/react-app/domains/session/artifacts/open-target";
 import { usePanelTabStore } from "@/react-app/domains/session/panel/panel-tab-store";
@@ -172,6 +179,7 @@ import {
   type ChatMcpReconnectScope,
 } from "./mcp-chat-reconnect";
 import { OpenTargetProvider, type OpenTargetOptions } from "@/lib/target-provider";
+import { fileOriginForRuntime } from "../artifacts/resolve-open-target";
 import type { ThreadStatus } from "@/lib/messages";
 import {
   EnvironmentVariableProvider,
@@ -245,6 +253,8 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
   `Malformed input like $\\frac{1}{$ must not break this paragraph, and prices such
 as $5 and $10 stay plain text.`,
 ];
+
+const MESSAGE_NOT_SENT = "Message not sent. Your text was kept so you can send it again.";
 
 type SessionError = {
   message: string;
@@ -410,6 +420,51 @@ function createChatTranscriptEvalMessages(sessionId: string) {
   return { messages };
 }
 
+/** Dev-only: one turn that exercises every text-first activity sentence. */
+function createTextActivityEvalMessages(sessionId: string): UIMessage[] {
+  const now = Date.now();
+  return [
+    {
+      id: `${sessionId}:eval-text-activity-user`,
+      role: "user",
+      parts: [{ type: "text", text: "Check my notes, add a summary, fix the pricing line and tell me who is in the organization." }],
+      metadata: { opencode: { created: now } },
+    },
+    {
+      id: `${sessionId}:eval-text-activity-assistant`,
+      role: "assistant",
+      parts: [
+        {
+          type: "reasoning",
+          text: "**Plan**\n\nRead the brief, summarise it, then fix the pricing line.",
+          state: "done",
+          providerMetadata: { opencode: { partId: "eval-text-activity-thought", time: { start: now + 1, end: now + 12_001 } } },
+        },
+        { type: "dynamic-tool", toolName: "bash", toolCallId: "eval-text-activity-ls", state: "output-available",
+          input: { command: "ls -1 notes", description: "list the notes folder" }, output: "brief.md\nsummary.md\n" },
+        { type: "dynamic-tool", toolName: "read", toolCallId: "eval-text-activity-read", state: "output-available",
+          input: { filePath: "/tmp/openwork-eval/notes/brief.md" }, output: "" },
+        { type: "dynamic-tool", toolName: "grep", toolCallId: "eval-text-activity-grep", state: "output-available",
+          input: { pattern: "pricing", path: "notes" }, output: "" },
+        { type: "dynamic-tool", toolName: "bash", toolCallId: "eval-text-activity-gh", state: "output-available",
+          input: { command: "gh pr view 5212 --repo different-ai/openwork --json title,state,mergeable", description: "check the pull request" },
+          output: "{\n  \"mergeable\": \"MERGEABLE\",\n  \"state\": \"OPEN\",\n  \"title\": \"feat(server): add openwork-server web self-host command\"\n}" },
+        { type: "dynamic-tool", toolName: "write", toolCallId: "eval-text-activity-write", state: "output-available",
+          input: { filePath: "/tmp/openwork-eval/notes/summary.md", content: "# Summary\n\n- Lead with pricing.\n- Keep it short.\n" }, output: "" },
+        { type: "dynamic-tool", toolName: "edit", toolCallId: "eval-text-activity-edit", state: "output-available",
+          input: { filePath: "/tmp/openwork-eval/notes/brief.md", oldString: "Introduce the old pricing.", newString: "Introduce the new pricing.\nMention the annual plan." }, output: "" },
+        { type: "dynamic-tool", toolName: "bash", toolCallId: "eval-text-activity-fail", state: "output-error",
+          input: { command: "infisical export --env dev --path /pricing", description: "export pricing secrets from Infisical" },
+          errorText: "error: you must be logged in to run this command. Run infisical login first." },
+        { type: "dynamic-tool", toolName: "openwork-cloud_execute_capability", toolCallId: "eval-text-activity-capability", state: "output-available",
+          input: { name: "getOrg" }, output: JSON.stringify({ members: 2 }) },
+        { type: "text", text: "Your notes are summarised and the pricing line is fixed. PR opened: [#5212 feat(server): add openwork-server web self-host command](https://github.com/different-ai/openwork/pull/5212)." },
+      ],
+      metadata: { opencode: { created: now + 1, completed: now + 95_001 } },
+    },
+  ];
+}
+
 function createConnectorToolCallEvalMessages(sessionId: string): UIMessage[] {
   const now = Date.now();
   return [
@@ -549,6 +604,78 @@ function createSubagentActivityEvalMessages(sessionId: string, childSessionId?: 
   return messages;
 }
 
+type SubagentTrackerEvalAgent = {
+  agent: string;
+  description: string;
+  state: "working" | "permission" | "question" | "done" | "error" | "stopped";
+  childSessionId: string;
+};
+
+const SUBAGENT_TRACKER_EVAL_SCENARIOS = ["one", "mixed", "permission", "question", "done"] as const;
+type SubagentTrackerEvalScenario = (typeof SUBAGENT_TRACKER_EVAL_SCENARIOS)[number];
+
+function isSubagentTrackerEvalScenario(value: unknown): value is SubagentTrackerEvalScenario {
+  return SUBAGENT_TRACKER_EVAL_SCENARIOS.some((scenario) => scenario === value);
+}
+
+function subagentTrackerEvalAgents(sessionId: string, scenario: SubagentTrackerEvalScenario, permissionChildSessionId?: string): SubagentTrackerEvalAgent[] {
+  const child = (name: string) => `${sessionId}:eval-agent-${name}`;
+  const explore = { agent: "explore", description: "Map the billing service", state: "working" as const, childSessionId: child("explore") };
+  if (scenario === "one") return [explore];
+  if (scenario === "mixed") {
+    return [
+      explore,
+      { agent: "general", description: "Summarize last week's incidents", state: "done", childSessionId: child("general") },
+      { agent: "test-runner", description: "Run the invoice test suite", state: "error", childSessionId: child("tests") },
+      { agent: "docs-writer", description: "Draft the migration notes", state: "stopped", childSessionId: child("docs") },
+    ];
+  }
+  if (scenario === "permission") {
+    return [explore, {
+      agent: "general", description: "Investigate the deployment failure", state: "permission",
+      childSessionId: permissionChildSessionId ?? child("permission"),
+    }];
+  }
+  if (scenario === "question") {
+    return [explore, { agent: "planner", description: "Plan the data migration", state: "question", childSessionId: child("planner") }];
+  }
+  return [
+    { ...explore, state: "done" },
+    { agent: "general", description: "Summarize last week's incidents", state: "done", childSessionId: child("general") },
+    { agent: "reviewer", description: "Review the pricing copy", state: "done", childSessionId: child("reviewer") },
+  ];
+}
+
+function createSubagentTrackerEvalMessages(sessionId: string, scenario: SubagentTrackerEvalScenario, agents: readonly SubagentTrackerEvalAgent[]): UIMessage[] {
+  const now = Date.now();
+  return [
+    {
+      id: `${sessionId}:eval-tracker-user`,
+      role: "user",
+      parts: [{ type: "text", text: "Get the billing release ready." }],
+      metadata: { opencode: { created: now } },
+    },
+    {
+      id: `${sessionId}:eval-tracker-assistant`,
+      role: "assistant",
+      parts: agents.map((entry, index) => {
+        const base = {
+          type: "dynamic-tool" as const,
+          toolName: "task",
+          toolCallId: `eval-tracker-${scenario}-${index}`,
+          input: { description: entry.description, prompt: entry.description, subagent_type: entry.agent },
+          callProviderMetadata: { openwork: { childSessionId: entry.childSessionId } },
+        };
+        if (entry.state === "done") return { ...base, state: "output-available" as const, output: "Finished." };
+        if (entry.state === "error") return { ...base, state: "output-error" as const, errorText: "Task failed: 3 tests did not pass." };
+        if (entry.state === "stopped") return { ...base, state: "output-error" as const, errorText: "The operation was aborted." };
+        return { ...base, state: "input-available" as const };
+      }),
+      metadata: { opencode: { created: now + 1 } },
+    },
+  ];
+}
+
 function createChatLoadingEvalMessages(sessionId: string): UIMessage[] {
   return [{
     id: `${sessionId}:eval-chat-loading-user`,
@@ -607,6 +734,7 @@ export type SessionSurfaceProps = {
   environmentClient?: OpenworkServerClient | null;
   workspaceId: string;
   workspaceRoot: string;
+  sandboxBackend?: string | null;
   sessionId: string;
   draftScope: string | null;
   isControlTarget: boolean;
@@ -675,11 +803,15 @@ export type SessionSurfaceProps = {
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   providerConnectedCount?: number;
   onOpenSettingsSection?: ((section: ComposerSettingsSection) => void) | undefined;
+  /** Open one Library item's detail page, e.g. a skill the agent just created. */
+  onOpenLibraryDetail?: ((detailId: string) => void) | undefined;
   onRevertToMessage?: (messageId: string, sessionId: string) => Promise<boolean>;
   onRestoreRevertedSession?: (sessionId: string) => Promise<boolean>;
   onForkAtMessage?: (messageId: string | null, sessionId: string, isCurrent: () => boolean) => Promise<void>;
   /** Open a sub-agent (child) session in the main chat surface. */
   onOpenSubagentSession?: (sessionId: string) => void;
+  /** Open a task on another computer in the main pane; absent opens it beside the chat. */
+  onOpenRemoteTask?: (threadKey: string) => void;
   onReturnToParent?: () => void;
   parentSessionTitle?: string;
   sessionTitle?: string;
@@ -1795,6 +1927,23 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [props.sessionId]);
   useControlAction(props.isControlTarget ? seedChatTranscriptControlAction : null);
+  const seedTextActivityControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.text_activity.seed",
+      label: "Seed text-first activity proof",
+      description: "Dev-only eval hook that renders one finished turn with commands, file reads and edits, a search, a failure, an OpenWork capability, a timed thought and a GitHub pull request link.",
+      sideEffect: "mutation",
+      disabled: !props.sessionId,
+      execute: () => {
+        const messages = createTextActivityEvalMessages(props.sessionId);
+        setEvalMarkdownMessages(messages);
+        return { ok: true, messageCount: messages.length };
+      },
+    };
+  }, [props.sessionId]);
+  useControlAction(props.isControlTarget ? seedTextActivityControlAction : null);
   const seedConnectorToolCallControlAction = useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
@@ -1917,6 +2066,51 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [props.sessionId, props.workspaceId]);
   useControlAction(props.isControlTarget ? seedSubagentActivityControlAction : null);
+  const seedSubagentTrackerControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.subagent_tracker.seed",
+      label: "Seed the composer's sub-agent list",
+      description: "Dev-only eval hook that renders one turn's sub-agents in a named state mix.",
+      sideEffect: "mutation",
+      disabled: !props.sessionId,
+      args: [
+        { name: "scenario", type: "string", description: "one, mixed, permission, question or done." },
+        { name: "permissionChildSessionId", type: "string", description: "Child session that already asks for approval (from eval.child_permission.seed)." },
+        { name: "parentIdle", type: "boolean", description: "Leave the parent turn finished instead of running." },
+      ],
+      execute: (args) => {
+        const scenario = args && typeof args === "object" ? Reflect.get(args, "scenario") : undefined;
+        if (!isSubagentTrackerEvalScenario(scenario)) return { ok: false, error: `Unknown scenario ${String(scenario)}` };
+        const rawPermissionChild = args && typeof args === "object" ? Reflect.get(args, "permissionChildSessionId") : undefined;
+        const permissionChild = typeof rawPermissionChild === "string" && rawPermissionChild.trim() ? rawPermissionChild.trim() : undefined;
+        const parentIdle = Boolean(args && typeof args === "object" && Reflect.get(args, "parentIdle") === true);
+        const agents = subagentTrackerEvalAgents(props.sessionId, scenario, permissionChild);
+        const store = useSessionActivityStore.getState();
+        for (const entry of agents) {
+          if (entry.state === "working" || entry.state === "permission" || entry.state === "question") {
+            // A pending ask is only kept while the child's run is active.
+            store.setRunStatus(props.workspaceId, entry.childSessionId, { type: "busy" });
+          } else {
+            // A child left running by an earlier scenario has finished now.
+            store.setRunStatus(props.workspaceId, entry.childSessionId, { type: "idle" });
+          }
+          if (entry.state === "permission" && !permissionChild) {
+            store.setWaitingRequest(props.workspaceId, entry.childSessionId, "permission", `${entry.childSessionId}:permission`, true);
+          }
+          if (entry.state === "question") {
+            store.setWaitingRequest(props.workspaceId, entry.childSessionId, "question", `${entry.childSessionId}:question`, true);
+          }
+        }
+        setEvalMarkdownMessages(createSubagentTrackerEvalMessages(props.sessionId, scenario, agents));
+        setEvalThreadStatus(parentIdle ? "ready" : "streaming");
+        store.setRunStatus(props.workspaceId, props.sessionId, parentIdle ? { type: "idle" } : { type: "busy" });
+        return { ok: true, scenario, childSessionIds: agents.map((entry) => entry.childSessionId) };
+      },
+    };
+  }, [props.sessionId, props.workspaceId]);
+  useControlAction(props.isControlTarget ? seedSubagentTrackerControlAction : null);
   const seedChatLoadingControlAction = useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
@@ -2060,6 +2254,28 @@ export function SessionSurface(props: SessionSurfaceProps) {
     return "ready";
   }, [admissionOutcome, admissionOutcomeUnresolved, autoSending, evalThreadStatus, liveStatus, queuedDrainState.phase.kind, sending]);
   const composerBusy = chatStreaming || status === "submitted";
+  // Sub-agents of the current turn, attached to the composer (OpenCode v2 only).
+  const subagentTrackerParentActive = status === "streaming" || status === "retrying" || status === "submitted";
+  const subagentTrackerToolCallIds = useMemo<ReadonlySet<string>>(
+    () => new Set(snapshotEngine === "v2"
+      ? currentTurnSubagentParts(visibleMessages).map((part) => part.toolCallId)
+      : []),
+    [snapshotEngine, visibleMessages],
+  );
+  // Tasks the turn started on other computers join the list on either engine;
+  // their state comes from Den, not the local engine.
+  const remoteTrackerOwner = useMemo(() => ({ workspaceId: props.workspaceId, sessionId: props.sessionId }), [props.workspaceId, props.sessionId]);
+  // An earlier turn's task stays listed while it works or waits, or once this turn follows up on it.
+  const remoteTrackerTasks = useComposerRemoteTasks(
+    visibleMessages,
+    remoteTrackerOwner,
+  );
+  const subagentTrackerShown = subagentTrackerToolCallIds.size > 0 || remoteTrackerTasks.length > 0;
+  // Commands the agent left running, listed under the Agents list until each exits.
+  const runningShells = useBackgroundShellStore((state) => state.booksByWorkspaceId[props.workspaceId]?.running);
+  const backgroundShells = useMemo(() => sessionBackgroundShells(runningShells, props.sessionId), [runningShells, props.sessionId]);
+  const composerBackgroundTasksEnabled = useDesktopFeature("composerBackgroundTasks");
+  const backgroundTasksShown = composerBackgroundTasksEnabled && backgroundShells.length > 0 && !archived;
 
   useEffect(() => {
     if (!hasFullHistory || admissionOutcome !== "unresolved") {
@@ -2420,6 +2636,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
       }
       if (result.outcome === "blocked" || result.outcome === "cancelled") {
         restore();
+        // Blocked sends already show the connected-tools recovery card, and Stop
+        // is intentional. Any other cancellation must not return the prompt silently.
+        if (result.outcome === "cancelled" && getQueuedSendGeneration(props.sessionId) === generation) {
+          setError({ message: MESSAGE_NOT_SENT });
+        }
         return;
       }
       if (result.outcome !== "unknown" && (nextDraft.command || nextDraft.mode === "shell")) {
@@ -2436,7 +2657,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     } finally {
       setAttachmentsUploading(false);
     }
-  }, [archived, archiveStateKnown, attachments, baseRenderedMessages, buildDraft, clearComposer, draft, mentions, pasteParts, persistedDraftKey, props.onDraftChange, props.opencodeBaseUrl, props.sessionId, sendDraft, sessionOwner]);
+  }, [archived, archiveStateKnown, attachments, baseRenderedMessages, buildDraft, clearComposer, draft, mentions, pasteParts, persistedDraftKey, props.onDraftChange, props.opencodeBaseUrl, props.sessionId, sendDraft, sessionOwner, setError]);
 
   // One-step run from the empty-state hero: the route keeps the continuation
   // in this session's composer and marks the submitted snapshot for auto-send.
@@ -2572,6 +2793,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
     dispatchQueuedDrain(props.sessionId, { type: "user_retry" });
     setCloudQueueRetryVersion((version) => version + 1);
   }, [attachments.length, draft, handleSend, props.sessionId, sendQueuedDraftNow, sessionOwner]);
+
+  const handleStopBackgroundTask = useCallback(async (shellID: string) => {
+    if (snapshotEngine !== "v2" || archived) throw new Error("Background tasks cannot be stopped here.");
+    const shell = useBackgroundShellStore.getState().booksByWorkspaceId[props.workspaceId]?.running[shellID];
+    if (!shell || shell.sessionId !== props.sessionId) throw new Error("Background task is no longer available.");
+    const client = createClientV2(props.opencodeBaseUrl, props.workspaceRoot.trim() || undefined, { token: props.openworkToken });
+    unwrap(await client.removeBackgroundShell({ shellID, sessionID: props.sessionId }));
+    // The DELETE response confirms it stopped even if the volatile deletion event was lost.
+    useBackgroundShellStore.getState().update(props.workspaceId, (book) => settleBackgroundShell(book, shellID));
+  }, [snapshotEngine, archived, props.workspaceId, props.sessionId, props.opencodeBaseUrl, props.workspaceRoot, props.openworkToken]);
 
   // Stop one helper without stopping the turn it belongs to. Uses the same
   // directory-scoped client as the turn's own Stop, so the abort reaches the
@@ -3095,6 +3326,14 @@ export function SessionSurface(props: SessionSurfaceProps) {
       brief: task?.type === "dynamic-tool" && isTaskToolPart(task) ? task.input?.prompt ?? "" : "" });
     props.onOpenSubagentSession?.(id);
   }, [baseRenderedMessages, childNavigationScope, props.sessionId, props.chatPane, props.onOpenSubagentSession, props.sessionTitle]);
+  const openRemoteTask = useCallback((start: RemoteThreadStart) => {
+    // Same return path as a local helper: this pane, this scroll, this row.
+    const message = baseRenderedMessages.find(message => message.parts.some(part => part.type === "dynamic-tool" && part.toolCallId === start.toolCallId));
+    rememberChildOrigin(childNavigationScope, remoteSessionRouteId(start.key), { parentId: props.sessionId, pane: props.chatPane ?? "primary",
+      anchor: start.key, scrollTop: scrollRef.current?.scrollTop ?? 0, title: props.sessionTitle, brief: start.prompt ?? "", messageId: message?.id });
+    rememberRemoteHelperOrigin({ start, owner: { workspaceId: props.workspaceId, sessionId: props.sessionId }, parentTitle: props.sessionTitle ?? null });
+    props.onOpenRemoteTask?.(start.key);
+  }, [baseRenderedMessages, childNavigationScope, props.sessionId, props.chatPane, props.sessionTitle, props.workspaceId, props.onOpenRemoteTask]);
   const handleQueueDraftPersistenceRef = useRef<(() => void) | null>(null);
   handleQueueDraftPersistenceRef.current = () => {
     // The store receives keystrokes synchronously; a keyboard navigation event
@@ -3138,7 +3377,8 @@ export function SessionSurface(props: SessionSurfaceProps) {
       const element = scrollRef.current;
       if (!element) return false;
       element.scrollTop = restore.scrollTop;
-      const row = element.querySelector(`[data-subagent-session-id="${CSS.escape(restore.anchor)}"]`);
+      const anchor = CSS.escape(restore.anchor);
+      const row = element.querySelector(`[data-subagent-session-id="${anchor}"], [data-remote-thread="${anchor}"]`);
       if (row) {
         observer?.disconnect();
 
@@ -3537,7 +3777,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const sessionReadTranscriptControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "session.read_transcript",
     label: "Read the current session transcript",
-    description: "Return the last messages from the current session transcript as readable text, including the session ID, title, and message count.",
+    description: "Return the last messages of the session on screen (the current one only) as readable text, with its session ID and message count. To read any other session, use session.read with its sessionId.",
     kind: "query",
     effects: { data: "read", ui: "none", external: false },
     sideEffect: "none",
@@ -3664,7 +3904,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                   workspaceId={props.workspaceId}
                   workspaceRoot={props.workspaceRoot}
                   sessionId={props.sessionId}
-                  isLocalWorkspace
+                  isLocalWorkspace={fileOriginForRuntime({ desktop: isDesktopRuntime(), serverUrl: props.client.baseUrl, sandboxBackend: props.sandboxBackend }) === "local"}
                   openTargets={verifiedOpenTargets}
                   onOpenTarget={handleOpenTarget}
                 >
@@ -3694,8 +3934,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       forkingMessageId={forkingMessageId}
                       onEditUserMessage={handleEditUserMessage}
                       onOpenSubagentSession={openChild}
+                      onOpenRemoteTask={props.onOpenRemoteTask ? openRemoteTask : undefined}
                       onStopSubagentSession={archived ? undefined : handleStopSubagentSession}
+                      composerSubagentToolCallIds={subagentTrackerToolCallIds}
                       onResumeInterrupted={archived ? undefined : handleResumeInterrupted}
+                      onOpenLibraryDetail={props.onOpenLibraryDetail}
                       onMcpReconnect={handleMcpReconnect}
                       onMcpReopenAuthorization={handleMcpReopenAuthorization}
                       getConnectionDecision={getConnectionDecision}
@@ -3711,6 +3954,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         activityStatus={effectiveActivityStatus}
                         retryStatus={liveStatus.type === "retry" ? liveStatus : null}
                         syncHealth={runSyncHealth}
+                        backgroundTasksInComposer={composerBackgroundTasksEnabled}
                       />
                     </MessageListProvider>
                   </EnvironmentVariableProvider>
@@ -3872,9 +4116,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
         pastedText={pasteParts}
         onExpandPastedText={handleExpandPastedText}
         onRemovePastedText={handleRemovePastedText}
-          compactTopSpacing={Boolean(composerQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || computerRequest || queuedItems.length > 0)}
+          compactTopSpacing={Boolean(composerQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || computerRequest || queuedItems.length > 0 || subagentTrackerShown || backgroundTasksShown)}
           topAccessory={
-            composerQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || computerRequest || queuedItems.length > 0 ? (
+            composerQuestion || (props.todos ?? []).some((todo) => todo.content.trim()) || props.activePermission || computerRequest || queuedItems.length > 0 || subagentTrackerShown || backgroundTasksShown ? (
               <div>
                 {queuedItems.length > 0 ? (
                   <QueuedMessagesPanel
@@ -3887,7 +4131,32 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     sendingId={sendingQueuedId}
                   />
                 ) : null}
+                {subagentTrackerShown && !archived ? (
+                  <ComposerSubagentTracker
+                    messages={visibleMessages}
+                    workspaceId={props.workspaceId}
+                    parentActive={subagentTrackerParentActive}
+                    syncDegraded={runSyncHealth.degraded}
+                    onOpenSubagentSession={openChild}
+                    onStopSubagentSession={handleStopSubagentSession}
+                    includeLocal={subagentTrackerToolCallIds.size > 0}
+                    remote={remoteTrackerTasks.length > 0 ? {
+                      tasks: remoteTrackerTasks,
+                      owner: remoteTrackerOwner,
+                      onOpen: props.onOpenRemoteTask ? openRemoteTask : undefined,
+                    } : undefined}
+                  />
+                ) : null}
+                {backgroundTasksShown ? (
+                  <ComposerBackgroundTasks
+                    shells={backgroundShells}
+                    syncDegraded={runSyncHealth.degraded}
+                    belowAgents={subagentTrackerShown}
+                    onStop={snapshotEngine === "v2" ? handleStopBackgroundTask : undefined}
+                  />
+                ) : null}
                 {composerQuestion ? (
+                  <div data-composer-interaction="question">
                   <QuestionPanel
                     questions={composerQuestion.questions}
                     busy={props.questionReplyBusy ?? false}
@@ -3897,11 +4166,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
                       }
                     }}
                   />
+                  </div>
                 ) : (props.todos ?? []).some((todo) => todo.content.trim()) ? (
                   <TodoPanel todos={props.todos ?? []} />
                 ) : null}
                 {computerRequest ? <ComputerRequestPanel sessionId={props.sessionId} request={computerRequest} /> : null}
                 {props.activePermission ? (
+                  <div data-composer-interaction="permission">
                   <PermissionApprovalPanel
                     permission={props.activePermission}
                     sourceTitle={props.activePermissionSourceTitle ?? undefined}
@@ -3909,6 +4180,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
                     respondPermission={props.respondPermission}
                     safeStringify={props.safeStringify}
                   />
+                  </div>
                 ) : null}
               </div>
             ) : null

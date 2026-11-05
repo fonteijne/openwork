@@ -44,11 +44,12 @@ const SIMPLE_ICON_SLUG_BY_APEX: Record<string, string> = {
   "polar.sh": "polar",
   "exa.ai": "exa",
   "render.com": "render",
-  // expandedMcpPresets brands with a square Simple Icons mark. The rest (Amplitude,
+  // Preset brands with a square Simple Icons mark. The rest (Amplitude,
   // Cal.com, whose Simple Icon is a wordmark, Canva, Fireflies, Honeycomb, Klaviyo,
   // monday.com, Semgrep, Tavily) use their own apex favicon below.
   "airtable.com": "airtable",
   "figma.com": "figma",
+  "grafana.com": "grafana",
   "huggingface.co": "huggingface",
   "lucid.app": "lucid",
   "mural.co": "mural",

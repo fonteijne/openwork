@@ -30,7 +30,9 @@ final class SessionRuntime {
         /// Background until the app shows it needs the front for keys.
         var delivery: InputDelivery
         /// The windows under the dialogs being worked in, the session's own first.
-        var parents: [(app: AppIdentity, target: WindowTarget)] = []
+        var parents: [(app: AppIdentity, target: WindowTarget, kind: DialogTarget.Kind?)] = []
+        /// Windows the last action opened: the only new windows a session follows.
+        var openedByLastAction: Set<CGWindowID> = []
         var dialogKind: DialogTarget.Kind?
         /// A dialog closed since the last observation and the session is back in its window.
         var returnedFromDialog = false
@@ -54,11 +56,14 @@ final class SessionRuntime {
         let purpose: String
         var observation: ObservationLease?
         var records: [ElementRecord] = []
+        var refs = StableRefs<AXUIElement>()
         var actionCount = 0
         var receipts: [String: [String: Any]] = [:]
         var receiptInputs: [String: Data] = [:]
         var focus: ElementRecord?
         var baseline: ActionBaseline?
+        /// The last image the model received; an identical automatic one is not sent again.
+        var lastImage: ImagePolicy.Sent?
         /// The person interrupted the last step; the read right after it leaves the front to them.
         var yielded = false
     }
@@ -152,15 +157,17 @@ final class SessionRuntime {
                 "next": next(opened)])
         case "computer_observe":
             let options = try ObservationOptions(values, policy: policy)
-            return try await observe(try a.string("session_id"), image: options.image, elements: options.elements,
+            return try await observe(try a.string("session_id"), image: options.image, elements: options.elements, menus: options.menus,
                 filePanelAccess: policy == .embedded ? (values["file_panel_access"] as? NSNumber)?.uint32Value : nil)
         case "computer_act":
-            try a.only(policy == .embedded ? ["session_id", "observation_id", "request_id", "action", "actions", "intent", "file_approval", "file_panel_access"] : ["session_id", "observation_id", "request_id", "action"])
+            try a.only(policy == .embedded ? ["session_id", "observation_id", "request_id", "action", "actions", "intent", "file_approval", "file_panel_access", "pacing", "retry_ms", "credential_approval"] : ["session_id", "observation_id", "request_id", "action"])
             let id = try a.string("session_id")
             let observationID = try a.string("observation_id")
             let requestID = try a.string("request_id", max: 100)
             let actions = try Action.batch(values, policy: policy)
-            let raw = values["actions"] ?? values["action"] ?? NSNull()
+            let pacing = policy == .embedded ? try BatchPacing(values) : .fast
+            // Pacing changes how the batch runs, so a reused request_id must name it too.
+            let raw: Any = ["steps": values["actions"] ?? values["action"] ?? NSNull(), "pacing": pacing.mode.rawValue, "retry_ms": Int(pacing.retry * 1_000)]
             // Display only: shown on the person's desktop cursor, never part of the receipt identity.
             let intent = values["intent"] == nil ? nil : try a.string("intent", max: 120)
             // Set only by the trusted host: the exact names the person approved handing over,
@@ -168,8 +175,10 @@ final class SessionRuntime {
             let fileApproval = policy == .embedded ? values["file_approval"] as? [String] : nil
             // The panel the person allowed, by its window: never whichever panel is open now.
             let panelAccess = policy == .embedded ? (values["file_panel_access"] as? NSNumber)?.uint32Value : nil
+            // The app the person confirmed may receive a password or code they gave.
+            let credentialApproval = policy == .embedded ? values["credential_approval"] as? String : nil
             return try await act(id: id, observationID: observationID, requestID: requestID, actions: actions, raw: raw, intent: intent,
-                fileApproval: fileApproval, filePanelAccess: panelAccess)
+                fileApproval: fileApproval, filePanelAccess: panelAccess, pacing: pacing, credentialApproval: credentialApproval)
         case "computer_zoom" where policy == .embedded:
             try a.only(["session_id", "observation_id", "x", "y", "width", "height"])
             return try await zoom(try a.string("session_id"), observationID: try a.string("observation_id"),
@@ -203,7 +212,7 @@ final class SessionRuntime {
         var result: [String: Any] = ["ok": true, "protocol": "openwork.computer-use/1", "platform": "macos",
             "permissions": Self.permissions(), "apps": apps,
             "modes": AccessMode.allCases.map { ["id": $0.rawValue, "description": $0.explanation] },
-            "keys": policy.keys, "guidance": policy.guidance]
+            "keys": policy.keys, "guidance": policy.instructions]
         if policy == .embedded {
             limits["batch_actions"] = Action.batchLimit
             result["modifiers"] = NativeKey.supportedModifiers
@@ -320,15 +329,21 @@ final class SessionRuntime {
         }
         if let deadline, now >= deadline { throw UseError("action_timeout", "The bounded action time expired. Inspect the receipt before doing anything else.", next: "observe") }
     }
+    /// A macOS prompt only the person may answer is open; the agent waits for them.
+    private func personNeeded(_ prompt: (reason: String, app: String)) -> [[String: Any]] {
+        text(["ok": false, "code": "person_needed", "reason": prompt.reason, "prompt_app": prompt.app, "dispatched": false,
+              "next": "human_takeover", "message": HandoverRules.message(prompt.reason)])
+    }
     /// A file panel lists the person's files: nothing of it reaches the agent until they allow it.
     private func filePanelAccessRequired(_ current: Session) -> [[String: Any]] {
         text(["ok": false, "code": "file_panel_approval_required", "app": current.frontApp.name, "panel_id": Int(current.target.id), "dispatched": false, "next": "observe",
               "message": "A file panel opened. The person is asked before the agent sees their files; nothing was read."])
     }
-    private func observe(_ id: String, image: Bool?, elements: String, filePanelAccess: CGWindowID? = nil) async throws -> [[String: Any]] {
+    private func observe(_ id: String, image: Bool?, elements: String, menus: Bool = false, filePanelAccess: CGWindowID? = nil) async throws -> [[String: Any]] {
         // A paused session never resumes from an observation: only the person's Continue does.
         // Retry only read-only capture races. Never repeat an action or cross takeover.
         try await followDialog(id)
+        if let prompt = access.personPrompt() { return personNeeded(prompt) }
         let current = try current(id)
         if current.dialogKind == .filePanel, current.filePanelAllowed != current.target.id {
             guard filePanelAccess == current.target.id else { return filePanelAccessRequired(current) }
@@ -377,7 +392,7 @@ final class SessionRuntime {
         }, focus: bringBack, read: {
             for attempt in 0..<3 {
                 try self.checkActive(current)
-                do { return try await self.observeAttempt(id, image: image, elements: elements, otherWindowFocused: otherWindowFocused) }
+                do { return try await self.observeAttempt(id, image: image, elements: elements, menus: menus, otherWindowFocused: otherWindowFocused) }
                 catch let error as UseError {
                     if error.code == "window_not_frontmost", current.checksFront, attempt < 2 {
                         try await bringBack()
@@ -390,28 +405,45 @@ final class SessionRuntime {
             throw UseError("stale_observation", "The window is still changing. Observe again.", next: "observe")
         })
     }
-    private func observeAttempt(_ id: String, image requested: Bool?, elements filter: String, otherWindowFocused: Bool = false) async throws -> [[String: Any]] {
+    private func observeAttempt(_ id: String, image requested: Bool?, elements filter: String, menus: Bool = false, otherWindowFocused: Bool = false) async throws -> [[String: Any]] {
         let current = try current(id)
         session?.observation = nil; session?.records = []; session?.focus = nil
         let frontmost = current.checksFront && !otherWindowFocused
         let bounds = try access.validate(current.target, app: current.app, requireFrontmost: frontmost)
         @MainActor func check() throws { try self.checkActive(current) }
-        var state = try await access.read(current.target, check: check)
+        @MainActor func readState() async throws -> WindowState {
+            let state = try await access.read(current.target, check: check)
+            guard session?.id == id, var refs = session?.refs else { return state }
+            let stable = refs.assign(state, window: current.target.id)
+            session?.refs = refs
+            return stable
+        }
+        var state = try await readState()
         var png: Data?
         var imageFailure: UseError?
         var width = max(1, Int(bounds.width)); var height = max(1, Int(bounds.height))
-        let namedControls = state.records.filter { bounds.contains($0.frame) && $0.interactive && !$0.label.isEmpty }.count
-        let image = ImagePolicy.include(requested: requested, automatic: current.delivery == .background, namedControls: namedControls)
+        let interactive = state.records.filter { bounds.contains($0.frame) && $0.interactive }
+        let namedControls = interactive.filter { !$0.label.isEmpty }.count
+        let image = ImagePolicy.include(requested: requested,
+            automatic: ImagePolicy.automatic(delivery: current.delivery, mode: current.mode, policy: policy),
+            namedControls: namedControls, interactiveControls: interactive.count)
         if image {
-            do {
-                let captured = try await observationImage(current, bounds: bounds, state: state, requireFrontmost: frontmost, check: check)
-                png = captured.0; width = captured.1; height = captured.2
-            } catch {
-                try check()
-                let failure = (error as? UseError) ?? UseError("capture_failed", "The window screenshot is unavailable; only the accessible text was read.", next: "observe")
-                if failure.code == "stale_observation", policy == .desktop { throw failure }
-                imageFailure = failure
-                if failure.code == "stale_observation" { state = try await access.read(current.target, check: check) }
+            // A window that just opened is often still settling: one more look
+            // before the observation goes out without its image.
+            for attempt in 0..<2 {
+                do {
+                    let captured = try await observationImage(current, bounds: bounds, state: state, requireFrontmost: frontmost, check: check)
+                    png = captured.0; width = captured.1; height = captured.2; imageFailure = nil
+                    break
+                } catch {
+                    try check()
+                    let failure = (error as? UseError) ?? UseError("capture_failed", "The window screenshot is unavailable; only the accessible text was read.", next: "observe")
+                    if failure.code == "stale_observation", policy == .desktop { throw failure }
+                    imageFailure = failure
+                    guard failure.code == "stale_observation" else { break }
+                    if attempt == 0 { try await Task.sleep(nanoseconds: 120_000_000); try check() }
+                    state = try await readState()
+                }
             }
         } else if policy == .desktop {
             let after = try await access.read(current.target, check: check)
@@ -423,19 +455,25 @@ final class SessionRuntime {
         guard try access.validate(current.target, app: current.app, requireFrontmost: frontmost) == bounds else {
             throw UseError("stale_observation", "The window moved during the observation.", next: "observe")
         }
+        let imageDigest = png.map(access.imageDigest)
+        // The lease keeps the digest either way, so coordinate input still checks the live window against it.
+        let repeated = imageDigest.flatMap { digest in
+            ImagePolicy.alreadySent(requested: requested, last: current.lastImage, generation: current.generation,
+                window: current.target.id, width: width, height: height, digest: digest)
+        }
         var effectiveFilter = filter
         // AX trees can retain virtualized or scrolled-out nodes. Keep those
         // internal for privacy/staleness scans, never expose their text or refs.
         let visible = state.records.filter { bounds.contains($0.frame) }
         var shown = filter == "none" ? [] : filter == "all" ? visible : visible.filter(\.interactive)
-        if png == nil, shown.isEmpty, filter == "interactive" { shown = visible; effectiveFilter = "all" }
+        if png == nil || repeated != nil, shown.isEmpty, filter == "interactive" { shown = visible; effectiveFilter = "all" }
         guard png != nil || !shown.isEmpty else {
             throw imageFailure ?? UseError("observation_unavailable", "No image or useful accessible elements could be read.", next: "observe")
         }
         let elements = try shown.map { try $0.payload(bounds: bounds, width: width, height: height, compact: policy == .embedded) }
         let observation = ObservationLease(id: UUID().uuidString.lowercased(), createdAt: now, generation: current.generation,
             frame: bounds, imageWidth: width, imageHeight: height, stateDigest: try access.captureDigest(state),
-            imageDigest: png.map(access.imageDigest), validFor: policy.observationSeconds)
+            imageDigest: imageDigest, validFor: policy.observationSeconds)
         try check()
         let observedFocus = state.focusRecord.flatMap { focus in shown.first { CFEqual($0.element, focus.element) } }
         let afterAction = current.baseline.flatMap { baseline in
@@ -443,13 +481,22 @@ final class SessionRuntime {
         }
         session?.observation = observation; session?.records = shown; session?.focus = observedFocus
         session?.lastUsed = now; session?.needsRefresh = false; session?.baseline = nil
+        if repeated == nil, let digest = observation.imageDigest {
+            session?.lastImage = ImagePolicy.Sent(observationID: observation.id, generation: current.generation,
+                window: current.target.id, width: width, height: height, digest: digest)
+        }
         controls.update("Window observed. Ready for the next action.", paused: false)
-        var imageInfo: [String: Any] = ["width": width, "height": height, "included": png != nil, "coordinate_space": "image_pixels"]
+        let sent = repeated == nil ? png : nil
+        var imageInfo: [String: Any] = ["width": width, "height": height, "included": sent != nil, "coordinate_space": "image_pixels"]
         if let imageFailure { imageInfo["unavailable"] = imageFailure.payload }
         if !image { imageInfo["omitted"] = requested == false ? "requested" : "accessible_controls_suffice" }
+        if let repeated {
+            imageInfo["omitted"] = "unchanged"
+            imageInfo["same_as_observation"] = repeated.observationID
+        }
         var payload: [String: Any] = ["ok": true, "session_id": id, "observation_id": observation.id, "window_id": Int(current.target.id),
             "window_title": current.target.title, "mode": current.mode.rawValue, "image": imageInfo, "elements": elements,
-            "truncated": state.truncated, "protected_fields": state.protectedFrames.count,
+            "truncated": state.truncated || state.listCapped, "protected_fields": state.protectedFrames.count,
             "content_trust": "untrusted_app_content", "next": "act_once_then_observe"]
         if let afterAction { payload["after_action"] = afterAction }
         if otherWindowFocused { payload["other_window_focused"] = true }
@@ -461,21 +508,32 @@ final class SessionRuntime {
         if policy == .embedded {
             payload["elements_filter"] = effectiveFilter; payload["elements_total"] = visible.count
             payload["observation_seconds"] = Int(policy.observationSeconds)
+            // A control keeps its ref across observations of this window; the host may list only changes.
+            payload["refs"] = "stable"
             if let focus = observedFocus { payload["focused_ref"] = focus.ref }
             if let issue = state.privacyIssue { payload["privacy_issue"] = issue }
+            if menus {
+                // Read without opening a menu, so the agent can run a command in one step.
+                let catalog = access.menuCatalog(current.app)
+                payload["menus"] = catalog.entries.map(\.display)
+                if catalog.truncated { payload["menus_truncated"] = true }
+                payload["menus_note"] = "Enabled menu-bar commands. Run one with {\"type\":\"menu\",\"path\":[titles]}: no menu needs opening and no keyboard focus is needed."
+            }
         }
         var result: [[String: Any]] = []
-        if let png { result.append(["type": "image", "data": png.base64EncodedString(), "mimeType": Self.observationMimeType]) }
+        if let sent { result.append(["type": "image", "data": sent.base64EncodedString(), "mimeType": Self.observationMimeType]) }
         return result + text(payload)
     }
 
     /// Observations are compact JPEGs: image tokens and upload time dominate each step.
-    /// The re-capture that guards coordinate input uses the same encoding, so digests compare.
+    /// The re-capture that guards coordinate input uses the same encoding, so digests compare;
+    /// a session's mode never changes, so neither does its profile.
     static let observationMimeType = "image/jpeg"
     private func observationImage(_ current: Session, bounds: CGRect, state: WindowState, requireFrontmost: Bool,
                                   check: () throws -> Void) async throws -> (Data, Int, Int, Int64) {
-        try await access.capture(target: current.target, app: current.app, bounds: bounds, state: state,
-            maxLongSide: 1280, jpegQuality: 0.8, requireFrontmost: requireFrontmost, check: check)
+        let profile = ImagePolicy.profile(mode: current.mode, policy: policy)
+        return try await access.capture(target: current.target, app: current.app, bounds: bounds, state: state,
+            maxLongSide: profile.maxLongSide, jpegQuality: profile.jpegQuality, requireFrontmost: requireFrontmost, check: check)
     }
 
     /// A sharper look at part of the current observation, for reading only. It
@@ -507,7 +565,7 @@ final class SessionRuntime {
     }
 
     private func act(id: String, observationID: String, requestID: String, actions: [Action], raw: Any, intent: String? = nil,
-                     fileApproval: [String]? = nil, filePanelAccess: CGWindowID? = nil) async throws -> [[String: Any]] {
+                     fileApproval: [String]? = nil, filePanelAccess: CGWindowID? = nil, pacing: BatchPacing = .fast, credentialApproval: String? = nil) async throws -> [[String: Any]] {
         let cached = try current(id, allowPaused: true)
         let fingerprint = try JSONSerialization.data(withJSONObject: ["observation_id": observationID, "action": raw], options: [.sortedKeys])
         if let receipt = cached.receipts[requestID] {
@@ -518,6 +576,7 @@ final class SessionRuntime {
         if try await followDialog(id) {
             throw UseError("observation_required", "A dialog opened or closed since the last observation. Observe again; nothing was sent.", next: "observe")
         }
+        if let prompt = access.personPrompt() { return personNeeded(prompt) }
         let current = try current(id)
         if current.dialogKind == .filePanel, current.filePanelAllowed != current.target.id {
             guard filePanelAccess == current.target.id else { return filePanelAccessRequired(current) }
@@ -565,6 +624,18 @@ final class SessionRuntime {
         try observation.validate(id: observationID, generation: current.generation, frame: bounds, now: now)
         if actions.contains(where: \.usesCoordinates), observation.imageDigest == nil {
             throw UseError("image_required", "Coordinates require an observation with an image. Use accessible refs, or observe with include_image true.", next: "observe")
+        }
+        // Text typed while a secure field is on screen can land in it: the person confirms
+        // this exact app before a password or code they gave reaches it. Nothing is sent first.
+        if current.records.contains(where: \.protected), actions.contains(where: \.entersText),
+           WebBrowser.contains(bundleID: current.app.bundleID, info: current.app.app.bundleURL.flatMap { Bundle(url: $0)?.infoDictionary } ?? [:]) {
+            throw UseError("protected_input", "Web pages take a password or code only in OpenWork's browser, which confirms the exact site. Use it, or take over here; nothing was sent.", next: "human_takeover")
+        }
+        if current.records.contains(where: \.protected), actions.contains(where: \.entersText),
+           credentialApproval != current.app.bundleID {
+            return text(["ok": false, "code": "credential_approval_required", "app": current.app.app.localizedName ?? current.app.bundleID,
+                "app_id": current.app.bundleID, "dispatched": false, "next": "observe",
+                "message": "This window has a password field. The person confirms this app before anything is typed; nothing was sent."])
         }
         // Confirming a file panel hands the chosen files to the app, which can upload them:
         // the person approves first. Nothing is sent and the observation stays valid.
@@ -622,11 +693,19 @@ final class SessionRuntime {
         var activated = false
         var primed = false
         var needsObservation = false
+        var lastPressed = false
+        // The observed controls, refreshed when pacing confirms one that moved.
+        var records = current.records
         var failure: UseError?
         var uncertain = false
         for (index, action) in actions.enumerated() {
             do {
                 try checkInput()
+                if needsObservation, lastPressed,
+                   case .ready(let live) = try await readyAfterPress(action, records: records, current: current, windowsBefore: windowsBefore, pacing: pacing, check: check) {
+                    needsObservation = false
+                    if let live, let at = records.firstIndex(where: { $0.ref == live.ref }) { records[at] = live }
+                }
                 guard !needsObservation, !action.usesCoordinates || !progress.hasInput else {
                     throw UseError("observation_required", "The preceding step may have changed the view or focus. Observe before executing the remaining steps.", next: "observe")
                 }
@@ -687,7 +766,7 @@ final class SessionRuntime {
                 try observation.validate(id: observationID, generation: current.generation, frame: bounds, now: now)
                 session?.actionCount += 1
                 let path = try await input.execute(action, app: current.app, target: current.target, lease: observation,
-                    access: access, records: current.records, focus: focus, pointerTarget: pointerTarget,
+                    access: access, records: records, focus: focus, pointerTarget: pointerTarget,
                     check: checkInput, checkWindow: checkWindow, background: background || !current.parents.isEmpty, feedback: { [weak self] feedback in
                         guard let self, self.session?.id == id else { return }
                         self.controls.inputFeedback(feedback)
@@ -695,23 +774,34 @@ final class SessionRuntime {
                 uncertain = path != "waited"
                 try check()
                 progress.dispatched(path: path); uncertain = false
-                controls.showAction(action, records: current.records)
+                let dispatchedAt = now
+                controls.showAction(action, records: records)
+                if case .menu = action, let menu = input.lastMenu { controls.showMenu(titleFrame: menu.titleFrame, path: menu.path, shortcut: menu.shortcut) }
                 switch action {
                 case .click:
                     focus = current.records.first { record in record.textField && pointerTarget.map { CFEqual($0, record.element) } == true }
                     needsObservation = focus == nil
                 case .press(let ref):
-                    focus = current.records.first { $0.ref == ref && $0.textField }
+                    focus = records.first { $0.ref == ref && $0.textField }
                     needsObservation = focus == nil
+                case .menu:
+                    focus = nil; needsObservation = true
                 case .setValue(let ref, _):
                     if focus?.ref != ref { focus = nil }
                 case .move, .scroll, .drag: needsObservation = true
                 case .key: needsObservation = action.endsFocusSequence
                 default: break
                 }
-                if policy == .embedded, !needsObservation, action.changesWindow, index + 1 < actions.count {
-                    try await Task.sleep(nanoseconds: 50_000_000)
-                    try check()
+                switch action { case .press, .menu: lastPressed = true; default: lastPressed = false }
+                if policy == .embedded, action.changesWindow, index + 1 < actions.count {
+                    if pacing.mode != .fast {
+                        // Let the app finish reacting before the next step looks at it.
+                        _ = try await InputSettle.wait(since: dispatchedAt, lastActivity: { activity?.last ?? 0 }, now: { self.now },
+                            check: check, sleep: { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) })
+                    } else if !needsObservation {
+                        try await Task.sleep(nanoseconds: 50_000_000)
+                        try check()
+                    }
                 }
             } catch let interrupted as InputFailure {
                 failure = SharedDesktop.yielding(interrupted.cause); uncertain = interrupted.mayHaveActed
@@ -743,13 +833,56 @@ final class SessionRuntime {
         }
         var receipt = progress.receipt(requestID: requestID, failure: failure, uncertain: uncertain, detailed: policy == .embedded)
         if let settled { receipt["settled"] = settled }
-        if settled != nil, let changes = windowsBefore.diff(access.windowChanges(current.app), target: current.target.id) {
+        let windowsAfter = access.windowChanges(current.app)
+        if settled != nil, let changes = windowsBefore.diff(windowsAfter, target: current.target.id) {
             receipt["window_changes"] = changes
         }
+        if progress.hasInput { session?.openedByLastAction = windowsAfter.windows.subtracting(windowsBefore.windows) }
         receipt["delivery"] = (background ? InputDelivery.background : .foreground).rawValue
         receipt["desktop"] = desktopBefore.changes(to: DesktopState.now())
         if session?.id == id { session?.receipts[requestID] = receipt }
         return text(receipt)
+    }
+    private enum Readiness { case stop, ready(ElementRecord?) }
+    /// After a press or menu command, the batch's next press, set_value or menu command
+    /// still runs when nothing opened over the window and its exact control reads back
+    /// as observed: the check a fresh observation would make, without a model round trip.
+    /// wait_retry also waits for a control that is briefly disabled, moving or gone,
+    /// and returns it as it is now. Anything else needs an observation.
+    private func readyAfterPress(_ action: Action, records: [ElementRecord], current: Session, windowsBefore: WindowChanges,
+                                 pacing: BatchPacing, check: () throws -> Void) async throws -> Readiness {
+        guard policy == .embedded else { return .stop }
+        let observed: ElementRecord?
+        switch action {
+        case .press(let ref), .setValue(let ref, _):
+            guard let record = records.first(where: { $0.ref == ref }) else { return .stop }
+            observed = record
+        case .menu: observed = nil
+        default: return .stop
+        }
+        // The wait modes already let the app settle after the previous step.
+        if pacing.mode == .fast { try await Task.sleep(nanoseconds: 50_000_000); try check() }
+        let deadline = now + pacing.retry
+        while true {
+            // Nothing waits past a window, dialog, menu or system prompt that opened.
+            guard windowsBefore.diff(access.windowChanges(current.app), target: current.target.id) == nil,
+                  access.personPrompt() == nil else { return .stop }
+            if await access.openMenu(of: current.app) != nil { return .stop }
+            if await access.dialog(over: current.target, app: current.app) != nil { return .stop }
+            guard let observed else { return .ready(nil) }
+            var live: WindowState?
+            do { live = try await access.read(current.target, check: check) }
+            catch is CancellationError { throw CancellationError() }
+            catch { try check() }
+            if let live {
+                if let same = live.records.first(where: { ElementRecord.sameControl($0, observed) }) { return .ready(same.with(ref: observed.ref)) }
+                if pacing.mode == .waitRetry, let moved = live.records.first(where: { ElementRecord.sameControl($0, observed, allowMove: true) }) {
+                    return .ready(moved.with(ref: observed.ref))
+                }
+            }
+            guard pacing.mode == .waitRetry, now < deadline else { return .stop }
+            try await Task.sleep(nanoseconds: 100_000_000); try check()
+        }
     }
     private func next(_ current: Session) -> String {
         current.paused ? "human_takeover" : "observe"
@@ -894,20 +1027,27 @@ final class SessionRuntime {
         while let parent = session?.parents.last, let scope = session, !access.dialogOpen(scope.target, app: scope.app) {
             session?.parents.removeLast()
             session?.app = parent.app; session?.target = parent.target
-            // A closed panel's approval ends with it; a later panel asks again.
-            session?.filePanelAllowed = nil
-            let outer = session?.parents.isEmpty == true
-            session?.dialogKind = outer ? nil : .dialog
+            session?.dialogKind = parent.kind
+            // A closed panel's approval ends with it; a later panel asks again. Closing
+            // the panel's own sheet returns to the same, still-approved panel.
+            if session?.filePanelAllowed == scope.target.id { session?.filePanelAllowed = nil }
             session?.returnedFromDialog = true
             changed = true
         }
-        // A new dialog over the current scope; at most three deep (a panel's own sheet).
-        if let scope = session, scope.parents.count < 3, let dialog = await access.dialog(over: scope.target, app: scope.app) {
-            guard session?.id == id else { return false }
-            session?.parents.append((scope.app, scope.target))
+        // Something new over the current scope, at most three deep (a panel's own sheet): an
+        // open menu, a dialog, or a window the last action opened and the app focused.
+        let opened = session?.openedByLastAction ?? []
+        session?.openedByLastAction = []
+        if let scope = session, scope.parents.count < 3 {
+            var next = await access.openMenu(of: scope.app)
+            if next == nil { next = await access.dialog(over: scope.target, app: scope.app) }
+            if next == nil, scope.dialogKind != .menu { next = await access.openedWindow(by: opened, over: scope.target, app: scope.app) }
+            if let dialog = next, session?.id == id, !scope.parents.contains(where: { $0.target.id == dialog.target.id }) {
+            session?.parents.append((scope.app, scope.target, scope.dialogKind))
             session?.app = dialog.app; session?.target = dialog.target; session?.dialogKind = dialog.kind
             session?.returnedFromDialog = false
             changed = true
+            }
         }
         if changed {
             session?.generation += 1; session?.observation = nil; session?.records = []; session?.focus = nil; session?.needsRefresh = true

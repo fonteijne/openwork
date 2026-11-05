@@ -7,6 +7,35 @@ import { ENCRYPTION_KEY, SLACK_CONNECTION_ID, encryptForDen } from "./workbot-pr
 
 const HOUR_MS = 3_600_000;
 
+/**
+ * What Workbot does after reading a member's message: one Connect capability call as them (mcp:read and mcp:write),
+ * the way chat changes their agent. Returns the capability's parsed answer and whether it succeeded.
+ */
+export async function chatAs(session: DenSession, organizationId: string, name: string, body?: unknown): Promise<{ ok: boolean; body: unknown }> {
+  const headers = { authorization: `Bearer ${session.token}`, "x-openwork-org-id": organizationId, "content-type": "application/json" };
+  const minted = await denFetch(session, "/v1/mcp/token", { method: "POST", headers, body: JSON.stringify({ scopes: ["mcp:read", "mcp:write"] }) });
+  const token = isRecord(minted.body) && typeof minted.body.token === "string" ? minted.body.token : "";
+  if (!token) throw new Error(`Minting the member's Connect token failed: ${minted.text.slice(0, 300)}`);
+  const call = await denFetch(session, "/mcp/agent", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, accept: "application/json, text/event-stream", "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "execute_capability", arguments: { name, ...(body === undefined ? {} : { body }) } } }),
+  });
+  const line = call.text.split("\n").find((entry) => entry.startsWith("data:"));
+  const envelope: unknown = line ? JSON.parse(line.slice(5)) : call.body;
+  const result = isRecord(envelope) && isRecord(envelope.result) ? envelope.result : null;
+  const content = result && Array.isArray(result.content) ? result.content : [];
+  const first: unknown = content[0];
+  const text = isRecord(first) && typeof first.text === "string" ? first.text : "";
+  let parsed: unknown = text;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // A plain-text error stays text.
+  }
+  return { ok: result?.isError !== true, body: parsed };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -32,7 +61,7 @@ function hashId(...parts: string[]) {
 }
 
 /**
- * My agent in the Library (`workbotAgentLibrary`): Den with Workbot and Your agent on for one organization, the
+ * My agent in the Library (`workbotProactive`): Den with Workbot and Your agent on for one organization, the
  * Workbot Slack app installed (synthetic credentials, nobody linked), and the member's agent as the wake left it this
  * morning: its time zone, a DM it sent (in the delivery ledger and as a check), a quiet check, and earlier checks this
  * week. My agent starts off, so the proof shows the Library before and after. No calendar, model or Slack is reached:
@@ -123,30 +152,15 @@ export async function workbotAgentLibraryWorld(seed: Seed) {
 
     const headers = (session: DenSession) => ({ authorization: `Bearer ${session.token}`, "x-openwork-org-id": organizationId, "content-type": "application/json" });
 
-    /** What Workbot does after reading the member's message: one Connect capability call as them (mcp:read and mcp:write). */
-    async function sayInChat(name: string, body?: unknown): Promise<{ ok: boolean; body: unknown }> {
-      const minted = await denFetch(den.members.member, "/v1/mcp/token", { method: "POST", headers: headers(den.members.member), body: JSON.stringify({ scopes: ["mcp:read", "mcp:write"] }) });
-      const token = isRecord(minted.body) && typeof minted.body.token === "string" ? minted.body.token : "";
-      if (!token) throw new Error(`Minting the member's Connect token failed: ${minted.text.slice(0, 300)}`);
-      const call = await denFetch(den.members.member, "/mcp/agent", {
-        method: "POST",
-        headers: { authorization: `Bearer ${token}`, accept: "application/json, text/event-stream", "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "execute_capability", arguments: { name, ...(body === undefined ? {} : { body }) } } }),
-      });
-      const line = call.text.split("\n").find((entry) => entry.startsWith("data:"));
-      const envelope: unknown = line ? JSON.parse(line.slice(5)) : call.body;
-      const result = isRecord(envelope) && isRecord(envelope.result) ? envelope.result : null;
-      const content = result && Array.isArray(result.content) ? result.content : [];
-      const first: unknown = content[0];
-      const text = isRecord(first) && typeof first.text === "string" ? first.text : "";
-      let parsed: unknown = text;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        // A plain-text error stays text.
-      }
-      return { ok: result?.isError !== true, body: parsed };
-    }
+    const sayInChat = (name: string, body?: unknown) => chatAs(den.members.member, organizationId, name, body);
+
+    // Seed settings and check history with the parent on, then prove its off/on UI and API boundary.
+    const disabled = await denFetch(den.admin, `/v1/admin/organizations/${organizationId}/capabilities`, {
+      method: "PUT",
+      headers: headers(den.admin),
+      body: JSON.stringify({ capabilities: { workbotProactive: false } }),
+    });
+    if (!disabled.response.ok) throw new Error(`Turning off Your agent failed: ${disabled.text.slice(0, 300)}`);
 
     const viewport = { width: 1280, height: 2000, deviceScaleFactor: 1 };
     const web = await seed.web({ den, signedInAs: den.members.member, startPath: "/dashboard/library", headless: true, viewport });
@@ -161,7 +175,7 @@ export async function workbotAgentLibraryWorld(seed: Seed) {
         const result = await denFetch(den.admin, `/v1/admin/organizations/${organizationId}/capabilities`, {
           method: "PUT",
           headers: headers(den.admin),
-          body: JSON.stringify({ capabilities: { workbotAgentLibrary: true } }),
+          body: JSON.stringify({ capabilities: { workbotProactive: true } }),
         });
         if (!result.response.ok) throw new Error(`Turning on My agent failed: ${result.text.slice(0, 300)}`);
       },

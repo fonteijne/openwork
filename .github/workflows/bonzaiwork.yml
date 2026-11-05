@@ -27,6 +27,30 @@ permissions:
   contents: read
 
 jobs:
+  # A merged upstream-sync PR brings upstream's new workflows into nightly, the
+  # default branch, where their schedules and push triggers start. Switch them
+  # off right away instead of waiting for the next Upstream sync run, and cancel
+  # what this push started (scripts/bonzaiwork/fork-workflows.mjs).
+  fork-workflows:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.22.1
+      - name: Keep upstream workflows off
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # Runs show up a few seconds after the push; workflows new in this push register then too.
+          sleep 30
+          node scripts/bonzaiwork/fork-workflows.mjs --cancel-sha "$GITHUB_SHA"
+
   scope:
     # A skipped job counts as passed for required checks, so drafts and docs-only changes still merge.
     if: ${{ !github.event.pull_request.draft }}

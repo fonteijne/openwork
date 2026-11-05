@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getLibraryConnectorRoute, getLibraryMyAgentRoute, getLibraryRoute } from "../../_lib/den-org";
+import { getLibraryAddConnectorRoute, getLibraryConnectorRoute, getLibraryMyAgentRoute, getLibraryRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { ItemHeader, ItemPage } from "./item-header";
 import { useLibrary, type LibraryConnectionItem, type LibraryItem } from "./library-data";
@@ -53,15 +53,21 @@ export function MyAgentScreen() {
   if (!agent.data) return <MyAgentPanelSkeleton library={libraryHref} />;
 
   const connections = (library.data ?? []).filter(isConnection);
-  const google = connections.find((item) => item.provider === "google-workspace");
-  const slack = connections.find((item) => item.name.trim().toLowerCase() === "slack");
+  // The Google connection the agent reads through (one that needs the member first), not just the first one listed:
+  // a member can have a work and a personal Google connection.
+  const used = (agent.data.sources ?? []).filter((source) => source.kind !== "other").flatMap((source) => source.connections);
+  const googles = connections.filter((item) => item.provider === "google-workspace");
+  const google = googles.find((item) => used.some((connection) => connection.id === item.id && connection.state !== "connected"))
+    ?? googles.find((item) => used.some((connection) => connection.id === item.id))
+    ?? googles[0];
   const links: MyAgentLinks = {
     library: libraryHref,
     google: {
       href: myAgentGoogleHref(orgSlug, google?.id),
       status: google ? CONNECTION_STATUS[google.state] : library.isError ? "Couldn't verify" : library.isLoading ? "" : "Not added",
     },
-    slack: { href: slack ? fromMyAgent(getLibraryConnectorRoute(orgSlug, slack.id)) : null },
+    connector: (connectionId) => fromMyAgent(getLibraryConnectorRoute(orgSlug, connectionId)),
+    catalog: fromMyAgent(getLibraryAddConnectorRoute(orgSlug)),
   };
 
   return (

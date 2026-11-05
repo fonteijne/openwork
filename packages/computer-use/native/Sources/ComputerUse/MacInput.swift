@@ -14,6 +14,13 @@ final class MacInput {
         guard let symbol = dlsym(library, "CGEventSetWindowLocation") else { return nil }
         return unsafeBitCast(symbol, to: SetWindowLocation.self)
     }()
+    private typealias GetWindowLocation = @convention(c) (CGEvent) -> CGPoint
+    private static let windowLocation: GetWindowLocation? = {
+        guard let library = dlopen(nil, RTLD_LAZY) else { return nil }
+        defer { dlclose(library) }
+        guard let symbol = dlsym(library, "CGEventGetWindowLocation") else { return nil }
+        return unsafeBitCast(symbol, to: GetWindowLocation.self)
+    }()
     private typealias PostToPid = @convention(c) (pid_t, CGEvent) -> Void
     // SkyLight's post runs WindowServer's activity monitoring, which Chromium,
     // Electron and Catalyst require before they treat input as live. AppKit
@@ -34,6 +41,8 @@ final class MacInput {
     private var heldModifiers: (pid: pid_t, flags: CGEventFlags)?
     private var lastPointer: (pid: pid_t, windowID: CGWindowID, point: CGPoint)?
     private var routes: [pid_t: PointerRoute] = [:]
+    /// The current step runs in the background, so keys to Chromium-class apps are signed.
+    private var signsKeys = false
     // One gesture's events share a group so the app coalesces them as one.
     private var gesture: Int64 = 0
     private struct DispatchFeedback {
@@ -47,6 +56,8 @@ final class MacInput {
         var lastMovedAt: TimeInterval = -.infinity
     }
     private var feedback: DispatchFeedback?
+    /// The last menu command pressed, for the on-desktop cursor to replay.
+    private(set) var lastMenu: (titleFrame: CGRect?, path: [String], shortcut: String?)?
 
     func releaseAll(interrupted: Bool = true) {
         if let heldPointer { try? mouse(.leftMouseUp, heldPointer.point, heldPointer.pid, 1, heldPointer.windowID, heldPointer.frame, heldPointer.flags) }
@@ -85,10 +96,12 @@ final class MacInput {
         feedback = DispatchFeedback(action: action.name, frame: lease.frame, send: send)
         gesture = Int64(UInt32.random(in: 1...UInt32.max))
         _ = route(for: app)
+        signsKeys = background
         var finished = false
         defer {
             if !finished { releaseAll() }
             feedback = nil
+            signsKeys = false
         }
         do {
             try check(); try checkWindow(); try check()
@@ -110,9 +123,30 @@ final class MacInput {
                     result = AXUIElementPerformAction(record.element, kAXPressAction as CFString)
                 }
                 feedback?.didDispatch = true; feedback?.point = CGPoint(x: record.frame.midX, y: record.frame.midY)
-                guard result == .success else { throw UseError("action_failed", "The app did not confirm the accessible action. Observe before retrying.", next: "observe") }
+                // A press that opens a modal (a close button's save sheet) keeps the app busy
+                // past the AX timeout: it was delivered, only its reply is missing.
+                var unanswered = false
+                if case .press = action { unanswered = result == .cannotComplete }
+                guard result == .success || unanswered else { throw UseError("action_failed", "The app did not confirm the accessible action. Observe before retrying.", next: "observe") }
                 report(.dispatched, point: CGPoint(x: record.frame.midX, y: record.frame.midY))
-                path = "accessibility"
+                path = unanswered ? "accessibility_unconfirmed" : "accessibility"
+            case .menu(let names):
+                // Menu commands go to the app's focused window: never to another document.
+                guard access.isFocusedWindow(target, app: app) else {
+                    throw UseError("menu_needs_focus", "This app's menus act on another of its windows. Bring the selected window forward, then try again.", next: "observe")
+                }
+                let menu = try access.menuTarget(names, app: app)
+                try check()
+                let result = AXUIElementPerformAction(menu.item, kAXPressAction as CFString)
+                let aim = menu.titleFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
+                feedback?.didDispatch = true; feedback?.point = aim
+                // A command that opens a modal answers after the AX timeout: it was delivered.
+                guard result == .success || result == .cannotComplete else {
+                    throw UseError("action_failed", "The app did not accept the menu command. Observe before retrying.", next: "observe")
+                }
+                report(.dispatched, point: aim)
+                lastMenu = (menu.titleFrame, names, menu.shortcut)
+                path = result == .success ? "accessibility" : "accessibility_unconfirmed"
             case .wait(let ms):
                 var remaining = ms
                 while remaining > 0 {
@@ -231,12 +265,33 @@ final class MacInput {
         event.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(pid))
         if pointer, routes[pid] == .skyLight, let skyLightPost = Self.skyLightPost {
             skyLightPost(pid, event)
+        } else if !pointer, signsKeys, routes[pid] == .skyLight, let skyLightPost = Self.skyLightPost, KeyAuthentication.attach(event, pid: pid) {
+            // A background key reaches these apps only signed and through SkyLight.
+            skyLightPost(pid, event)
         } else {
             event.postToPid(pid)
         }
     }
     /// `quiet` posts the event without tracking or showing it, for presses no person should see.
     private func mouse(_ type: CGEventType, _ point: CGPoint, _ pid: pid_t, _ count: Int, _ windowID: CGWindowID, _ frame: CGRect, _ flags: CGEventFlags = [], check: () throws -> Void = {}, quiet: Bool = false) throws {
+        let event = try Self.pointerEvent(type, point, count: count, windowID: windowID, frame: frame, flags: flags)
+        if let gestureField = Self.gestureField { event.setIntegerValueField(gestureField, value: gesture) }
+        if type == .mouseMoved || type == .leftMouseDragged, let last = lastPointer, last.pid == pid, last.windowID == windowID {
+            // Canvases and games read relative motion from these fields.
+            event.setIntegerValueField(.mouseEventDeltaX, value: Int64((point.x - last.point.x).rounded()))
+            event.setIntegerValueField(.mouseEventDeltaY, value: Int64((point.y - last.point.y).rounded()))
+        }
+        try Self.verifyTargeted(event, point, windowID: windowID, frame: frame)
+        if type != .leftMouseUp { try Task.checkCancellation(); try check() }
+        post(event, pid, pointer: true)
+        guard !quiet else { return }
+        lastPointer = (pid, windowID, point)
+        if type == .leftMouseDown || type == .leftMouseDragged { heldPointer = (pid, point, windowID, frame, flags) }
+        if type == .leftMouseUp { heldPointer = nil }
+        report(type == .leftMouseDown ? .down : type == .leftMouseUp ? .up : .move, point: point)
+    }
+    /// A left-button or move event addressed to `windowID` at the screen `point`.
+    static func pointerEvent(_ type: CGEventType, _ point: CGPoint, count: Int, windowID: CGWindowID, frame: CGRect, flags: CGEventFlags = []) throws -> CGEvent {
         guard let setWindowLocation = Self.setWindowLocation else {
             throw UseError("unsupported_pointer_input", "This macOS version does not support scoped pointer input. Use accessible app controls instead.", next: "human_takeover")
         }
@@ -267,22 +322,16 @@ final class MacInput {
         event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(windowID))
         event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(windowID))
         event.setIntegerValueField(.mouseEventClickState, value: Int64(count))
-        if let gestureField = Self.gestureField { event.setIntegerValueField(gestureField, value: gesture) }
-        if type == .mouseMoved || type == .leftMouseDragged, let last = lastPointer, last.pid == pid, last.windowID == windowID {
-            // Canvases and games read relative motion from these fields.
-            event.setIntegerValueField(.mouseEventDeltaX, value: Int64((point.x - last.point.x).rounded()))
-            event.setIntegerValueField(.mouseEventDeltaY, value: Int64((point.y - last.point.y).rounded()))
-        }
-        try verifyTargeted(event, windowID: windowID, local: location)
-        if type != .leftMouseUp { try Task.checkCancellation(); try check() }
-        post(event, pid, pointer: true)
-        guard !quiet else { return }
-        lastPointer = (pid, windowID, point)
-        if type == .leftMouseDown || type == .leftMouseDragged { heldPointer = (pid, point, windowID, frame, flags) }
-        if type == .leftMouseUp { heldPointer = nil }
-        report(type == .leftMouseDown ? .down : type == .leftMouseUp ? .up : .move, point: point)
+        return event
     }
     private func scroll(_ point: CGPoint, dx: Int32, dy: Int32, pid: pid_t, windowID: CGWindowID, frame: CGRect) throws {
+        let event = try Self.scrollEvent(point, dx: dx, dy: dy, windowID: windowID, frame: frame)
+        if let gestureField = Self.gestureField { event.setIntegerValueField(gestureField, value: gesture) }
+        try Self.verifyTargeted(event, point, windowID: windowID, frame: frame)
+        post(event, pid, pointer: true)
+        feedback?.didDispatch = true
+    }
+    static func scrollEvent(_ point: CGPoint, dx: Int32, dy: Int32, windowID: CGWindowID, frame: CGRect) throws -> CGEvent {
         guard let setWindowLocation = Self.setWindowLocation, let windowNumberField = Self.windowNumberField else {
             throw UseError("unsupported_pointer_input", "This macOS version does not support scoped pointer input. Use accessible app controls instead.", next: "human_takeover")
         }
@@ -294,16 +343,19 @@ final class MacInput {
         event.setIntegerValueField(windowNumberField, value: Int64(windowID))
         event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(windowID))
         event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(windowID))
-        if let gestureField = Self.gestureField { event.setIntegerValueField(gestureField, value: gesture) }
-        try verifyTargeted(event, windowID: windowID, local: NSPoint(x: point.x - frame.minX, y: frame.maxY - point.y))
-        post(event, pid, pointer: true)
-        feedback?.didDispatch = true
+        return event
     }
-    /// Reads the event back the way AppKit will on receipt, so input that would
-    /// reach another window or point is never posted.
-    private func verifyTargeted(_ event: CGEvent, windowID: CGWindowID, local: NSPoint) throws {
-        guard let native = NSEvent(cgEvent: event), native.windowNumber == Int(windowID),
-              abs(native.locationInWindow.x - local.x) < 1, abs(native.locationInWindow.y - local.y) < 1 else {
+    /// Reads back what the app's AppKit routes the event by, its window number
+    /// and window-local point, so input that would reach another window or
+    /// point is never posted. `NSEvent(cgEvent:)` here gives only the window
+    /// number: for another process's window its location is the flipped screen
+    /// point, which matches the window-local one only for a window at the
+    /// main screen's bottom-left corner.
+    static func verifyTargeted(_ event: CGEvent, _ point: CGPoint, windowID: CGWindowID, frame: CGRect) throws {
+        let local = CGPoint(x: point.x - frame.minX, y: point.y - frame.minY)
+        guard let windowLocation = Self.windowLocation, let native = NSEvent(cgEvent: event), native.windowNumber == Int(windowID),
+              abs(event.location.x - point.x) < 1, abs(event.location.y - point.y) < 1,
+              abs(windowLocation(event).x - local.x) < 1, abs(windowLocation(event).y - local.y) < 1 else {
             throw UseError("unsupported_pointer_input", "This macOS version did not address pointer input to the selected window. Use accessible app controls instead.", next: "human_takeover")
         }
     }
