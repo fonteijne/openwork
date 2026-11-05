@@ -261,7 +261,7 @@ export function LinkArrow(props: { children: ReactNode; href?: string; onClick?:
       </a>
     );
   return (
-    <button type="button" className={cn(classes, "cursor-pointer bg-transparent p-0")} onClick={onClick}>
+    <button type="button" className={cn(classes, "cursor-pointer bg-transparent p-0")} onClick={onClick} aria-label={rest["aria-label"]} aria-describedby={rest["aria-describedby"]}>
       {children}
       {arrow}
     </button>
