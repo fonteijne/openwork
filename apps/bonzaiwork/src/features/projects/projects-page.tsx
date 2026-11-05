@@ -1,59 +1,62 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, ChevronDown, Ellipsis, FolderPlus, Pencil, Pin, PinOff, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Ellipsis, FolderPlus, Pencil, Pin, PinOff, Search, SlidersHorizontal, Trash2, TriangleAlert } from "lucide-react";
 
+import type { Area, ProjectBrief, ProjectState, Todo } from "~/backend/cockpit";
+import { useAreas, useBriefs, useCockpit, useCockpitRefresh, useTodos } from "~/backend/cockpit-queries";
 import { useBackend } from "~/backend/context";
-import { keys, projectHasKey, useAttention, usePersonalBrain, useProjects, useStatus, useUsage } from "~/backend/queries";
-import type { AttentionItem, Project, ProjectSummary } from "~/backend/types";
+import { keys, projectHasKey, usePersonalBrain, useProjects, useStatus } from "~/backend/queries";
+import type { Project, ProjectSummary } from "~/backend/types";
+import { Accent, Band, DataTable, PageHero, StatusBadge, Tag } from "~/components/io";
 import { PromptDialog } from "~/components/prompt-dialog";
-import { ProjectIcon } from "~/components/project-icon";
-import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
-import { StatusChip, type ChipStatus } from "~/components/ui/chip";
-import { Disclosure } from "~/components/ui/disclosure";
 import { Menu, MenuItem, MenuSeparator } from "~/components/ui/menu";
-import { EmptyState, Skeleton } from "~/components/ui/misc";
+import { Skeleton } from "~/components/ui/misc";
 import { ConfirmDialog } from "~/components/ui/overlay";
+import { SegmentedControl } from "~/components/ui/segmented";
+import { Select } from "~/components/ui/select";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { projectsCopy } from "~/copy/projects";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
-import { formatMoney, relativeTime } from "~/lib/format";
-import { href, navigate, type Route } from "~/lib/router";
+import { href, navigate } from "~/lib/router";
 import { readLocal, writeLocal } from "~/lib/storage";
-import { SMALL_UP, useMediaQuery } from "~/lib/use-media";
 
-import { useUi } from "../shell/ui-store";
+import { activityLabel, dayLabel } from "../project/dates";
 
-type Sort = "activity" | "name";
+type Sort = "activity" | "deadline" | "name";
+const SORTS: readonly Sort[] = ["activity", "deadline", "name"];
+const STATES: readonly ProjectState[] = ["active", "on_hold", "completed"];
+const C = projectsCopy.index;
 
-/** Search and sort only earn their row above this many projects (brief: "> 8"). */
-const SEARCHABLE_FROM = 8;
-
-/** The first thing in a project that needs the person; the list is already sorted by urgency. */
-function needOf(projectId: string, items: readonly AttentionItem[]): AttentionItem | null {
-  return items.find((item) => item.kind !== "proposal" && item.projectId === projectId) ?? null;
+function isSort(value: string | null): value is Sort {
+  return SORTS.some((sort) => sort === value);
 }
 
-/** The chats of a project that wait for a decision, for the row's destination. */
-function waitingChats(projectId: string, items: readonly AttentionItem[]): string[] {
-  const ids = new Set<string>();
-  for (const item of items) {
-    if ((item.kind === "permission" || item.kind === "question") && item.projectId === projectId) ids.add(item.chatId);
-  }
-  return [...ids];
+/** The state the index files a project under: archived is always "Afgerond". */
+export function projectState(project: Project, brief: ProjectBrief | undefined): ProjectState {
+  if (project.archivedAt !== null) return "completed";
+  return brief?.state ?? "active";
 }
 
-function projectStatus(hasKey: boolean, summary: ProjectSummary | undefined, need: AttentionItem | null): ChipStatus {
-  if (!hasKey) return "locked";
-  if (summary?.waitingCount || need?.kind === "permission" || need?.kind === "question") return "waiting";
-  if (summary?.failedCount || need?.kind === "chat_failed") return "failed";
-  if (summary?.runningCount) return "running";
-  return "idle";
+/** The earliest date still ahead (today counts): a to-do's due date or the project's target. */
+function nextDeadline(projectId: string, brief: ProjectBrief | undefined, todos: readonly Todo[], now: number): number | null {
+  const startToday = new Date(now).setHours(0, 0, 0, 0);
+  const dates = todos.filter((todo) => todo.projectId === projectId && !todo.done && todo.due).map((todo) => todo.due?.at ?? 0);
+  if (brief?.target) dates.push(brief.target);
+  const ahead = dates.filter((at) => at >= startToday).sort((a, b) => a - b);
+  return ahead[0] ?? null;
 }
 
-function ProjectActions(props: { project: Project }) {
+// ---------------------------------------------------------------------------
+// The row menu: rename, pin, settings, archive or restore, remove (kept from the old list)
+// ---------------------------------------------------------------------------
+
+function ProjectActions(props: { project: Project; brief: ProjectBrief | undefined }) {
   const backend = useBackend();
+  const cockpit = useCockpit();
+  const refreshCockpit = useCockpitRefresh();
   const client = useQueryClient();
   const status = useStatus();
   const [renaming, setRenaming] = useState(false);
@@ -65,7 +68,9 @@ function ProjectActions(props: { project: Project }) {
   const update = async (patch: Parameters<typeof backend.projects.update>[1], message?: string, undo?: Parameters<typeof backend.projects.update>[1]) => {
     try {
       await backend.projects.update(project.id, patch);
-      await client.invalidateQueries({ queryKey: keys.projects });
+      // Restoring a completed project makes it active again in the cockpit too.
+      if (patch.archived === false && props.brief?.state === "completed") await cockpit.projects.updateBrief(project.id, { state: "active" });
+      await Promise.all([client.invalidateQueries({ queryKey: keys.projects }), refreshCockpit()]);
       if (message) toast(message, undo ? { action: { label: copy.common.undo, onClick: () => void update(undo) } } : {});
     } catch (failure) {
       toast(errorText(failure), { tone: "error" });
@@ -91,7 +96,7 @@ function ProjectActions(props: { project: Project }) {
       <Menu
         align="end"
         trigger={
-          <Button variant="quiet" size="icon-sm" aria-label={`${project.name}: ${copy.projects.rowActions}`}>
+          <Button variant="quiet" size="icon-xl" aria-label={`${project.name}: ${copy.projects.rowActions}`}>
             <Ellipsis />
           </Button>
         }
@@ -146,253 +151,255 @@ function ProjectActions(props: { project: Project }) {
   );
 }
 
-/** Real spend, only where it exists: `capabilities.usage` and a key per project (brief). */
-function SpendValue(props: { projectId: string }) {
-  const usage = useUsage(props.projectId);
-  if (!usage.data || usage.data.spend <= 0) return null;
-  const nearBudget = usage.data.maxBudget !== null && usage.data.spend >= usage.data.maxBudget * 0.9;
-  return <span className={cn("shrink-0 text-xs tabular-nums text-subtle-foreground", nearBudget && "font-medium text-warning-foreground")}>{formatMoney(usage.data.spend, usage.data.currency)}</span>;
-}
+// ---------------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------------
 
-const SECOND_LINK = "relative z-10 truncate text-xs text-electric-11 underline-offset-2 hover:underline";
+type Row = { project: Project; brief: ProjectBrief | undefined; state: ProjectState; todos: number; deadline: number | null; lastActivity: number | null; hasKey: boolean };
 
-/** The second line: the thing that needs the person as a real link, else chats · last activity. */
-function SecondLine(props: { project: Project; summary: ProjectSummary | undefined; need: AttentionItem | null; now: number }) {
-  const { project, summary, need } = props;
-  if (need?.kind === "permission" || need?.kind === "question" || need?.kind === "chat_failed") {
+function KeyCell(props: { row: Row }) {
+  const { brief, hasKey } = props.row;
+  if (!hasKey)
     return (
-      <a href={href({ name: "project", projectId: project.id, chatId: need.chatId })} className={SECOND_LINK} data-testid="project-need">
-        {need.chatTitle}
-      </a>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap font-semibold text-ink">
+        <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
+        {C.noKey}
+      </span>
     );
-  }
-  if (need?.kind === "routine") {
-    return (
-      <a href={href({ name: "project-routines", projectId: project.id, routineId: need.routineId })} className={SECOND_LINK} data-testid="project-need">
-        {need.name} · {copy.projects.routineReason[need.reason]}
-      </a>
-    );
-  }
-  if (need?.kind === "brain") {
-    return (
-      <a href={href({ name: "project-brain", projectId: project.id })} className={SECOND_LINK} data-testid="project-need">
-        {copy.project.tabs.brain} · {copy.brain.states[need.state]}
-      </a>
-    );
-  }
-  if (project.archivedAt) return <span className="truncate text-xs text-muted-foreground">{copy.projects.archivedAt(relativeTime(project.archivedAt, props.now))}</span>;
-  if (!summary) return <Skeleton className="my-1 h-3 w-32" />;
-  const chats = summary.chatCount ? copy.projects.chats(summary.chatCount) : copy.projects.noChats;
-  return <span className="truncate text-xs text-muted-foreground">{summary.lastActivityAt ? copy.projects.activity(chats, relativeTime(summary.lastActivityAt, props.now)) : chats}</span>;
-}
-
-/**
- * One compact row (S2, 44–48px): tile · name · second line; StatusChip (icon + word, V2/C5), spend
- * and the ⋯ menu on the right. The row's own link opens the one waiting chat when exactly one
- * waits (assessment I-3), otherwise the project. Memoized: summaries and spend arrive one project
- * at a time and should repaint only their own row.
- */
-const ProjectRow = memo(function ProjectRow(props: { project: Project; summary: ProjectSummary | undefined; need: AttentionItem | null; waiting: readonly string[]; hasKey: boolean; showSpend: boolean; now: number }) {
-  const { project, summary, need } = props;
-  const chip = projectStatus(props.hasKey, summary, need);
-  const target: Route = props.waiting.length === 1 && props.waiting[0] ? { name: "project", projectId: project.id, chatId: props.waiting[0] } : { name: "project", projectId: project.id, chatId: null };
+  const left = brief?.keyLeft ?? null;
+  if (left === null) return <span className="text-ink">{C.keyLinked}</span>;
+  const low = left < 20;
   return (
-    <li className="group/row relative flex min-h-11 items-center gap-3 border-b border-border py-1.5 last:border-b-0" data-testid="project-row">
-      <ProjectIcon icon={project.icon} color={project.color} size="md" />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <a
-          href={href(target)}
-          data-testid="workspace-item"
-          className="truncate text-sm font-medium text-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring"
-        >
+    <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-ink", low && "font-semibold")}>
+      {low ? <TriangleAlert className="size-4 shrink-0" aria-hidden="true" /> : left < 90 ? <Check className="size-4 shrink-0 text-success" aria-hidden="true" /> : null}
+      {C.keyLeft(left)}
+    </span>
+  );
+}
+
+function ProjectTableRow(props: { row: Row; now: number }) {
+  const { project, brief, state } = props.row;
+  const target = href({ name: "project-overview", projectId: project.id });
+  // The whole row opens the project; its own controls (the name link, the menu) keep their job.
+  const open = (event: MouseEvent<HTMLTableRowElement>) => {
+    if (event.target instanceof Element && event.target.closest("a, button, [role='menu']")) return;
+    navigate({ name: "project-overview", projectId: project.id });
+  };
+  return (
+    <tr className="cursor-pointer transition-colors hover:bg-surface-alt/60" onClick={open} data-testid="project-row">
+      <th scope="row" className="py-5 pe-6 text-start align-middle font-normal">
+        <a href={target} data-testid="workspace-item" className="text-lg font-semibold text-ink no-underline hover:underline">
           {project.name}
         </a>
-        <SecondLine project={project} summary={summary} need={need} now={props.now} />
-      </div>
-      {project.pinned ? <Pin role="img" aria-label={copy.projects.pinned} className="size-3.5 shrink-0 text-subtle-foreground" /> : null}
-      <StatusChip status={chip} label={chip === "locked" ? copy.shell.status.locked : undefined} className="shrink-0" />
-      {props.showSpend ? <SpendValue projectId={project.id} /> : null}
-      <div className="relative z-10 shrink-0">
-        <ProjectActions project={project} />
-      </div>
-    </li>
+        <span className="mt-1 block max-w-[44ch] text-base text-ink-muted">{brief?.goal ?? project.description ?? C.noGoal}</span>
+      </th>
+      <td className="text-base text-ink">{projectsCopy.state[state]}</td>
+      <td className={cn("text-base", props.row.deadline ? "text-ink" : "text-ink-muted")}>{props.row.deadline ? dayLabel(props.row.deadline, props.now) : projectsCopy.noDate}</td>
+      <td className="text-base tabular-nums text-ink">{props.row.todos}</td>
+      <td className="text-base">{brief?.needsYou ? <StatusBadge kind="review">{brief.needsYou}</StatusBadge> : <span className="text-ink-muted">{projectsCopy.nothing}</span>}</td>
+      <td className="text-base">
+        <KeyCell row={props.row} />
+      </td>
+      <td className="whitespace-nowrap text-base text-ink-muted">{props.row.lastActivity ? activityLabel(props.row.lastActivity, props.now) : C.noActivity}</td>
+      <td className="w-12 py-3.5! text-end">
+        <ProjectActions project={project} brief={brief} />
+      </td>
+    </tr>
   );
-});
+}
 
-function SkeletonRows(props: { count: number }) {
+function AreaSection(props: { area: Area | null; rows: Row[]; now: number }) {
+  const name = props.area?.name ?? C.otherArea;
+  const id = `area-${props.area?.id ?? "none"}`;
   return (
-    <ul className="border-t border-border" aria-busy="true" aria-label={copy.common.loading}>
-      {Array.from({ length: props.count }, (_, index) => (
-        <li key={index} className="flex min-h-11 items-center gap-3 border-b border-border py-1.5">
-          <Skeleton className="size-7 shrink-0 rounded-md" />
-          <div className="flex flex-1 flex-col gap-1.5">
-            <Skeleton className="h-3.5 w-40 max-w-full" />
-            <Skeleton className="h-3 w-56 max-w-full" />
-          </div>
-        </li>
-      ))}
-    </ul>
+    <section aria-labelledby={id} className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center gap-4">
+        <h2 id={id} className="m-0 text-[28px] font-bold leading-[34px] tracking-[-0.01em] text-ink">
+          {name}
+        </h2>
+        {props.area?.client ? <Tag>{projectsCopy.clientTag(props.area.client)}</Tag> : null}
+      </div>
+      <div className="rounded-[16px] bg-surface-raised px-5 pb-3 pt-6 lg:px-8">
+        <DataTable label={C.tableLabel(name)} head={[...C.head]} align={["start", "start", "start", "start", "start", "start", "start", "end"]} className="[&_table]:min-w-[980px] [&_table]:table-fixed [&_td]:align-middle! [&_th:nth-child(1)]:w-[31%] [&_th:nth-child(2)]:w-[9%] [&_th:nth-child(3)]:w-[13%] [&_th:nth-child(4)]:w-[8%] [&_th:nth-child(5)]:w-[13%] [&_th:nth-child(6)]:w-[12%] [&_th:nth-child(8)]:w-14">
+          {props.rows.map((row) => (
+            <ProjectTableRow key={row.project.id} row={row} now={props.now} />
+          ))}
+        </DataTable>
+      </div>
+    </section>
+  );
+}
+
+function TableSkeleton() {
+  return (
+    <div className="flex flex-col gap-5" aria-busy="true" aria-label={copy.common.loading}>
+      <Skeleton className="h-8 w-64" />
+      <div className="flex flex-col gap-5 rounded-[16px] bg-surface-raised p-8">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-12 w-full" />
+      </div>
+    </div>
   );
 }
 
 /**
- * Alle projecten (brief §3, §5): compact rows, pinned first then by activity (the sidebar's
- * order; assessment P-5), the second line is what needs the person (useAttention). Archived
- * projects are a collapsed tail; "Mijn brein" lives at #/brein and is not a row here (decision B1).
+ * Projecten (design v2-ProjectsIndex): the hero with counts, Actief / In de wacht / Afgerond, sort
+ * and filter; then per area a white panel with a table (goal, status, next deadline, to-dos,
+ * what needs you, the model key, last activity). A row opens the project's Overzicht; the ⋯ menu
+ * keeps rename, pin, archive and remove. "Mijn brein" is the Agent, never a row here (decision B1).
  */
 export function ProjectsPage() {
   const backend = useBackend();
   const status = useStatus();
   const projects = useProjects();
-  const attention = useAttention();
-  const personalId = usePersonalBrain()?.projectId ?? null;
-  const setNewProject = useUi((state) => state.setNewProject);
-  const wide = useMediaQuery(SMALL_UP);
+  const briefs = useBriefs();
+  const areas = useAreas();
+  const todos = useTodos();
+  const personalId = usePersonalBrain()?.projectId ?? "p-mijn-brein";
+  const [show, setShow] = useState<ProjectState>("active");
+  const [sort, setSortState] = useState<Sort>(() => {
+    const stored = readLocal("bonzaiwork.projectsSort");
+    return isSort(stored) ? stored : "activity";
+  });
   const [query, setQuery] = useState("");
-  const [sort, setSortState] = useState<Sort>(() => (readLocal("bonzaiwork.projectSort") === "name" ? "name" : "activity"));
-  // Whole minutes: relative times only change per minute, and a steady value keeps the memoized rows from repainting.
   const now = Math.floor(Date.now() / 60_000) * 60_000;
-  const listed = useMemo(() => (projects.data ?? []).filter((project) => project.id !== personalId), [projects.data, personalId]);
-  const active = useMemo(() => listed.filter((project) => !project.archivedAt), [listed]);
-  const items = attention.data ?? [];
+  const readOnly = status.data?.readOnly ?? false;
 
+  const listed = useMemo(() => (projects.data ?? []).filter((project) => project.id !== personalId), [projects.data, personalId]);
   const summaries = useQueries({
-    queries: active.map((project) => ({
+    queries: listed.map((project) => ({
       queryKey: keys.summary(project.id),
       queryFn: () => backend.projects.summary(project.id),
       staleTime: 10_000,
       refetchInterval: 20_000,
     })),
   });
-  const summaryById = new Map(active.map((project, index) => [project.id, summaries[index]?.data]));
-  // Sorting by activity needs every summary; until then the order would jump.
-  // A slow summary (an engine still starting) never holds the list for long.
-  const [settleExpired, setSettleExpired] = useState(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSettleExpired(true), 1_200);
-    return () => window.clearTimeout(timer);
-  }, []);
-  const settling = sort === "activity" && !settleExpired && summaries.some((entry) => entry.isPending);
+  const summaryById = new Map<string, ProjectSummary | undefined>(listed.map((project, index) => [project.id, summaries[index]?.data]));
+  const briefById = useMemo(() => new Map((briefs.data ?? []).map((brief) => [brief.projectId, brief])), [briefs.data]);
+  const openTodos = useMemo(() => (todos.data ?? []).filter((todo) => !todo.done), [todos.data]);
 
-  const setSort = (value: Sort) => {
+  const rows: Row[] = listed.map((project) => {
+    const brief = briefById.get(project.id);
+    return {
+      project,
+      brief,
+      state: projectState(project, brief),
+      todos: openTodos.filter((todo) => todo.projectId === project.id).length,
+      deadline: nextDeadline(project.id, brief, openTodos, now),
+      lastActivity: summaryById.get(project.id)?.lastActivityAt ?? null,
+      hasKey: projectHasKey(status.data, project),
+    };
+  });
+
+  const setSort = (value: string) => {
+    if (!isSort(value)) return;
     setSortState(value);
-    writeLocal("bonzaiwork.projectSort", value === "name" ? "name" : null);
+    writeLocal("bonzaiwork.projectsSort", value === "activity" ? null : value);
   };
 
-  const searchable = active.length > SEARCHABLE_FROM;
-  const needle = searchable ? query.trim().toLowerCase() : "";
-  const matches = (project: Project) => !needle || project.name.toLowerCase().includes(needle) || (project.description ?? "").toLowerCase().includes(needle);
-  const activity = (project: Project) => summaryById.get(project.id)?.lastActivityAt ?? 0;
-  const byName = (a: Project, b: Project) => a.name.localeCompare(b.name, "nl");
-  const order = (a: Project, b: Project) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-    if (sort === "name" || a.pinned) return byName(a, b);
-    return activity(b) - activity(a) || byName(a, b);
+  const needle = query.trim().toLowerCase();
+  const matches = (row: Row) => !needle || row.project.name.toLowerCase().includes(needle) || (row.brief?.goal ?? row.project.description ?? "").toLowerCase().includes(needle);
+  const byName = (a: Row, b: Row) => a.project.name.localeCompare(b.project.name, "nl");
+  const order = (a: Row, b: Row) => {
+    if (sort === "name") return byName(a, b);
+    if (sort === "deadline") return (a.deadline ?? Infinity) - (b.deadline ?? Infinity) || byName(a, b);
+    if (a.project.pinned !== b.project.pinned) return a.project.pinned ? -1 : 1;
+    return (b.lastActivity ?? 0) - (a.lastActivity ?? 0) || byName(a, b);
   };
-  const rows = active.filter(matches).sort(order);
-  const archived = listed.filter((project) => project.archivedAt && matches(project)).sort(byName);
+  const shown = rows.filter((row) => row.state === show && matches(row)).sort(order);
+  const active = rows.filter((row) => row.state === "active");
+  const activeAreas = new Set(active.map((row) => row.brief?.area.id ?? "none")).size;
 
-  const readOnly = status.data?.readOnly ?? false;
-  const showSpend = wide && backend.capabilities.usage && status.data?.keyMode === "workspace";
+  // Areas in their own order; projects without a brief (still loading, or a new device) at the end.
+  const areaList = areas.data ?? [];
+  const groups: Array<{ area: Area | null; rows: Row[] }> = [
+    ...areaList.map((area) => ({ area, rows: shown.filter((row) => row.brief?.area.id === area.id) })),
+    { area: null, rows: shown.filter((row) => !row.brief || !areaList.some((area) => area.id === row.brief?.area.id)) },
+  ].filter((group) => group.rows.length > 0);
 
-  const renderList = (list: Project[]) => (
-    <ul className="border-t border-border">
-      {list.map((project) => (
-        <ProjectRow
-          key={project.id}
-          project={project}
-          summary={summaryById.get(project.id)}
-          need={needOf(project.id, items)}
-          waiting={waitingChats(project.id, items)}
-          hasKey={projectHasKey(status.data, project)}
-          showSpend={showSpend}
-          now={now}
-        />
-      ))}
-    </ul>
-  );
+  const loading = projects.isLoading || (briefs.isLoading && !briefs.data);
+  const failed = projects.isError;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <TopBar
+    <div className="flex flex-col">
+      <PageHero
+        documentTitle={C.documentTitle}
+        eyebrow={C.eyebrow}
+        title={
+          <>
+            {C.title}
+            <Accent>{C.titleAccent}</Accent>
+          </>
+        }
+        lead={loading ? undefined : active.length ? C.lead(active.length, Math.max(activeAreas, 1)) : C.leadEmpty}
         actions={
-          <Button variant="primary" size="sm" onClick={() => setNewProject(true)} disabled={readOnly} data-testid="new-workspace">
-            <Plus />
-            <span className="max-sm:sr-only">{copy.projects.new}</span>
+          <Button variant="primary" size="xl" onClick={() => navigate({ name: "project-new", fromProjectId: null, fromChatId: null })} disabled={readOnly} data-testid="new-workspace">
+            {C.new}
           </Button>
         }
-      >
-        <PageTitle>{copy.projects.title}</PageTitle>
-      </TopBar>
-      <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-4 pb-16 sm:px-6 sm:pt-6">
-          {projects.isLoading ? (
-            <SkeletonRows count={4} />
-          ) : projects.isError ? (
-            <EmptyState
-              title={copy.errors.network}
-              action={
-                <Button variant="secondary" onClick={() => void projects.refetch()}>
-                  {copy.boot.retry}
-                </Button>
-              }
+        below={
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-4">
+            <SegmentedControl
+              value={show}
+              onValueChange={setShow}
+              items={STATES.map((state) => ({ value: state, label: projectsCopy.state[state] }))}
+              label={C.show}
+              scroll
+              className="max-w-full bg-surface-alt p-1 [&>*]:h-11! [&>*]:px-6! [&>*]:text-base! [&>[data-checked]]:bg-ink! [&>[data-checked]]:text-surface! [&>[data-checked]]:shadow-none!"
             />
-          ) : active.length === 0 && archived.length === 0 ? (
-            // One invitation, no explanation (C6, P2).
-            <EmptyState
-              icon={<FolderPlus />}
-              title={copy.projects.emptyTitle}
-              action={
-                <Button variant="primary" size="lg" onClick={() => setNewProject(true)} disabled={readOnly}>
-                  <Plus />
-                  {copy.projects.new}
-                </Button>
-              }
-            />
-          ) : (
-            <>
-              {searchable ? (
-                <div className="mb-4 flex flex-wrap items-center gap-2">
-                  <div className="relative min-w-0 flex-1 basis-56">
-                    <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-subtle-foreground" />
-                    <input
-                      type="search"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder={copy.projects.searchPlaceholder}
-                      aria-label={copy.projects.searchPlaceholder}
-                      className="h-8 w-full rounded-full bg-background ps-8 pe-3.5 text-sm ring-1 ring-inset ring-input placeholder:text-subtle-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:text-[16px] pointer-coarse:h-10"
-                    />
-                  </div>
-                  {/* Native: two options need no popup, and phones get their own picker. */}
-                  <div className="relative shrink-0">
-                    <select
-                      value={sort}
-                      onChange={(event) => setSort(event.target.value === "name" ? "name" : "activity")}
-                      aria-label={copy.projects.sortLabel}
-                      className="h-8 min-w-36 appearance-none rounded-full bg-background ps-3.5 pe-8 text-sm text-foreground ring-1 ring-inset ring-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:text-[16px] pointer-coarse:h-10"
-                    >
-                      <option value="activity">{copy.projects.sortActivity}</option>
-                      <option value="name">{copy.projects.sortName}</option>
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute end-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" />
-                  </div>
-                </div>
-              ) : null}
-
-              {settling ? <SkeletonRows count={Math.min(rows.length, 8)} /> : null}
-              {!settling && rows.length === 0 && needle ? <p className="py-10 text-center text-sm text-muted-foreground">{copy.projects.noMatches(query)}</p> : null}
-              {!settling && rows.length ? <section aria-label={copy.nav.projects}>{renderList(rows)}</section> : null}
-              {archived.length ? (
-                // The archive as a collapsed tail (S3): label only, rows below when opened.
-                <Disclosure label={copy.projects.archivedCount(archived.length)} size="sm" className="mt-6" panelClassName="ps-0 pt-2 opacity-80" testId="projects-archived">
-                  {renderList(archived)}
-                </Disclosure>
-              ) : null}
-            </>
-          )}
-        </div>
-      </main>
+            <div className="ms-auto flex w-full flex-wrap items-center gap-3 sm:w-auto">
+              <span className="text-base text-ink-muted" id="projects-sort-label">
+                {C.sortLabel}
+              </span>
+              <Select
+                value={sort}
+                onValueChange={setSort}
+                label={C.sortLabel}
+                items={SORTS.map((value) => ({ value, label: C.sort[value] }))}
+                className="h-11! w-auto min-w-[11rem] px-4! text-base! ring-line-strong!"
+              />
+              <label className="relative w-full min-w-0 sm:w-[280px] sm:flex-none">
+                <span className="sr-only">{C.filter}</span>
+                <Search className="pointer-events-none absolute start-4 top-1/2 size-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={C.filter}
+                  className="h-11 w-full rounded-full border border-line-strong bg-surface-raised ps-10 pe-4 text-base text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring max-sm:text-[16px]"
+                />
+              </label>
+            </div>
+          </div>
+        }
+      />
+      <Band tone="alt" className="flex-1" inner="flex flex-col gap-14">
+        {loading ? (
+          <TableSkeleton />
+        ) : failed ? (
+          <div className="flex flex-col items-start gap-4">
+            <p className="m-0 text-lg text-ink">{projectsCopy.loadFailed}</p>
+            <Button variant="secondary" size="lg" onClick={() => void projects.refetch()}>
+              {projectsCopy.retry}
+            </Button>
+          </div>
+        ) : groups.length === 0 ? (
+          <div className="flex flex-col items-start gap-4 rounded-[16px] bg-surface-raised p-8 lg:p-10">
+            <FolderPlus className="size-6 text-ink" aria-hidden="true" />
+            <h2 className="m-0 text-xl font-semibold text-ink">{needle ? C.noMatches(query) : C.empty[show]}</h2>
+            {needle ? null : <p className="m-0 max-w-[60ch] text-base text-ink-muted">{C.emptyBody[show]}</p>}
+            {show === "active" && !needle ? (
+              <Button variant="primary" size="xl" onClick={() => navigate({ name: "project-new", fromProjectId: null, fromChatId: null })} disabled={readOnly}>
+                {C.new}
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          groups.map((group) => <AreaSection key={group.area?.id ?? "none"} area={group.area} rows={group.rows} now={now} />)
+        )}
+        {!loading && !failed ? <p className="m-0 text-base text-ink-muted">{C.footer}</p> : null}
+      </Band>
     </div>
   );
 }
