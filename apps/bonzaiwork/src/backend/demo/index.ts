@@ -130,7 +130,8 @@ export function readDemoOptions(search: string): DemoOptions {
 }
 
 export function createDemoBackend(options: DemoOptions): Backend & { reset(): void } {
-  const storageKey = `bonzaiwork.demo.v5.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
+  // v6: the cockpit seed (personal chats, cockpit story); older saved demos start fresh.
+  const storageKey = `bonzaiwork.demo.v6.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
   const stored = readLocalJson(storageKey);
   const isState = (value: unknown): value is DemoState =>
     typeof value === "object" && value !== null && Reflect.get(value, "version") === 5 && Array.isArray(Reflect.get(value, "projects"));

@@ -350,12 +350,24 @@ export const AssistantTurn = memo(function AssistantTurn(props: { messages: Mess
   );
 });
 
-export const UserMessage = memo(function UserMessage(props: { message: Message; pending: boolean; optimistic?: boolean; onFork?: () => void; onRevert?: () => void; onRoutine?: () => void }) {
+export const UserMessage = memo(function UserMessage(props: {
+  message: Message;
+  pending: boolean;
+  optimistic?: boolean;
+  onFork?: () => void;
+  onRevert?: () => void;
+  onRoutine?: () => void;
+  /** A line above the bubble ("Jij · 08:30" on the Agent page). */
+  label?: ReactNode;
+  /** Restyles the bubble (the Agent page's grey box). */
+  bubbleClassName?: string;
+}) {
   const text = props.message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
   const files = props.message.parts.filter((part): part is Extract<MessagePart, { type: "file" }> => part.type === "file");
   return (
     <div className="group/user flex flex-col items-end" data-role="user">
-      <div className={cn("max-w-[min(85%,36rem)] rounded-[20px] rounded-br-md bg-user-bubble px-3.5 py-2 text-base leading-relaxed whitespace-pre-wrap text-foreground", props.pending && "opacity-70")}>
+      {props.label ? <div className="mb-2">{props.label}</div> : null}
+      <div className={cn("max-w-[min(85%,36rem)] rounded-[20px] rounded-br-md bg-user-bubble px-3.5 py-2 text-base leading-relaxed whitespace-pre-wrap text-foreground", props.bubbleClassName, props.pending && "opacity-70")}>
         {text}
         {files.length ? (
           <div className="mt-2 flex flex-wrap gap-1.5">

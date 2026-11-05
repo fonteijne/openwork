@@ -636,6 +636,96 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
     assistantMessage("c-invoices", "m-in-2", tInv + 1_500, { model: "gpt-5-2", error: { kind: "budget_exceeded", detail: null } }),
   ];
 
+  // Mijn brein: the Agent's personal chats (#/agent) ----------------------------------
+  // Today's chats sit at their morning clock time, or just before now when the day is younger.
+  const personal = "p-mijn-brein";
+  const earlierToday = (hour: number, minute: number, fallbackAgo: number) => {
+    const at = new Date(now);
+    at.setHours(hour, minute, 0, 0);
+    return at.getTime() < now - 5 * MIN ? at.getTime() : now - fallbackAgo;
+  };
+  const daysAgoAt = (days: number, hour: number, minute: number) => {
+    const at = new Date(now);
+    at.setHours(hour, minute, 0, 0);
+    at.setDate(at.getDate() - days);
+    return at.getTime();
+  };
+  const tAdmin = earlierToday(8, 30, 40 * MIN);
+  const tAdminFollow = Math.min(tAdmin + 20 * MIN, now - 2 * MIN);
+  const tHours = earlierToday(7, 55, 90 * MIN);
+  const tSearch = daysAgoAt(1, 14, 10);
+  const tMail = daysAgoAt(3, 9, 5);
+  const tBakery = daysAgoAt(2, 11, 20);
+  const tBakeryFollow = Math.max(tBakery + DAY, earlierToday(8, 46, 25 * MIN));
+  const tMoved = daysAgoAt(9, 10, 40);
+  base.chats.push(
+    chat(personal, "c-ochtend", "Ochtendadministratie", tAdmin, tAdminFollow + 40_000),
+    chat(personal, "c-urencheck", "Urencheck week 45", tHours, tHours + 2 * MIN),
+    chat(personal, "c-zoekgebruik", "Export van zoekgebruik verkennen", tSearch, tSearch + 6 * MIN),
+    chat(personal, "c-weekendmail", "Mail na het lange weekend", tMail, tMail + 4 * MIN),
+    chat(personal, "c-bakkerij", "Onderhoud voor een bakkerij", tBakery, tBakeryFollow + 50_000),
+    // Moved into a project: archived here, the note names where it went (the Agent's "Verplaatst naar een project").
+    chat(personal, "c-delinde-prijs", "Prijsvoorstel voor Hotel De Linde", tMoved, tMoved + 9 * MIN, { archived: true, note: "Offertes 2026" }),
+  );
+  base.messages["c-ochtend"] = [
+    userMessage("c-ochtend", "m-oa-1", tAdmin, "Boek mijn uren van gisteren."),
+    assistantMessage("c-ochtend", "m-oa-2", tAdmin + 40_000, {
+      tools: [
+        { tool: "outlook_calendar_events", input: { day: "gisteren" }, output: "6 afspraken", ms: 1_200 },
+        { tool: "bash", input: { command: "uren lijst --gisteren" }, output: "2 regels, 4:45 geboekt", ms: 700 },
+      ],
+      text: "Hier is gisteren, uit je agenda en je runs. Elke regel staat op een project. Er wordt niets ingediend voordat jij het goedkeurt.\n\n| Project | Gebaseerd op | Uren |\n| --- | --- | ---: |\n| Offertes 2026 | Offerte Bakkerij Van Dijk, DKS-142 | 3:15 |\n| Klantenservice | Focusblok, klacht order 4471 | 1:30 |\n| ⚠ Geen project gevonden | Agendablok \"Voorbereiding\", 16:00–17:00 | 1:00 |\n\nZal ik de uren klaarzetten, zodat je ze eerst kunt nakijken voordat ze worden ingediend? Voor het uur zonder project kies je zelf een project.",
+    }),
+    userMessage("c-ochtend", "m-oa-3", tAdminFollow, "Welk project kostte me deze week de meeste uren?"),
+    assistantMessage("c-ochtend", "m-oa-4", tAdminFollow + 20_000, {
+      tools: [{ tool: "bash", input: { command: "uren totaal --deze-week" }, output: "Offertes 2026 9:30 · Klantenservice 4:15 · Marketing Q4 2:00", ms: 600 }],
+      text: "Offertes 2026: 9:30 van de 15:45 die je sinds maandag hebt geboekt. Klantenservice staat tweede met 4:15. Gelezen uit je urentool.",
+    }),
+  ];
+  base.messages["c-urencheck"] = [
+    userMessage("c-urencheck", "m-uc-1", tHours, "Klopt mijn urenregistratie van week 45 tot nu toe?"),
+    assistantMessage("c-urencheck", "m-uc-2", tHours + 30_000, {
+      tools: [{ tool: "bash", input: { command: "uren lijst --week 45" }, output: "11 regels", ms: 800 }],
+      text: "Bijna. Maandag tot en met woensdag staan erin, samen 22:45. Woensdag tussen 13:00 en 14:00 mist een uur: in je agenda staat daar \"Overleg Hotel De Linde\". Zeg het als ik dat uur voor je klaarzet.",
+    }),
+  ];
+  base.messages["c-zoekgebruik"] = [
+    userMessage("c-zoekgebruik", "m-zg-1", tSearch, "Ik heb de export van het zoekgebruik op de website in mijn map gezet. Wat valt op?"),
+    assistantMessage("c-zoekgebruik", "m-zg-2", tSearch + 45_000, {
+      tools: [{ tool: "read", input: { filePath: "exports/zoekgebruik-oktober.csv" }, output: "4.812 rijen", ms: 1_400 }],
+      text: "Drie dingen vallen op in oktober:\n\n1. **Openingstijden** is de meest gezochte term (612 keer), terwijl die op de homepage al onderaan staat.\n2. **Retour** levert in 41% van de zoekopdrachten geen resultaat op.\n3. Zoekopdrachten op mobiel zijn sinds half oktober met een derde gestegen.\n\nZal ik er een korte notitie van maken voor je eigen plank?",
+    }),
+  ];
+  base.messages["c-weekendmail"] = [
+    userMessage("c-weekendmail", "m-wm-1", tMail, "Vat mijn mail van het lange weekend samen. Wat moet vandaag nog antwoord?"),
+    assistantMessage("c-weekendmail", "m-wm-2", tMail + 50_000, {
+      tools: [{ tool: "outlook_search_mail", input: { since: "vrijdag 17:00" }, output: "23 berichten", ms: 1_900 }],
+      text: "23 berichten sinds vrijdag; drie vragen om antwoord vandaag:\n\n- **Fleur Jansen** vraagt of je dinsdag het teamoverleg kunt overnemen.\n- **Ruben de Boer** wil weten welke testomgeving hij mag gebruiken.\n- **Hotel De Linde** bevestigt de afspraak van donderdag en vraagt om de agenda.\n\nDe rest zijn nieuwsbrieven en meldingen; die heb ik laten staan.",
+    }),
+  ];
+  base.messages["c-bakkerij"] = [
+    userMessage("c-bakkerij", "m-bk-1", tBakery, "Wat komt er kijken bij een onderhoudscontract voor de webshop van een bakkerij?"),
+    assistantMessage("c-bakkerij", "m-bk-2", tBakery + 60_000, {
+      tools: [{ tool: "websearch", input: { query: "onderhoudscontract webshop kleine ondernemer" }, output: "8 resultaten", ms: 2_100 }],
+      text: "Zo'n contract vraagt meestal eerst om vier afspraken:\n\n1. Wat valt onder onderhoud: updates, back-ups, beveiliging, kleine wijzigingen.\n2. Waar de webshop en de gegevens draaien, en wie daarvoor verantwoordelijk is.\n3. Hoe snel je reageert bij een storing, ook in het weekend voor de feestdagen.\n4. Twee of drie pakketten met een globale prijs per maand.",
+    }),
+    userMessage(
+      "c-bakkerij",
+      "m-bk-3",
+      tBakeryFollow,
+      "Lars van Dijk van Bakkerij Van Dijk vraagt hier nu om. Het ticket in HubSpot is DKS-142. Zijn mail:\n\n\"Kun je twee à drie opties sturen voor het onderhoud van onze webshop, met een globale prijs per maand? Graag voor maandag.\"",
+    ),
+    assistantMessage("c-bakkerij", "m-bk-4", tBakeryFollow + 50_000, {
+      text: "Lars vraagt om punt 4 uit dat lijstje, uiterlijk maandag. Als dit werk voor Bakkerij Van Dijk is, kun je deze chat naar een project verplaatsen. Dan draait hij op de key van dat project en kan hij de klantplank gebruiken.",
+    }),
+  ];
+  base.messages["c-delinde-prijs"] = [
+    userMessage("c-delinde-prijs", "m-dl-1", tMoved, "Hotel De Linde wil een prijs voor een nieuwe boekingsmodule. Waar moet ik op letten?"),
+    assistantMessage("c-delinde-prijs", "m-dl-2", tMoved + 40_000, {
+      text: "Let vooral op de koppeling met hun bestaande reserveringssysteem en op wie de betaalprovider kiest. Deze chat staat nu in Offertes 2026.",
+    }),
+  ];
+
   // Verhuizing (archived) --------------------------------------------------------
   const move = "p-verhuizing";
   const tMove = now - 95 * DAY;
