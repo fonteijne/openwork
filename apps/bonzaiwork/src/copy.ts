@@ -99,6 +99,7 @@ export const copy = {
       /** The sidebar's short form: the project name keeps its room in the 256px column. */
       waitingShort: "Wacht",
     },
+    skipToContent: "Naar de inhoud",
     sidebarCollapse: "Zijbalk inklappen",
     sidebarExpand: "Zijbalk tonen",
     help: "Hulp",
@@ -142,6 +143,11 @@ export const copy = {
       cardOnly: "Alleen op de gefocuste kaart",
     },
     appSettingsGroups: {
+      verbindingen: "Verbindingen",
+      agent: "Agent en rechten",
+      werkwijzen: "Werkwijzen",
+      geheugen: "Geheugen",
+      meldingen: "Meldingen",
       toegang: "Toegang",
       weergave: "Weergave",
       agenda: "Agenda",
@@ -154,7 +160,16 @@ export const copy = {
   // A project as a container with tabs (brief §6).
   project: {
     tabs: {
-      work: "Werk",
+      overview: "Overzicht",
+      todos: "To-do's",
+      runs: "Runs",
+      work: "Chats",
+      outputs: "Uitvoer",
+      sources: "Bronnen",
+      decisions: "Besluiten",
+      activity: "Activiteit",
+      edit: "Bewerken",
+      complete: "Afronden",
       files: "Bestanden",
       routines: "Routines",
       brain: "Brein",
@@ -670,7 +685,19 @@ export const copy = {
     /** The four groups of the project settings and the six of the app settings (brief §3). */
     groups: { project: "Project", agent: "Agent", toegang: "Toegang", technisch: "Technisch" },
     groupsLabel: "Instellingen van dit project",
-    appGroups: { toegang: "Toegang", weergave: "Weergave", agenda: "Agenda", breinen: "Breinen", alle: "Voor alle projecten", technisch: "Technisch" },
+    appGroups: {
+      verbindingen: "Verbindingen",
+      agent: "Agent en rechten",
+      werkwijzen: "Werkwijzen",
+      geheugen: "Geheugen",
+      meldingen: "Meldingen",
+      toegang: "Toegang",
+      weergave: "Weergave",
+      agenda: "Agenda",
+      breinen: "Breinen",
+      alle: "Voor alle projecten",
+      technisch: "Technisch",
+    },
     appGroupsLabel: "App-instellingen",
     keyAttention: "Geen key gekoppeld",
     // Overzicht: one row per concern, the current state right, the group as link (S2, P1).
@@ -1057,6 +1084,11 @@ export const copy = {
     crumb: (parts: readonly string[]) => parts.join(" › "),
     /** Words a settings group answers to, so "connecties" finds Toegang. */
     settingsKeywords: {
+      verbindingen: ["key", "keys", "budget", "verbindingen", "modeldienst"],
+      agent: ["agent", "rechten", "toestemming", "permissies", "veiligheid"],
+      werkwijzen: ["werkwijze", "stappen", "runs", "versie"],
+      geheugen: ["geheugen", "brein", "breinen", "kennis"],
+      meldingen: ["meldingen", "notificaties", "geluid"],
       toegang: ["key", "connecties", "toegang", "uitvoermodus", "mappen"],
       weergave: ["thema", "donker", "licht", "lettergrootte", "weergave"],
       agenda: ["werkdag", "bijhouden", "bridge", "posten", "agenda"],

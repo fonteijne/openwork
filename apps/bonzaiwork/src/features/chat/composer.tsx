@@ -84,6 +84,13 @@ export const Composer = forwardRef<
      * (brief §7, T5). Without it ⌘⏎ sends like ⏎.
      */
     onQueue?: (input: ComposerSubmit) => void;
+    /**
+     * `pill`: the iO composer of the Agent page, one rounded row with the field, an attach button
+     * and a labelled send button; the model, werkwijze and skill pills stay out of it.
+     */
+    variant?: "default" | "pill";
+    /** The label of the send button in the pill variant ("Versturen"). */
+    sendLabel?: string;
   }
 >(function Composer(props, ref) {
   const status = useStatus();
@@ -231,6 +238,7 @@ export const Composer = forwardRef<
 
   const showStop = props.running && !text.trim() && !command && !waiting;
   const large = props.size === "large";
+  const pill = props.variant === "pill";
   const placeholder = props.placeholder ?? (waiting ? (props.decisionPending === "permission" ? copy.chat.composer.permissionPending : copy.chat.composer.decisionPending) : props.running ? copy.chat.composer.steer : copy.chat.composerPlaceholder);
   const steerHints = props.running && !waiting && props.onQueue ? [{ keys: "⏎", label: copy.chat.composer.steerHint }, { keys: chordLabel("⏎"), label: copy.chat.composer.afterHint }] : null;
 
@@ -238,12 +246,14 @@ export const Composer = forwardRef<
     <div
       ref={container}
       className={cn(
-        "relative flex w-full flex-col rounded-window bg-background ring-1 ring-border-strong transition-shadow duration-150 focus-within:ring-ring/60",
+        pill
+          ? "relative flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-[32px] border border-line-strong bg-surface-raised py-2 ps-5 pe-2 transition-colors duration-150 focus-within:border-ink"
+          : "relative flex w-full flex-col rounded-window bg-background ring-1 ring-border-strong transition-shadow duration-150 focus-within:ring-ring/60",
         props.blocked ? "opacity-90" : null,
       )}
     >
       {attachments.length || command || skills.length ? (
-        <div className="flex flex-wrap gap-1.5 px-3 pt-3">
+        <div className={cn("flex flex-wrap gap-1.5 px-3 pt-3", pill && "basis-full px-0 pt-1")}>
           {command ? (
             <span className="inline-flex h-7 items-center gap-1 rounded-full bg-electric-3 ps-2.5 pe-1 text-xs font-semibold text-electric-11">
               <Slash className="size-3" />
@@ -338,12 +348,43 @@ export const Composer = forwardRef<
         className={cn(
           "w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base leading-relaxed text-foreground placeholder:text-subtle-foreground focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed max-sm:text-[16px]",
           large ? "min-h-24" : "min-h-11",
+          pill && "min-h-11 w-auto min-w-0 flex-[1_1_12rem] px-0 py-2.5 text-lg leading-6 placeholder:text-ink-muted",
         )}
       />
 
       {/* Queue and steer as chords only (T5), on a line of their own so the pills keep their room. */}
-      {steerHints ? <KbdRow hints={steerHints} className="px-4 pb-1.5" /> : null}
+      {steerHints ? <KbdRow hints={steerHints} className={cn("px-4 pb-1.5", pill && "order-last basis-full px-0")} /> : null}
 
+      {pill ? (
+        <div className="ms-auto flex shrink-0 items-center gap-2">
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              if (event.target.files) addFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+          <Tooltip label={copy.chat.attach}>
+            <Button variant="quiet" size="icon-xl" aria-label={copy.chat.attach} onClick={() => fileInput.current?.click()} disabled={Boolean(props.blocked) || waiting}>
+              <Paperclip />
+            </Button>
+          </Tooltip>
+          {showStop ? (
+            <Button variant="secondary" size="xl" aria-label={copy.chat.stop} onClick={props.onStop}>
+              <Square className="size-3.5! fill-current" />
+              {copy.chat.stop}
+            </Button>
+          ) : (
+            <Button variant="primary" size="xl" onClick={() => void submit()} disabled={!canSend} data-testid="composer-send">
+              {sending ? <LoaderCircle className="animate-spin" /> : null}
+              {props.sendLabel ?? copy.chat.send}
+            </Button>
+          )}
+        </div>
+      ) : (
       <div className="flex items-center gap-1 px-2 pb-2">
         {/* The pills scroll sideways on a phone instead of being clipped; send/stop keeps its place at the end. */}
         <div className="-m-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&>*]:shrink-0">
@@ -412,8 +453,9 @@ export const Composer = forwardRef<
           </Tooltip>
         )}
       </div>
+      )}
 
-      {props.blocked ? <div className="border-t border-border px-4 py-2.5 text-sm">{props.blocked}</div> : null}
+      {props.blocked ? <div className={cn("border-t border-border px-4 py-2.5 text-sm", pill && "order-last basis-full px-0")}>{props.blocked}</div> : null}
 
       <Popover.Root open={menuOpen} onOpenChange={(open) => !open && setMenuDismissed(true)}>
         <Popover.Portal>

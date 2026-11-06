@@ -7,6 +7,8 @@ import { WIDE } from "~/lib/use-media";
 type UiState = {
   drawerOpen: boolean;
   paletteOpen: boolean;
+  /** Quick capture (design SCR-20): one line into the inbox, from anywhere. */
+  captureOpen: boolean;
   newProjectOpen: boolean;
   feedbackOpen: boolean;
   /** The ⌘⇧/ sheet with the shortcuts table. */
@@ -29,6 +31,7 @@ type UiState = {
   agendaPinned: boolean;
   setDrawer(open: boolean): void;
   setPalette(open: boolean): void;
+  setCapture(open: boolean): void;
   setNewProject(open: boolean): void;
   setFeedback(open: boolean): void;
   setShortcuts(open: boolean): void;
@@ -86,6 +89,7 @@ export const useUi = create<UiState>((set, get) => {
   return {
     drawerOpen: false,
     paletteOpen: false,
+    captureOpen: false,
     newProjectOpen: false,
     feedbackOpen: false,
     shortcutsOpen: false,
@@ -100,6 +104,7 @@ export const useUi = create<UiState>((set, get) => {
     agendaPinned: storedAgenda === "open" || storedAgenda === "pinned",
     setDrawer: (open) => set({ drawerOpen: open }),
     setPalette: (open) => set({ paletteOpen: open }),
+    setCapture: (open) => set({ captureOpen: open, paletteOpen: false, drawerOpen: false }),
     setNewProject: (open) => set({ newProjectOpen: open, drawerOpen: false }),
     setFeedback: (open) => set({ feedbackOpen: open, drawerOpen: false, paletteOpen: false }),
     setShortcuts: (open) => set({ shortcutsOpen: open, drawerOpen: false, paletteOpen: false }),

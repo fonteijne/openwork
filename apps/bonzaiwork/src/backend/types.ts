@@ -10,6 +10,10 @@
 
 import type { AgendaSettingsView, BridgePost, Correction, DayView } from "@bonzaiwork/agenda/model";
 
+import type { CockpitBackend } from "./cockpit";
+
+export type * from "./cockpit";
+
 // ---------------------------------------------------------------------------
 // App, keys and models
 // ---------------------------------------------------------------------------
@@ -726,6 +730,9 @@ export interface Backend {
   };
 
   agenda: AgendaBackend;
+
+  /** The decision-first cockpit: to-dos, inbox, runs, approvals, the Library, activity (backend/cockpit.ts). */
+  cockpit: CockpitBackend;
 
   feedback: {
     /** Screenshot and redacted logs, taken before the dialog opens; null when this backend has neither. */

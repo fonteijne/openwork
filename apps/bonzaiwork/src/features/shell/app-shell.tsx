@@ -5,7 +5,6 @@ import { useBackend } from "~/backend/context";
 import { useStatus } from "~/backend/queries";
 import type { Backend } from "~/backend/types";
 import { PAGE_TITLE } from "~/components/top-bar";
-import { Sheet } from "~/components/ui/overlay";
 import { copy } from "~/copy";
 import { goBack, goForward, navigate, type Route } from "~/lib/router";
 import { focusComposer, inOverlay, matchShortcut, PROJECT_SLOTS, SEEN_ALL_EVENT, type ShortcutId } from "~/lib/shortcuts";
@@ -13,11 +12,12 @@ import { DESKTOP, SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
 import { useOpenedOnce } from "~/lib/use-opened-once";
 
 import { useAgendaPresence } from "../agenda/presence";
-import { BottomTabs } from "./bottom-tabs";
 import { useSidebarProjects } from "../projects/use-listed-projects";
-import { Sidebar } from "./sidebar";
+import { StatusFooter } from "./status-footer";
+import { MobileTabs, TopNav } from "./top-nav";
 import { useUi } from "./ui-store";
 
+const CaptureDialog = lazy(() => import("../today/capture-dialog").then((module) => ({ default: module.CaptureDialog })));
 const CommandPalette = lazy(() => import("./command-palette").then((module) => ({ default: module.CommandPalette })));
 const NewProjectDialog = lazy(() => import("../projects/new-project-dialog").then((module) => ({ default: module.NewProjectDialog })));
 // The agenda panel is its own chunk: closed means not loaded (agenda plan §7.6).
@@ -90,8 +90,8 @@ function useShortcuts(route: Route, projectId: string | null) {
           if (projectId) ui.toggleDetails(wide);
           return;
         case "sidebar":
-          if (desktop) ui.toggleSidebar();
-          else ui.setDrawer(!ui.drawerOpen);
+          // The cockpit has a top bar, not a sidebar: the chord opens search instead.
+          ui.setPalette(true);
           return;
         case "settings":
           navigate({ name: "settings" });
@@ -130,12 +130,16 @@ function useShortcuts(route: Route, projectId: string | null) {
   }, [route.name, projectId, readOnly, pinned, desktop, wide]);
 }
 
-/** Sidebar column on desktop (collapsible), a drawer below that; a tab bar on phones; pages fill the rest. */
+/**
+ * The cockpit frame: the top bar, the page (it scrolls), the status line; on phones the tab bar
+ * instead of the status line. Overlays (palette, capture, agenda, dialogs) mount on first use.
+ */
 export function AppShell(props: { route: Route; projectId: string | null; children: ReactNode }) {
   const desktop = useMediaQuery(DESKTOP);
   const smallUp = useMediaQuery(SMALL_UP);
-  const collapsed = useUi((state) => state.sidebarCollapsed);
-  const drawerOpen = useUi((state) => state.drawerOpen);
+  const captureOpen = useUi((state) => state.captureOpen);
+  const setCapture = useUi((state) => state.setCapture);
+  const captureOpened = useOpenedOnce(captureOpen);
   const setDrawer = useUi((state) => state.setDrawer);
   const paletteOpened = useOpenedOnce(useUi((state) => state.paletteOpen));
   const newProjectOpen = useUi((state) => state.newProjectOpen);
@@ -182,23 +186,16 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
   }, [routeKey]);
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
-      {desktop ? (
-        collapsed ? null : (
-          <aside className="flex w-64 shrink-0 flex-col border-e border-border" aria-label={copy.appName}>
-            <Sidebar route={props.route} projectId={props.projectId} />
-          </aside>
-        )
-      ) : (
-        <Sheet open={drawerOpen} onOpenChange={setDrawer} side="left" label={copy.appName}>
-          <Sidebar route={props.route} projectId={props.projectId} />
-        </Sheet>
-      )}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <EngineBanner />
-        <div className="flex min-h-0 flex-1 flex-col">{props.children}</div>
-        {smallUp ? null : <BottomTabs route={props.route} />}
-      </div>
+    <div className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
+      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:start-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-surface">
+        {copy.shell.skipToContent}
+      </a>
+      <TopNav route={props.route} />
+      <EngineBanner />
+      <main id="main" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {props.children}
+      </main>
+      {smallUp ? <StatusFooter /> : <MobileTabs route={props.route} />}
       {agendaOpened ? (
         <Suspense fallback={null}>
           <AgendaPanelHost projectId={props.projectId} />
@@ -207,6 +204,11 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
       {paletteOpened ? (
         <Suspense fallback={null}>
           <CommandPalette route={props.route} projectId={props.projectId} />
+        </Suspense>
+      ) : null}
+      {captureOpened ? (
+        <Suspense fallback={null}>
+          <CaptureDialog open={captureOpen} onOpenChange={setCapture} projectId={props.projectId} />
         </Suspense>
       ) : null}
       {newProjectOpened ? (

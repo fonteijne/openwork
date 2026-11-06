@@ -25,6 +25,7 @@ import { missedOccurrence, nextOccurrence } from "~/lib/schedule";
 import { readLocalJson, writeLocalJson, writeLocal } from "~/lib/storage";
 
 import { createDemoAgenda } from "./agenda";
+import { createDemoCockpit } from "./cockpit";
 import { createDemoBrains } from "./brains";
 import { planReply, titleFrom, type Step } from "./replies";
 import { createSeed, type DemoState } from "./seed";
@@ -129,7 +130,8 @@ export function readDemoOptions(search: string): DemoOptions {
 }
 
 export function createDemoBackend(options: DemoOptions): Backend & { reset(): void } {
-  const storageKey = `bonzaiwork.demo.v5.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
+  // v6: the cockpit seed (personal chats, cockpit story); older saved demos start fresh.
+  const storageKey = `bonzaiwork.demo.v6.${options.empty ? "leeg" : "vol"}.${options.keyMode}`;
   const stored = readLocalJson(storageKey);
   const isState = (value: unknown): value is DemoState =>
     typeof value === "object" && value !== null && Reflect.get(value, "version") === 5 && Array.isArray(Reflect.get(value, "projects"));
@@ -143,6 +145,12 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
   const alwaysAllowed = new Map<string, Set<string>>();
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const agenda = createDemoAgenda({ storageKey, withProjects: !options.empty, projects: () => state.projects.map((project) => ({ id: project.id, name: project.name })) });
+  const cockpit = createDemoCockpit({
+    storageKey,
+    empty: options.empty,
+    projectName: (projectId) => state.projects.find((project) => project.id === projectId)?.name ?? null,
+    projectIds: () => state.projects.filter((project) => project.archivedAt === null).map((project) => project.id),
+  });
 
   // -------------------------------------------------------------------------
   // Persistence and events
@@ -613,6 +621,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       writeLocal(storageKey, null);
       state = createSeed(Date.now(), options);
       agenda.reset();
+      cockpit.reset();
       flush();
     },
 
@@ -1298,6 +1307,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
     },
 
     agenda,
+    cockpit,
 
     feedback: {
       // No window to capture and no logs in the browser: the dialog only opens GitHub.

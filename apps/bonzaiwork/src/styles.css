@@ -1,11 +1,13 @@
 @import "tailwindcss";
 
 /*
- * BonzaiWork visual system. Token names follow OpenWork's DESIGN.md (V1-V4):
- * semantic vars (--background, --muted, --border, --primary, ...) over color
- * scales. BonzaiWork's own look: ink neutrals, a warm sand for the sidebar and
- * soft surfaces, and one electric blue for the primary action and focus.
- * Pill-shaped controls, generous 24px cards, hardly any shadow.
+ * BonzaiWork visual system, "decision-first cockpit" (iO Digital design language).
+ * One flat system: white and warm-grey bands instead of borders, near-black ink, a single
+ * blue accent (#365fd9) for the primary action, links and focus, pills for every control,
+ * 16px cards and 32px feature panels, one shadow for floating layers only. Manrope for UI
+ * and headings, Instrument Serif italic for the one accent word in a page title.
+ * Semantic names follow OpenWork's DESIGN.md (--background, --muted, --border, --primary);
+ * the iO names (--surface, --ink, --line, --accent) are the same values for new screens.
  */
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -13,158 +15,214 @@
 :root {
   color-scheme: light;
 
-  /* Ink (neutrals): 1 = page, 12 = text. */
-  --ink-1: #ffffff; --ink-2: #f8f8f8; --ink-3: #f2f2f2; --ink-4: #e9e9e9;
-  --ink-5: #e0e0e0; --ink-6: #d4d4d4; --ink-7: #c2c2c2; --ink-8: #a6a6a6;
-  --ink-9: #949494; --ink-10: #727272; --ink-11: #555555; --ink-12: #232323;
+  /* iO tokens (design system "io": tokens.json). */
+  --surface: #ffffff;
+  --surface-alt: #f4f4f2;
+  --surface-raised: #ffffff;
+  --surface-inverse: #0a0a0a;
+  --ink: #0a0a0a;
+  --ink-muted: #595959;
+  --ink-inverse: #ffffff;
+  --ink-inverse-muted: #c9c9c6;
+  --line: #e2e2df;
+  --line-strong: #8a8a8a;
+  --line-inverse: rgba(255, 255, 255, 0.28);
+  --accent: #365fd9;
+  --accent-hover: #2a4bb3;
+  --accent-soft: #e9eefc;
+  --on-accent: #ffffff;
+  --success: #1b7446;
+  --danger: #b93c0a;
+  --io-shadow-float: 0 24px 48px -12px rgba(10, 10, 10, 0.18);
+  --ease-out-io: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* Sand (warm surfaces) and electric blue (the one accent). */
-  --sand-1: #fcfaf9; --sand-2: #f8f3f0; --sand-3: #f2e9e4; --sand-4: #ebdfd8; --sand-5: #e3d4cb;
-  --electric-3: #ebebfc; --electric-9: #0000d2; --electric-10: #0000a8; --electric-11: #0000d2;
+  /* Ink (neutrals): 1 = page, 12 = text. */
+  --ink-1: #ffffff; --ink-2: #fafaf9; --ink-3: #f4f4f2; --ink-4: #ececea;
+  --ink-5: #e2e2df; --ink-6: #d4d4d0; --ink-7: #c2c2be; --ink-8: #a6a6a3;
+  --ink-9: #8a8a8a; --ink-10: #6e6e6e; --ink-11: #595959; --ink-12: #0a0a0a;
+
+  /* "Sand" was the warm surface; it is now the iO band grey so older screens follow. */
+  --sand-1: #fafaf9; --sand-2: #f7f7f5; --sand-3: #f4f4f2; --sand-4: #ececea; --sand-5: #e2e2df;
+  --electric-3: #e9eefc; --electric-9: #365fd9; --electric-10: #2a4bb3; --electric-11: #365fd9;
   /* Readable on the dark toast and tooltip in both themes. */
-  --electric-on-ink: #a3a3ff;
+  --electric-on-ink: #a9bdf6;
 
   /* Status scales (3 = soft background, 9 = solid, 11 = text) */
-  --jade-3: #e6f7ed; --jade-9: #29a383; --jade-11: #208368;
-  --green-3: #e6f6eb; --green-9: #30a46c; --green-11: #218358;
-  --amber-3: #fff7c2; --amber-9: #ffc53d; --amber-11: #ab6400;
-  --red-3: #feebec; --red-9: #e5484d; --red-11: #ce2c31;
-  --blue-3: #e6f4fe; --blue-9: #0090ff; --blue-11: #0d74ce;
+  --jade-3: #e6f7ed; --jade-9: #29a383; --jade-11: #1b7446;
+  --green-3: #e6f6eb; --green-9: #30a46c; --green-11: #1b7446;
+  --amber-3: #fff7c2; --amber-9: #ffc53d; --amber-11: #8a5300;
+  --red-3: #fdeee6; --red-9: #d4501a; --red-11: #b93c0a;
+  --blue-3: #e9eefc; --blue-9: #365fd9; --blue-11: #2a4bb3;
   --violet-3: #f4f0fe; --violet-9: #6e56cf; --violet-11: #6550b9;
-  --orange-3: #ffefd6; --orange-9: #f76b15; --orange-11: #cc4e00;
+  --orange-3: #ffefd6; --orange-9: #f76b15; --orange-11: #b93c0a;
   --tomato-3: #feebe7; --tomato-9: #e54d2e; --tomato-11: #d13415;
   --pink-3: #fee9f5; --pink-9: #d6409f; --pink-11: #c2298a;
   --cyan-3: #def7f9; --cyan-9: #00a2c7; --cyan-11: #107d98;
 
-  /* Semantic tokens (OpenWork names). Text colors meet WCAG AA on white and on sand. */
-  --background: var(--ink-1);
-  --foreground: var(--ink-12);
-  --card: var(--ink-1);
-  --popover: var(--ink-1);
-  --popover-foreground: var(--ink-12);
-  --muted: var(--ink-3);
-  --muted-foreground: var(--ink-11);
+  /* Semantic tokens (OpenWork names), mapped onto the iO set. */
+  --background: var(--surface);
+  --foreground: var(--ink);
+  --card: var(--surface-raised);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--ink);
+  --muted: var(--surface-alt);
+  --muted-foreground: var(--ink-muted);
   --subtle-foreground: #666666;
-  --border: rgba(35, 35, 35, 0.12);
-  --border-strong: rgba(35, 35, 35, 0.88);
-  --input: var(--ink-9);
-  --ring: var(--electric-9);
-  --primary: var(--electric-9);
-  --primary-hover: var(--electric-10);
-  --primary-foreground: #ffffff;
-  --destructive: var(--red-9);
-  --destructive-foreground: var(--red-11);
-  --success-foreground: var(--green-11);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --input: var(--line-strong);
+  --ring: var(--accent);
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --primary-foreground: var(--on-accent);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger);
+  --success-foreground: var(--success);
   --warning-foreground: var(--amber-11);
-  --selection: rgba(0, 0, 210, 0.14);
-  --backdrop: rgba(35, 35, 35, 0.4);
+  --selection: rgba(54, 95, 217, 0.16);
+  --backdrop: rgba(10, 10, 10, 0.45);
 
-  --dls-sidebar: var(--sand-3);
-  --dls-hover: rgba(35, 35, 35, 0.05);
-  --dls-active: rgba(35, 35, 35, 0.08);
-  --dls-user-bubble: var(--sand-3);
+  --dls-sidebar: var(--surface-alt);
+  --dls-hover: rgba(10, 10, 10, 0.05);
+  --dls-active: rgba(10, 10, 10, 0.08);
+  --dls-user-bubble: var(--surface-alt);
   --dls-radius: 16px;
   --dls-radius-lg: 24px;
-  --radius: 0.625rem;
-  --dls-card-shadow: 0 0 0 1px rgba(35, 35, 35, 0.06);
-  --dls-shell-shadow: 0 20px 80px rgba(0, 0, 0, 0.12);
-  --dls-popover-shadow: 0 0 0 1px rgba(35, 35, 35, 0.06), 0 20px 80px rgba(0, 0, 0, 0.12);
+  --radius: 0.375rem;
+  --dls-card-shadow: 0 0 0 1px var(--line);
+  --dls-shell-shadow: var(--io-shadow-float);
+  --dls-popover-shadow: 0 0 0 1px var(--line), var(--io-shadow-float);
 
-  /* Inverse surfaces (toast, tooltip): ink on light, light sand on dark. One set of tokens, no per-component dark overrides. */
-  --inverse-surface: var(--ink-12);
-  --inverse-foreground: #ffffff;
-  --inverse-muted-foreground: var(--ink-8);
+  /* Inverse surfaces (toast, tooltip, the "Needs you" band). */
+  --inverse-surface: var(--surface-inverse);
+  --inverse-foreground: var(--ink-inverse);
+  --inverse-muted-foreground: var(--ink-inverse-muted);
   --inverse-accent: var(--electric-on-ink);
   --inverse-hover: rgba(255, 255, 255, 0.1);
 
-  --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out-soft: var(--ease-out-io);
 }
 
-/*
- * Dark theme (brief §11): the same identity at low lightness. The sidebar keeps its warm sand hue one
- * clear step above the page, hairlines sit at >= 0.16 alpha so rows and edges stay perceptible, the
- * primary is a saturated electric with light text so the one focal button survives (P7), and
- * "disabled" is opacity on that same primary, never lavender. Toast and tooltip read the inverse
- * tokens below instead of their own dark overrides.
- */
+/* Dark theme: the iO dark set. The inverse band flips to light so the contrast moment survives. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --ink-1: #111111; --ink-2: #181818; --ink-3: #1f1f1f; --ink-4: #272727;
-  --ink-5: #303030; --ink-6: #3b3b3b; --ink-7: #484848; --ink-8: #5c5c5c;
-  --ink-9: #8d8d8d; --ink-10: #a6a6a6; --ink-11: #c0b9b3; --ink-12: #f2e9e4;
+  --surface: #0a0a0a;
+  --surface-alt: #151515;
+  --surface-raised: #1c1c1c;
+  --surface-inverse: #f4f4f2;
+  --ink: #f4f4f2;
+  --ink-muted: #a6a6a6;
+  --ink-inverse: #0a0a0a;
+  --ink-inverse-muted: #3d3d3d;
+  --line: #2b2b2b;
+  --line-strong: #6b6b6b;
+  --line-inverse: rgba(10, 10, 10, 0.24);
+  --accent: #8aa4f2;
+  --accent-hover: #a9bdf6;
+  --accent-soft: #172240;
+  --on-accent: #0a0a0a;
+  --success: #5ccf92;
+  --danger: #ff9a6b;
+  --io-shadow-float: 0 24px 48px -12px rgba(0, 0, 0, 0.6);
 
-  /* Warm dark sand: the sidebar and the user bubble keep their hue. */
-  --sand-1: #1d1a18; --sand-2: #241f1c; --sand-3: #2b2521; --sand-4: #352e29; --sand-5: #403832;
-  /* Saturated electric for surfaces (white text reads at 5.6:1), a light electric for text and the ring. */
-  --electric-3: #1f1f5a; --electric-9: #4a4aff; --electric-10: #6060ff; --electric-11: #b0b0ff;
+  --ink-1: #0a0a0a; --ink-2: #111111; --ink-3: #151515; --ink-4: #1c1c1c;
+  --ink-5: #242424; --ink-6: #2b2b2b; --ink-7: #3a3a3a; --ink-8: #555555;
+  --ink-9: #6b6b6b; --ink-10: #8a8a8a; --ink-11: #a6a6a6; --ink-12: #f4f4f2;
 
-  --jade-3: #0f2e22; --jade-9: #29a383; --jade-11: #1fd8a4;
-  --green-3: #132d21; --green-9: #30a46c; --green-11: #3dd68c;
+  --sand-1: #111111; --sand-2: #131313; --sand-3: #151515; --sand-4: #1c1c1c; --sand-5: #242424;
+  --electric-3: #172240; --electric-9: #8aa4f2; --electric-10: #a9bdf6; --electric-11: #8aa4f2;
+  --electric-on-ink: #2a4bb3;
+
+  --jade-3: #0f2e22; --jade-9: #29a383; --jade-11: #5ccf92;
+  --green-3: #132d21; --green-9: #30a46c; --green-11: #5ccf92;
   --amber-3: #302008; --amber-9: #ffc53d; --amber-11: #ffca16;
-  --red-3: #3b1219; --red-9: #e5484d; --red-11: #ff9592;
-  --blue-3: #0d2847; --blue-9: #0090ff; --blue-11: #70b8ff;
+  --red-3: #3b1a0f; --red-9: #ff7a45; --red-11: #ff9a6b;
+  --blue-3: #172240; --blue-9: #8aa4f2; --blue-11: #a9bdf6;
   --violet-3: #291f43; --violet-9: #6e56cf; --violet-11: #baa7ff;
-  --orange-3: #331e0b; --orange-9: #f76b15; --orange-11: #ffa057;
+  --orange-3: #331e0b; --orange-9: #f76b15; --orange-11: #ff9a6b;
   --tomato-3: #391714; --tomato-9: #e54d2e; --tomato-11: #ff977d;
   --pink-3: #37172f; --pink-9: #d6409f; --pink-11: #ff8dcc;
   --cyan-3: #082c36; --cyan-9: #00a2c7; --cyan-11: #4ccce6;
 
-  --background: var(--ink-2);
-  --foreground: var(--ink-12);
-  --card: var(--ink-3);
-  --popover: var(--ink-4);
-  --popover-foreground: var(--ink-12);
-  --muted: var(--ink-4);
-  --muted-foreground: var(--ink-11);
-  --subtle-foreground: #a09a95;
-  /* Hairlines >= 0.16 alpha (assessment P-5: 0.1 was below perceptibility). */
-  --border: rgba(242, 233, 228, 0.16);
-  --border-strong: rgba(242, 233, 228, 0.8);
-  --input: var(--ink-9);
-  --ring: var(--electric-11);
-  --primary: var(--electric-9);
-  --primary-hover: var(--electric-10);
-  --primary-foreground: #ffffff;
-  --destructive: var(--red-9);
-  --destructive-foreground: var(--red-11);
-  --success-foreground: var(--green-11);
+  --background: var(--surface);
+  --foreground: var(--ink);
+  --card: var(--surface-raised);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--ink);
+  --muted: var(--surface-alt);
+  --muted-foreground: var(--ink-muted);
+  --subtle-foreground: #9a9a9a;
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --input: var(--line-strong);
+  --ring: var(--accent);
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --primary-foreground: var(--on-accent);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger);
+  --success-foreground: var(--success);
   --warning-foreground: var(--amber-11);
-  --selection: rgba(74, 74, 255, 0.35);
+  --selection: rgba(138, 164, 242, 0.3);
   --backdrop: rgba(0, 0, 0, 0.6);
 
-  --dls-sidebar: var(--sand-3);
-  --dls-hover: rgba(242, 233, 228, 0.07);
-  --dls-active: rgba(242, 233, 228, 0.12);
-  --dls-user-bubble: var(--sand-3);
-  --dls-card-shadow: 0 0 0 1px rgba(242, 233, 228, 0.12);
-  --dls-shell-shadow: 0 20px 80px rgba(0, 0, 0, 0.5);
-  --dls-popover-shadow: 0 0 0 1px rgba(242, 233, 228, 0.16), 0 20px 80px rgba(0, 0, 0, 0.5);
+  --dls-sidebar: var(--surface-alt);
+  --dls-hover: rgba(244, 244, 242, 0.07);
+  --dls-active: rgba(244, 244, 242, 0.12);
+  --dls-user-bubble: var(--surface-raised);
+  --dls-card-shadow: 0 0 0 1px var(--line);
+  --dls-shell-shadow: var(--io-shadow-float);
+  --dls-popover-shadow: 0 0 0 1px var(--line), var(--io-shadow-float);
 
-  /* Inverse surfaces flip to light sand so a toast or tooltip still lifts off the dark page. */
-  --inverse-surface: var(--ink-12);
-  --inverse-foreground: #1a1a1a;
-  --inverse-muted-foreground: #5f5955;
-  --inverse-accent: #0000d2;
-  --inverse-hover: rgba(35, 35, 35, 0.08);
+  --inverse-surface: var(--surface-inverse);
+  --inverse-foreground: var(--ink-inverse);
+  --inverse-muted-foreground: var(--ink-inverse-muted);
+  --inverse-accent: var(--electric-on-ink);
+  --inverse-hover: rgba(10, 10, 10, 0.08);
 }
 
 @theme inline {
-  /* Manrope, self-hosted (@fontsource-variable/manrope, imported in main.tsx). */
-  --font-sans: "Manrope Variable", "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Manrope (variable, self-hosted) for everything; Instrument Serif italic for the accent word. */
+  --font-sans: "Manrope Variable", "Manrope", "Helvetica Neue", Arial, ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
   --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* V1: 13px body. */
-  --text-xs: 0.75rem;
-  --text-xs--line-height: 1.45;
-  --text-sm: 0.8125rem;
-  --text-sm--line-height: 1.5;
-  --text-base: 0.875rem;
-  --text-base--line-height: 1.55;
-  --text-lg: 1rem;
-  --text-lg--line-height: 1.45;
-  --text-xl: 1.25rem;
-  --text-xl--line-height: 1.3;
+  /* The iO type scale: small 14/22, label 15/20-24, body 17/28, lead 22/34, h3 28/34, h2 40/46, h1 56/60. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.375rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.0625rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.375rem;
+  --text-xl--line-height: 2.125rem;
+  --text-2xl: 1.75rem;
+  --text-2xl--line-height: 2.125rem;
+  --text-3xl: 2.5rem;
+  --text-3xl--line-height: 2.875rem;
+  --text-4xl: 3.5rem;
+  --text-4xl--line-height: 3.75rem;
+
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-inverse: var(--surface-inverse);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-inverse: var(--ink-inverse);
+  --color-ink-inverse-muted: var(--ink-inverse-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-line-inverse: var(--line-inverse);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -242,12 +300,17 @@
   --radius-xl: calc(var(--radius) + 0.5rem);
   --radius-shell: var(--dls-radius);
   --radius-window: var(--dls-radius-lg);
+  /* iO: 16px cards and media, 32px feature panels and inverse bands. */
+  --radius-card: 16px;
+  --radius-panel: 32px;
 
   --shadow-card: var(--dls-card-shadow);
   --shadow-shell: var(--dls-shell-shadow);
   --shadow-popover: var(--dls-popover-shadow);
+  --shadow-float: var(--io-shadow-float);
 
   --ease-soft: var(--ease-out-soft);
+  --ease-io: var(--ease-out-io);
 }
 
 @layer base {
@@ -261,9 +324,9 @@
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    /* Manrope reads best a touch heavier than regular: body text at 500, headings at 600. */
-    font-weight: 500;
+    font-size: var(--text-base);
+    /* iO: running text at 400, labels at 500-600, headings at 600-700. */
+    font-weight: 400;
     line-height: 1.5;
     accent-color: var(--primary);
     -webkit-font-smoothing: antialiased;
@@ -282,7 +345,7 @@
   /* V7: never outline:none without a replacement ring. */
   :focus-visible {
     outline: 2px solid var(--ring);
-    outline-offset: 2px;
+    outline-offset: 3px;
   }
 
   button,
@@ -295,6 +358,12 @@
   h3 {
     font-weight: 600;
     letter-spacing: -0.01em;
+  }
+
+  /* Native checkboxes and radios take the accent (the design's ticked rows). */
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--accent);
   }
 
   * {

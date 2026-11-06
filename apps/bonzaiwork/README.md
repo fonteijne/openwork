@@ -1,8 +1,9 @@
 # @bonzaiwork/app: de BonzaiWork-UI
 
-De werkapp van BonzaiWork: één werkplek voor chats met AI, projecten, routines, breinen en de agenda. De app
-opent op **Vandaag** (wat wacht op jou, wat loopt, wat gebeurde terwijl je weg was); projecten zijn containers
-met tabbladen. Ontwerp: [`docs/bonzaiwork/ui-ux-overhaul.md`](../../docs/bonzaiwork/ui-ux-overhaul.md), stand van
+De werkapp van BonzaiWork: één werkplek voor chats met AI, projecten, runs, de Bibliotheek, routines, breinen
+en de agenda. De interface is een **beslissingsgerichte cockpit**: de app opent op **Vandaag** (wat alleen jij
+kunt beslissen, je to-do's, wat gebeurde terwijl je weg was, wat loopt). Ontwerp, schermen en wat demo of live
+is: [`docs/bonzaiwork/cockpit.md`](../../docs/bonzaiwork/cockpit.md). Ontwerp: [`docs/bonzaiwork/ui-ux-overhaul.md`](../../docs/bonzaiwork/ui-ux-overhaul.md), stand van
 zaken: [`docs/bonzaiwork/ui-ux-overhaul-stand.md`](../../docs/bonzaiwork/ui-ux-overhaul-stand.md).
 Gebouwd volgens het frontend-contract (`docs/bonzaiwork/frontend-contract.md`) en de ontwerpregels uit
 `DESIGN.md`. De Electron-entry en het verpakken staan in `desktop-main/` en `scripts/`; zie
@@ -105,15 +106,24 @@ Routes (hash, zodat de build ook vanaf `file://` werkt):
 | --- | --- |
 | `#/` | Vandaag |
 | `#/projecten` | Alle projecten (lijst, archief, nieuw) |
-| `#/p/:id` | Project · Werk |
-| `#/p/:id/c/:chat` | Chat (een geopend bestand als `?bestand=<pad>` in de hash) |
+| `#/vandaag/plan` | Dagplanning |
+| `#/agent[/c/:chat]` | Agent: je persoonlijke chats (het persoonlijke brein) |
+| `#/inbox` | Inbox: sorteren wat binnenkomt |
+| `#/runs[/:run]` | Runs; een run met stappen, controle en herstel |
+| `#/delegeren[/:todo]` | Een brief voor een run |
+| `#/goedkeuring/:id` | Goedkeuring voor versturen (R4) of delen (R3) |
+| `#/bibliotheek[/plank/:id\|/pagina/:id\|/voorstel/:id]` | Bibliotheek |
+| `#/activiteit[/verzonden]` | Activiteit en het verzendlog |
+| `#/projecten/nieuw[/:project/:chat]` | Nieuw project, eventueel uit een chat |
+| `#/p/:id` | Project · Overzicht; tabbladen `todos`, `runs`, `chats`, `uitvoer`, `bronnen`, `besluiten`, `activiteit`, en `bewerken`, `afronden` |
+| `#/p/:id/c/:chat` | Project · Chats, met de chat open (een geopend bestand als `?bestand=<pad>` in de hash) |
 | `#/p/:id/bestanden` | Project · Bestanden |
 | `#/p/:id/routines[/:rid]` | Project · Routines |
 | `#/p/:id/brein` | Project · Brein |
 | `#/p/:id/instellingen[/:groep]` | Project · Instellingen; `project`, `agent`, `toegang`, `technisch`. Oude secties (`general`, `key`, `instructions`, `skills`, `commands`, `connections`, `permissions`, `activity`, `files`, `brain`) blijven als alias. |
 | `#/routines[/:rid]` | Routines van alle projecten |
 | `#/brein` | Jouw brein (het persoonlijke brein; geen projectrij) |
-| `#/instellingen[/:groep]` | App-instellingen; `toegang`, `weergave`, `agenda`, `breinen`, `alle`, `technisch` |
+| `#/instellingen[/:groep]` | App-instellingen; `verbindingen`, `agent`, `werkwijzen`, `geheugen`, `meldingen`, `weergave`, `agenda`, `technisch` (`toegang`, `breinen`, `alle` blijven als alias) |
 | `#/welkom` | Eerste start; zonder projecten gaan `#/`, `#/routines` en `#/instellingen` hierheen |
 
 Een onbekend id of pad geeft een niet-gevonden-staat in de pagina; de zijbalk blijft gevuld.

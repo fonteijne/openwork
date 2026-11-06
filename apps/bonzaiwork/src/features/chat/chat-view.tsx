@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ChevronLeft, Clock, Ellipsis, RotateCcw, WifiOff } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
@@ -54,7 +54,12 @@ const EMPTY: Message[] = [];
 
 const textOf = (message: Message) => message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
 
-export function ChatView(props: { project: Project; chatId: string }) {
+export function ChatView(props: {
+  project: Project;
+  chatId: string;
+  /** Shown in the conversation after the first answer (a run card started from this chat); optional. */
+  inline?: ReactNode;
+}) {
   const backend = useBackend();
   const runtime = useRuntime();
   const status = useStatus();
@@ -99,6 +104,7 @@ export function ChatView(props: { project: Project; chatId: string }) {
   const revertAt = chat?.revertMessageId ? messages.findIndex((message) => message.id === chat.revertMessageId) : -1;
   const visible = revertAt >= 0 ? messages.slice(0, revertAt) : messages;
   const items = useMemo(() => toItems(visible), [visible]);
+  const firstTurnKey = items.find((item) => item.kind === "turn")?.key ?? null;
   const running = chat?.status === "running" || chat?.status === "waiting";
   const lastItem = items.at(-1);
   const liveTurn = running && lastItem?.kind === "turn" ? lastItem.key : null;
@@ -379,11 +385,17 @@ export function ChatView(props: { project: Project; chatId: string }) {
                     onRevert={running ? undefined : () => void revert(item.message)}
                     onRoutine={backend.capabilities.routines ? () => setRoutineFrom(item.message) : undefined}
                   />
+                ) : props.inline && item.key === firstTurnKey ? (
+                  <Fragment key={item.key}>
+                    <AssistantTurn messages={item.messages} live={item.key === liveTurn} stopped={stoppedTurns.includes(item.key)} projectId={project.id} actions={turnActions} />
+                    {props.inline}
+                  </Fragment>
                 ) : (
                   <AssistantTurn key={item.key} messages={item.messages} live={item.key === liveTurn} stopped={stoppedTurns.includes(item.key)} projectId={project.id} actions={turnActions} />
                 ),
               )
             )}
+            {props.inline && firstTurnKey === null && entry?.state !== "loading" ? props.inline : null}
             {awaitingFirstStep ? <ThinkingLine /> : null}
             {!running && items.length ? <BrainTurnLine projectId={project.id} chatId={props.chatId} /> : null}
             {revertAt >= 0 ? (
