@@ -18,6 +18,7 @@ import {
   getAutomationsRoute,
   getOrgAccessFlags,
   getPluginRoute,
+  orgFeatureEnabled,
 } from "../../../_lib/den-org";
 import { myAgentAvailable } from "../my-agent-availability";
 import { useDenFlow } from "../../../_providers/den-flow-provider";
@@ -155,6 +156,7 @@ export function DenCommandPalette({ open, onOpenChange, interceptNavigation }: D
   const pageEntries = useMemo<PaletteEntry[]>(() => {
     const sections = buildDashboardNavSections({
       orgSlug: activeOrg?.slug ?? null,
+      organizationId: activeOrg?.id ?? null,
       access,
       capabilities,
       orgMode: runtimeConfig.orgMode,
@@ -163,6 +165,7 @@ export function DenCommandPalette({ open, onOpenChange, interceptNavigation }: D
       desktopPolicyScreenRemoved: desktopPolicyScreenRemoved(orgContext),
       canManageDeploymentServices: orgContext?.canManageDeploymentServices === true,
       myBot: myAgentAvailable(orgContext),
+      authSecuritySettings: orgFeatureEnabled(orgContext, "authSecuritySettings"),
     });
     return flattenNavigationForSearch(sections)
       .filter((entry) => entry.href !== "#")

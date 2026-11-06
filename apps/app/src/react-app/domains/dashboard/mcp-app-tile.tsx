@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { createPortal } from "react-dom";
 import { DashboardConnectionCard } from "./dashboard-connection-card";
 import { appToolResultConnectionToolName, connectionCardFromMcpToolResult } from "@/components/tools/error-attribution";
 import type { ConnectionActionPayload } from "@openwork/types/connection-action-app";
@@ -22,6 +23,7 @@ import { onCloudCredentialRefreshed, readCloudCredentialRevision } from "@/react
 import { DashboardTileShell, type DashboardTileActions } from "./dashboard-tile-shell";
 import { resolveDashboardMcpApp } from "./dashboard-mcp-app-resolution";
 import { scheduleDashboardLaunch } from "./dashboard-launch-scheduler";
+import { memberAccessCheckPending, memberAccessConfirmed, waitForMemberAccessCheck } from "./mcp-app-member-access";
 import { useArtifactSurfaceActive } from "./retained-artifact-surface";
 import { useDashboardTileGeometry } from "./use-dashboard-tile-geometry";
 import {
@@ -193,28 +195,34 @@ function invalidatesTileDocument(cause: unknown) {
 }
 
 /**
- * After a restart a saved tile's App document is still in IndexedDB. A tile
- * reads its saved state as it first renders, so that read comes first. If it
- * finds nothing the tile simply opens the ordinary way.
+ * A tile reads its saved state as it first renders, so what that state depends
+ * on comes first: after a restart its App document is still in IndexedDB, and a
+ * check of the member's access may be under way. If either finds nothing in
+ * time the tile simply opens without it. Once open a tile stays open, whatever
+ * later checks do.
  */
-function useDashboardTileDocument(scopeKey: string, entryId: string) {
+function useSavedTileReady(scopeKey: string, entryId: string) {
   const tile = JSON.stringify([scopeKey, entryId]);
-  const pending = dashboardTileDocumentPending(scopeKey, entryId);
+  const pending = dashboardTileDocumentPending(scopeKey, entryId)
+    || (memberAccessCheckPending() && readDashboardTileCache(scopeKey, entryId) !== null);
   const [loaded, setLoaded] = useState<string | null>(null);
+  const ready = useRef<string | null>(null);
   useEffect(() => {
-    if (!pending) return;
+    if (!pending || ready.current === tile) return;
     let current = true;
-    void loadDashboardTileDocument(scopeKey, entryId).finally(() => { if (current) setLoaded(tile); });
+    void Promise.all([loadDashboardTileDocument(scopeKey, entryId), waitForMemberAccessCheck()])
+      .finally(() => { if (current) setLoaded(tile); });
     return () => { current = false; };
   }, [scopeKey, entryId, tile, pending]);
-  return !pending || loaded === tile;
+  if (!pending || loaded === tile) ready.current = tile;
+  return ready.current === tile;
 }
 
 export function McpAppTile(props: ComponentProps<typeof McpAppTileContent>) {
   const input = props.entry.launchArguments ?? EMPTY_ARGUMENTS;
   const signature = useMemo(() => launchArgumentsSignature(input), [input]);
-  const documentReady = useDashboardTileDocument(props.cacheScopeKey, props.entry.id);
-  if (!documentReady) return null;
+  const ready = useSavedTileReady(props.cacheScopeKey, props.entry.id);
+  if (!ready) return null;
   return <McpAppTileContent key={JSON.stringify([props.cacheScopeKey, dashboardEntryIdentity(props.entry, signature)])} {...props} />;
 }
 
@@ -226,9 +234,17 @@ function McpAppTileContent({
   fallbackEndpoints,
   renderActions,
   actionsPlacement,
+  chromeTarget,
+  onFixChangedTool,
 }: {
   renderActions?: DashboardTileActions;
   actionsPlacement?: "header";
+  /**
+   * A host toolbar slot (the Artifacts detail header). When set, the refresh
+   * action and "Updating…" state render there instead of floating over the
+   * App's own content. null waits for the slot to mount.
+   */
+  chromeTarget?: HTMLElement | null;
   entry: DashboardMcpAppEntry;
   /** Per-user and per-organization scope for workspace-bound last-known-good dashboard data. */
   cacheScopeKey: string;
@@ -239,6 +255,8 @@ function McpAppTileContent({
   onAutoLaunchDisabled?: () => void;
   /** Other workspace runtimes to try when the primary one cannot resolve the app. */
   fallbackEndpoints?: DashboardLaunchEndpoint[];
+  /** Starts a conversation to update the App when one of its tools changed; only for someone who can update it. */
+  onFixChangedTool?: (tool: string) => Promise<void>;
 }) {
   const workspace = useWorkspace();
   const { openworkServerClient, workspaceId } = workspace;
@@ -282,7 +300,7 @@ function McpAppTileContent({
   const lastHeight = useRef<number | undefined>(undefined);
   const [state, setState] = useState<TileState>(() => cached && cachedEndpoint
     ? {
-        phase: "ready", app: cached.app, result: savedLaunchResult(cached), endpoint: cachedEndpoint, cachedAt: cached.cachedAt,
+        phase: "ready", app: cached.app, result: savedLaunchResult(cached, memberAccessConfirmed()), endpoint: cachedEndpoint, cachedAt: cached.cachedAt,
         origin: { ...cachedEndpoint, sessionId: null, readOnly: true }, argumentsSignature,
         lifetime: { id: ++documentSequence.current, active: true, failed: false },
       }
@@ -753,7 +771,7 @@ function McpAppTileContent({
       aria-busy={refreshState === "refreshing" || loadingDocument} style={{ minHeight: loadingDocument ? reservedHeight : undefined }}>
       <DashboardTileShell
         title={entry.title}
-        renderActions={renderActions}
+        renderActions={chromeTarget === undefined ? renderActions : undefined}
         actionsPlacement={actionsPlacement}
         entryId={entry.id}
         subtitle={entry.serverName}
@@ -816,6 +834,7 @@ function McpAppTileContent({
                 unavailableNotice="This artifact view is unavailable."
                 presentation="dashboard"
                 onRetry={run}
+                onFixChangedTool={onFixChangedTool}
                 onAppToolResult={(result) => {
                   // A failed call the App makes itself gets the same connection card as a failed launch.
                   if (!currentDocument(state.lifetime) || !isRecord(result) || result.isError !== true) return;
@@ -875,12 +894,20 @@ function McpAppTileContent({
           <Skeleton className="min-h-24 w-full flex-1" />
         </div>
       ) : null}
-      {state.phase === "ready" && !loadingDocument && !state.lifetime.failed && refreshState !== "idle" ? (
+      {chromeTarget === undefined && state.phase === "ready" && !loadingDocument && !state.lifetime.failed && refreshState !== "idle" ? (
         <div className="pointer-events-none absolute right-10 top-1 z-10 rounded bg-background/90 px-2 py-1 text-[11px] text-muted-foreground"
           role="status" aria-live="polite" data-dashboard-cache-state={refreshState}>
           {refreshState === "refreshing" ? "Updating…" : "Refresh failed · showing last good data"}
         </div>
       ) : null}
+      {chromeTarget ? createPortal(<>
+        {state.phase === "ready" && !loadingDocument && !state.lifetime.failed && refreshState !== "idle" ? (
+          <span className="whitespace-nowrap px-1 text-xs text-muted-foreground" role="status" aria-live="polite" data-dashboard-cache-state={refreshState}>
+            {refreshState === "refreshing" ? "Updating…" : "Refresh failed · showing last good data"}
+          </span>
+        ) : null}
+        {renderActions?.({ onRefresh: run, refreshing: refreshState === "refreshing" || loadingDocument })}
+      </>, chromeTarget) : null}
     </div>
   );
 }

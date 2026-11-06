@@ -16,7 +16,7 @@ import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { appendEngineOutputTail, createEngineStartupLineReader } from "./engine-output.js";
-import { acquireEngineHistoryLease } from "./opencode-v2-history-lock.js";
+import { resolveOpencodeHistoryDatabase } from "./opencode-history.js";
 import { providerCredentialBrokerSource } from "./opencode-v2-provider-channel.js";
 
 export { installOpencodeV2Binary } from "./opencode-v2-binary.js";
@@ -52,6 +52,8 @@ export interface OpencodeV2ProviderSpec {
 export interface ManagedOpencodeV2ServerOptions {
   bin: string;
   rootDir: string;
+  /** A history path already selected by the owning host. */
+  historyDatabase?: string;
   /**
    * Scopes this server's generated config and plugin loaders under
    * `<rootDir>/instances/<instanceId>`. Several OpenWork apps (an installed
@@ -358,6 +360,10 @@ const ENGINE_INHERITED_ENV = [
   "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM", "CI",
   "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
   "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+  // Windows profile and install roots. Microsoft Win32-OpenSSH needs
+  // ProgramData at process start; without it ssh exits 255 with no message (#5538).
+  "SystemDrive", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
+  "ALLUSERSPROFILE", "PUBLIC", "CommonProgramFiles", "CommonProgramFiles(x86)",
   "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
 ];
 
@@ -468,14 +474,14 @@ async function createManagedOpencodeV2ServerInner(
   // Cloud skills use Connect on demand, just like v1. No generated Cloud
   // skill directory is registered with the native engine.
   await writeConfig();
-  const historyLease = await acquireEngineHistoryLease(options.rootDir, { bin: options.bin });
+  const historyDatabase = options.historyDatabase ?? await resolveOpencodeHistoryDatabase(options.rootDir);
   const child = spawn(options.bin, ["serve", "--hostname", hostname, "--port", String(port)], {
     env: {
       ...inherited,
       ...(options.env?.OPENCODE_DISABLE_MODELS_FETCH ? { OPENCODE_DISABLE_MODELS_FETCH: options.env.OPENCODE_DISABLE_MODELS_FETCH } : {}),
       ...(options.providerSession ? { OPENWORK_PROVIDER_SESSION_FD: "3", OPENWORK_PROVIDER_SESSION_BROKER: providerCredentialBrokerPath } : {}),
       OPENCODE_PASSWORD: password,
-      OPENCODE_DB: join(options.rootDir, "opencode.db"),
+      OPENCODE_DB: historyDatabase,
       OPENCODE_CONFIG_DIR: configDir,
       ...(opencodeModelsUrl === undefined ? {} : { OPENCODE_MODELS_URL: opencodeModelsUrl }),
     },
@@ -485,7 +491,6 @@ async function createManagedOpencodeV2ServerInner(
     const channel = child.stdio[3];
     if (!channel || !("end" in channel)) {
       child.kill();
-      await historyLease.release();
       throw new Error("OpenCode v2 credential channel unavailable");
     }
     // A private, anonymous pipe: no named socket, file, argument, or environment
@@ -510,7 +515,6 @@ async function createManagedOpencodeV2ServerInner(
   child.once("close", (code, signal) => {
     closed = true;
     lines.stop();
-    void historyLease.release();
     if (ready && !closing) options.onExit?.(diagnostics(code, stdout, stderr, signal));
   });
   child.stdout?.on("data", (chunk) => {
@@ -524,8 +528,6 @@ async function createManagedOpencodeV2ServerInner(
   child.on("error", (error) => {
     spawnError = error;
   });
-  try { await historyLease.child(child.pid); }
-  catch (error) { child.kill(); await historyLease.release(); throw error; }
 
   async function fetchJson(path: string, init: OpencodeV2RequestInit = {}): Promise<{ status: number; json: unknown }> {
     if (!url) throw new Error("OpenCode v2 has not announced its listener");
@@ -603,7 +605,6 @@ async function createManagedOpencodeV2ServerInner(
     if (child.connected) child.disconnect();
     if (closed || child.pid === undefined || child.exitCode !== null || child.signalCode !== null) {
       // Failed spawns have no process and may never emit `exit` (only `close`).
-      await historyLease.release();
       return;
     }
     const exit = new Promise<void>((resolve) => child.once("exit", () => resolve()));
@@ -616,7 +617,6 @@ async function createManagedOpencodeV2ServerInner(
       child.kill("SIGKILL");
       await exit;
     }
-    await historyLease.release();
   }
 
   const managed: ManagedOpencodeV2Server = {

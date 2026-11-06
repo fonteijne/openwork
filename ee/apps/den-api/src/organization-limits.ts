@@ -36,6 +36,8 @@ export type OrganizationMetadata = {
   seatsFreeAdditional?: number
   allowedDesktopVersions?: string[]
   requireSso?: boolean
+  restrictDomainToSso?: boolean
+  ssoSessionMaxAgeHours?: number
   brandAppName?: string
   brandLogoUrl?: string
   brandIconUrl?: string

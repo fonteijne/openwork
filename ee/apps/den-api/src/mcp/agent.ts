@@ -1,4 +1,4 @@
-import { createAgentMcpServer } from "./agent-server.js"
+import { createAgentMcpServer, WORKFLOW_SAVE_INSTRUCTIONS } from "./agent-server.js"
 export { createAgentMcpServer, AGENT_MCP_INSTRUCTIONS, LEGACY_AGENT_MCP_INSTRUCTIONS, AGENT_MCP_GUIDANCE_URI } from "./agent-server.js"
 import { appAuthoringStarter, registerAppStarterResources } from "./app-authoring-starter.js"
 import { startMcpAppTiming } from "@openwork/types/mcp-app-timing"
@@ -24,6 +24,7 @@ import { db } from "../db.js"
 import { getMcpResourceContext, isFirstPartyMcpPrincipal, mcpPrincipalCredentialId, verifyMcpRequest } from "./auth.js"
 import { AUDIT_UNAVAILABLE_TOOL_MESSAGE, AuditUnavailableError, auditUnavailableToolResult, mcpAuditPrincipal, runMcpServiceAction, serviceAuditResourceId, serviceErrorStatus, toolResultStatus } from "../audit/mcp-service-audit.js"
 import { DEN_MCP_APP_HOST_SCOPE, DEN_MCP_WRITE_SCOPE } from "./scopes.js"
+import { agentCheckRequestsAvailable, registerAgentCheckRequestTool } from "./agent-check-request.js"
 import { getCatalog, protectedResourceMetadata, protectedResourceMetadataRoute } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
 import { createScopedAgentMcpHttpHandlers, type AgentMcpAudience } from "./agent-http.js"
@@ -74,6 +75,8 @@ import {
   type ExecuteCapabilityToolResult,
 } from "./capability-registry.js"
 import { executeWorkflowAuthoringTest, workflowAuthoringTestInputSchema, workflowAuthoringTestOutputSchema } from "./workflow-authoring-test.js"
+import { workflowCodeRules } from "./codemode-script-object.js"
+import { newWorkflowLanguage } from "./workflow-service.js"
 import { parseNativeCapabilityName } from "./native-capabilities.js"
 import { gmailFileInputPreflightSchema } from "../capability-sources/gmail-file-input.js"
 import { recordWorkflowRun } from "../workflow-runs.js"
@@ -323,7 +326,7 @@ export async function resolveAgentSkills(input: {
   const marketplace = await listAccessibleMarketplaceSkillSources({ organizationId: input.organizationId, member: input.member })
   const sources = new Map<string, RemoteSkillSource>(marketplace)
   for (const skill of input.skills) {
-    const builtin = executeBuiltinSkillCapability(skill.capability)
+    const builtin = await executeBuiltinSkillCapability(skill.capability, input.organizationId)
     if (builtin) sources.set(skill.capability, { content: builtin.content, provenance: builtin.provenance })
   }
   return resolveSkills(input.skills, sources)
@@ -341,7 +344,7 @@ export async function readRemoteSkillSource(input: {
    */
   recordUse: boolean
 }): Promise<RemoteSkillSource> {
-  const builtinResult = executeBuiltinSkillCapability(input.skill.capability)
+  const builtinResult = await executeBuiltinSkillCapability(input.skill.capability, input.organizationId)
   if (builtinResult) return { content: builtinResult.content, provenance: builtinResult.provenance }
   const marketplace = parseMarketplaceCapabilityName(input.skill.capability)
   if (!marketplace) return null
@@ -763,12 +766,17 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       remoteSessionStatus: Boolean(memberIdentity),
       canSendSlackMessages: slackSendAsBotAvailable(capabilityContext),
       myAgent: Boolean(memberIdentity && organizationFeatures.workbotProactive && principal.scopes.has(DEN_MCP_WRITE_SCOPE)),
+      myAgentBrief: organizationFeatures.workbotAgentBrief,
       skillsExtension,
       skills: skillsExtension && advertisesInstructions && !listsSkillsNatively ? await loadRemoteSkills() : undefined,
       engine: engineTools,
       services: engineTools && advertisesInstructions ? await loadConnectServices(capabilityContext) : undefined,
     })
     if (skillsExtension) registerSkillsExtension(server, loadResolvedSkills)
+    // Your agent's own background check (workbotAgentBrief) may ask for one extra check; no other caller sees it.
+    if (memberIdentity && agentCheckRequestsAvailable({ scopes: principal.scopes, member: true, workbotProactive: organizationFeatures.workbotProactive, workbotAgentBrief: organizationFeatures.workbotAgentBrief })) {
+      registerAgentCheckRequestTool(server, { organizationId, memberId: memberIdentity.orgMembershipId, userId: normalizeDenTypeId("user", principal.userId), audit: auditPrincipal })
+    }
     registerAgentConnectionActionApp(server, { organizationId: principal.organizationId, member: memberIdentity })
     if (appServersEnabled) {
       const appActor = async (): Promise<PluginArchActorContext> => {
@@ -1351,16 +1359,20 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       }
     }
 
+    // Only tools/list shows this description and only tools/call runs a test, so
+    // only they read the language; both then name the one the test runs in.
+    const workflowLanguage = method === "tools/list" || method === "tools/call" ? await newWorkflowLanguage(organizationId) : "codemode-js"
     server.registerTool(
       EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
       {
         title: "Execute capability script",
         description: [
-          "Test a confined JavaScript function body; end with return of JSON-safe data. No imports, fetch, process or host access; use tools for external work and Promise.all for independent calls.",
+          workflowCodeRules(workflowLanguage),
           "mode defaults to adhoc with optional input parameters. Explicit live mode can call the same tools as adhoc (including connection tools), rejects all caller input, and supplies only input.runtime.{now,today,dayStart,dayEnd,timeZone} from the server; optional IANA timeZone defaults to UTC and is live-only.",
           toolShapes
             ? "Use exact scriptPath from search_capabilities, never guessed namespaces or operation names. Call a discovered path with the arguments its match's inputSchema describes; OpenWork API operations wrap them in path, query, and body, e.g. {query:{q:input.query}}."
             : "Use exact scriptPath from search_capabilities, never guessed namespaces or operation names. For a discovered Den/native path call it with {path:{...},query:{...},body:{...}} only as advertised; native query parameters must be wrapped in query, e.g. {query:{q:input.query}}. External MCP paths take their argumentsSchema object directly.",
+          WORKFLOW_SAVE_INSTRUCTIONS,
           "Example adhoc code: return 1 + 1. Example live code: return {today:input.runtime.today}. tools.$codemode.search({query}) is for adhoc exploration; saved Workflows must call discovered paths directly.",
           "Optional inputSchema is checked before dispatch and outputSchema after execution; inspect discovered outputSchema rather than guessing. Returns value and metadata: receiptId, mode, executionType, verification, executedAt/fetchedAt, optional timeZone, and retention (scope, ttlMs, available, canSaveByReceipt, and any error/message). Retention determines whether saveWorkflow can reuse the receipt. This is an authoring test, not a saved Workflow artifact snapshot. " + (appServersEnabled
             ? "To back an App with a reusable live procedure: test with mode:live and outputSchema, saveWorkflow with receiptId and the same schemas (omit code/currentInput), then bind that saved Workflow in create_app with mode live."
@@ -1380,6 +1392,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             return await runMcpServiceAction("workflow_run.record", auditPrincipal, null, () => executeWorkflowAuthoringTest(request, {
               organizationId,
               orgMembershipId: memberIdentity?.orgMembershipId,
+              runtime: workflowLanguage === "ecmascript" ? "standard" : "openwork",
               buildTools: () => buildCapabilityToolTree(capabilityContext),
               recordRun: (receipt) => recordWorkflowRun(db, receipt),
             }), { result: toolResultStatus })
