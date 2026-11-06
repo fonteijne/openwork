@@ -7,13 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { mcpAppToolRepairPrompt } from "@/components/chat/mcp-app-tool-change";
+import { markFeatureUsed } from "@/app/lib/den";
+import { useOrgFeature } from "../cloud/use-org-feature";
 import { BuiltAppShareDialog } from "../apps/built-app-share-button";
 import { useSavedApps } from "../apps/use-apps";
 import { useBuiltDashboardApps } from "./built-dashboard-apps";
 import { SavedDashboardApp, type CreateDashboardApp } from "./dashboard-apps";
 import { McpAppTile, type DashboardLaunchEndpoint } from "./mcp-app-tile";
 import { useArtifactSurfaceActive } from "./retained-artifact-surface";
-import { removeDashboardTileCache } from "./dashboard-tile-cache";
+import { pruneDashboardTiles, removeDashboardTileCache } from "./dashboard-tile-cache";
 import { artifactRows, groupArtifacts, readArtifactSelection, rememberArtifactSelection, selectedArtifact, type ArtifactRow } from "./artifacts-workspace";
 
 const CREATE_ARTIFACT_PROMPT = "Create one live artifact. Use my request to build and save one app that fetches fresh data with each viewer’s own connections whenever opened or refreshed. My artifact should ";
@@ -27,6 +30,7 @@ export function ArtifactsPage({ onCreateApp, fallbackEndpoints, headerActionsTar
 }) {
   const surfaceActive = useArtifactSurfaceActive();
   const active = routeActive && surfaceActive;
+  const toolRepair = useOrgFeature("appToolRepair");
   const built = useBuiltDashboardApps();
   const saved = useSavedApps();
   const cache = useQueryClient();
@@ -44,6 +48,7 @@ export function ArtifactsPage({ onCreateApp, fallbackEndpoints, headerActionsTar
   const [selection, setSelection] = useState(() => ({ scope, id: readArtifactSelection(scope) }));
   const [showDetail, setShowDetail] = useState(true);
   const [search, setSearch] = useState("");
+  const [chromeSlot, setChromeSlot] = useState<HTMLElement | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const detailPane = useRef<HTMLElement>(null);
   const rows = useMemo(() => artifactRows(built.apps, built.ids,
@@ -60,6 +65,10 @@ export function ArtifactsPage({ onCreateApp, fallbackEndpoints, headerActionsTar
       setSelection({ scope, id: null });
     }
   }, [id, selected, scope, built.identityVerified, built.query.isSuccess, saved.query.isSuccess]);
+  // An App the member can no longer open leaves this device with its row.
+  useEffect(() => {
+    if (built.ready) pruneDashboardTiles(built.cacheScopeKey, new Set(rows.map((row) => row.id)));
+  }, [built.ready, built.cacheScopeKey, rows]);
   const create = useMutation({ mutationFn: () => onCreateApp(CREATE_ARTIFACT_PROMPT) });
   const discuss = useMutation({ mutationFn: ({ appId, title }: { appId: string; title: string }) => onCreateApp(
     `Work with the existing artifact “${title}” (App ID: ${appId}). Open this artifact; do not create a copy. If I request a change and have edit access, use read_app and update_app with this same App ID. My request is `,
@@ -104,11 +113,14 @@ export function ArtifactsPage({ onCreateApp, fallbackEndpoints, headerActionsTar
         </section> : null)}
         {!loading && !matching ? <div className="py-12 text-center"><p className="text-sm text-muted-foreground">{rows.length ? "No artifacts match your search." : "No artifacts yet."}</p>{!rows.length ? <Button variant="ghost" size="sm" className="mt-3" disabled={create.isPending} onClick={() => create.mutate()}>Create an artifact</Button> : null}</div> : null}
       </section>
-      {selected ? <section ref={detailPane} tabIndex={-1} aria-label={`${selected.title} detail`} className={`min-w-0 flex-1 overflow-y-auto p-5 focus-visible:outline-2 focus-visible:outline-ring ${showDetail ? "" : "hidden md:block"}`}>
-        <div className="mb-4 flex items-center justify-between gap-2">
+      {selected ? <section ref={detailPane} tabIndex={-1} aria-label={`${selected.title} detail`} className={`min-h-0 min-w-0 flex-1 flex-col focus-visible:outline-2 focus-visible:outline-ring ${showDetail ? "flex" : "hidden md:flex"}`}>
+        {/* The toolbar stays put; only the artifact below it scrolls. */}
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-5 py-3">
           <Button variant="ghost" size="sm" className="md:hidden" onClick={() => { setShowDetail(false); requestAnimationFrame(() => searchInput.current?.focus()); }}><ArrowLeft className="size-4" />Artifacts</Button>
           <h2 className="hidden min-w-0 truncate text-sm font-medium md:block">{selected.title}</h2>
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            {/* The artifact's refresh state and action live here, never over its content. */}
+            <span ref={setChromeSlot} className="flex items-center gap-1" data-artifact-host-chrome />
             {selected.kind === "built" || saved.canManage ? <Button variant="ghost" size="sm" aria-pressed={selected.pinned} disabled={selected.kind === "saved" && placement.isPending} onClick={() => {
               if (selected.kind === "built") built.setAdded(selected.app.connectionId, !selected.pinned);
               else placement.mutate({ appId: selected.app.view.id, added: !selected.pinned });
@@ -129,10 +141,17 @@ export function ArtifactsPage({ onCreateApp, fallbackEndpoints, headerActionsTar
             </> : null}
           </div>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5" data-artifact-detail-body>
         {selected.kind === "built" ? <McpAppTile key={`${scope}:${selected.id}`} cacheScopeKey={built.cacheScopeKey} fallbackEndpoints={fallbackEndpoints}
           entry={{ ...selected.app, kind: "mcp", id: selected.id, launchArguments: { input: {} }, autoLaunch: true }}
+          chromeTarget={chromeSlot}
+          onFixChangedTool={toolRepair && selected.app.canDelete ? async (tool) => {
+            markFeatureUsed("appToolRepair");
+            await onCreateApp(mcpAppToolRepairPrompt({ appId: selected.app.connectionId, title: selected.title, tool }));
+          } : undefined}
           renderActions={({ onRefresh, refreshing }) => onRefresh ? <Button variant="ghost" size="icon" className="size-7" aria-label={`Refresh ${selected.title}`} disabled={refreshing} onClick={onRefresh}><RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} /></Button> : null} />
           : <SavedDashboardApp key={`${scope}:${selected.id}`} app={selected.app} onCreateApp={onCreateApp} fallbackEndpoints={fallbackEndpoints} removing={placement.isPending} onRemove={() => placement.mutate({ appId: selected.app.view.id, added: false })} />}
+        </div>
       </section> : <div className="hidden min-w-0 flex-1 items-center justify-center p-6 md:flex"><p className="text-sm text-muted-foreground">Select an artifact to open it.</p></div>}
     </div>
   </div>;

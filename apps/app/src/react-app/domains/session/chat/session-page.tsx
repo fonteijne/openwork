@@ -17,7 +17,7 @@ import { useCloudSignIn } from "../../cloud/sign-in-return";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
-import { getCachedDesktopHomeDir, openDesktopUrl, openDesktopWithApp, openDesktopWorkspaceFile, type WorkspaceInfo } from "../../../../app/lib/desktop";
+import { getCachedDesktopHomeDir, resolveDesktopChatFilePath, openDesktopUrl, openDesktopWithApp, openDesktopWorkspaceFile, type WorkspaceInfo } from "../../../../app/lib/desktop";
 import type {
   ComposerAttachment,
   PendingPermission,
@@ -104,6 +104,7 @@ import { RetainedArtifactSurface } from "../../dashboard/retained-artifact-surfa
 import { CloudComputerControl } from "../computer/cloud-computer-control";
 import { ComputerControl } from "../computer/computer-control";
 import { useComputerSessionHistoryStore } from "@/components/chat/computer-session-history-store";
+import { useSteadyLiveTurnStore } from "@/components/chat/steady-live-turn-store";
 import { useComputerEndTurn } from "../computer/computer-store";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
@@ -674,6 +675,10 @@ export function SessionPage(props: SessionPageProps) {
   useEffect(() => {
     useComputerSessionHistoryStore.getState().setEnabled(computerHistoryFeature);
   }, [computerHistoryFeature]);
+  const steadyLiveTurnFeature = useDesktopFeature("steadyLiveTurn");
+  useEffect(() => {
+    useSteadyLiveTurnStore.getState().setEnabled(steadyLiveTurnFeature);
+  }, [steadyLiveTurnFeature]);
   const remoteComputersFeature = useDesktopFeature("remoteComputers");
   // The button hides itself when this computer can't run it and no VM is connected.
   const computerUse = computerUseFeature && isElectronRuntime();
@@ -846,8 +851,10 @@ export function SessionPage(props: SessionPageProps) {
         homeDir: canOpenLocally ? await getCachedDesktopHomeDir() : null,
         canOpenLocally,
         reveal: options?.reveal,
+        sessionTargets: options?.sessionTargets,
+        findOnComputer: canOpenLocally ? resolveDesktopChatFilePath : undefined,
         findInWorkspace: client && runtimeWorkspaceId
-          ? (lookup) => resolveCollectibleOpenTarget(client, runtimeWorkspaceId, lookup, sessionId, { search: true })
+          ? (lookup, lookupOptions) => resolveCollectibleOpenTarget(client, runtimeWorkspaceId, lookup, sessionId, { search: lookupOptions?.search ?? true })
           : undefined,
       });
       if (plan.kind === "workspace") {
@@ -1721,22 +1728,6 @@ export function SessionPage(props: SessionPageProps) {
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
-              {props.developerMode ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="hidden lg:inline-flex"
-                  onClick={() => {
-                    try {
-                      window.localStorage.removeItem("openwork.acknowledgedProviders");
-                      window.localStorage.removeItem("openwork.orgOnboardingSeen");
-                    } catch {}
-                  }}
-                  title="Clears acknowledged providers + org onboarding so they trigger again"
-                >
-                  Reset notifications
-                </Button>
-              ) : null}
               {!isElectronRuntime() && computerUseFeature && remoteComputersFeature && props.openworkServerClient ? <CloudComputerControl client={props.openworkServerClient} /> : null}
               {computerUse && props.selectedSessionId ? <ComputerControl key={props.selectedSessionId} sessionId={props.selectedSessionId} /> : null}
               <Tooltip>
@@ -2123,7 +2114,8 @@ export function SessionPage(props: SessionPageProps) {
             </ResizablePanel>
               {sidePanelOpen && !isMobile ? (
               <>
-                <ResizableHandle className="hidden bg-transparent lg:flex" />
+                {/* Discoverable: a grip shows on hover and keyboard focus, so a narrow artifact can be widened. */}
+                <ResizableHandle withHandle aria-label="Resize side panel" className="hidden bg-transparent transition-colors hover:bg-border focus-visible:bg-border lg:flex [&>div]:opacity-0 [&>div]:transition-opacity hover:[&>div]:opacity-100 focus-visible:[&>div]:opacity-100" />
                 <ResizablePanel
                   panelRef={browserPanelRef}
                   defaultSize={`${activeSidePanel === "extensions" ? Math.max(browserPanelDefaultWidth, 480) : browserPanelDefaultWidth}px`}

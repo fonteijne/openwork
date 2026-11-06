@@ -91,6 +91,16 @@
               ],
               "description": "AI Gateway: Smart Model Router: Admins create Smart Routers for everyone, teams or people, listing AI Gateway models and the tasks each handles. Members pick \"Smart: <name>\": each prompt goes to the model whose tasks fit it best, at the thinking level it needs. Renders DEN_FEATURE_AUTO_ROUTER."
             },
+            "plainFreeModel": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Desktop: OpenWork Free listed like any other model: The free model shows in the model picker under its own name (GPT-6 Luna) with the same row as every other model, stays selectable when its usage limit is used up, and the limit message appears in the chat after sending. Renders DEN_FEATURE_PLAIN_FREE_MODEL."
+            },
             "settledSessions": {
               "enum": [
                 "",
@@ -101,6 +111,16 @@
               ],
               "description": "Desktop: settle finished sessions: Finished sessions can be settled into a collapsed Settled row at the end of their workspace, by hand or after a few idle days, and come back on new activity. Renders DEN_FEATURE_SETTLED_SESSIONS."
             },
+            "appToolRepair": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Apps: fix a changed tool with an agent: When a connected tool an App uses changes at its provider, so OpenWork blocks the App's call to it, the App's managers see a Fix with agent button in Artifacts that starts a conversation to update the App. Renders DEN_FEATURE_APP_TOOL_REPAIR."
+            },
             "composerBackgroundTasks": {
               "enum": [
                 "",
@@ -110,6 +130,66 @@
                 false
               ],
               "description": "Desktop: background tasks on the composer: Commands the agent leaves running in the background are listed on top of the composer, under the Agents list, with how long each has run, instead of a count in the chat. Renders DEN_FEATURE_COMPOSER_BACKGROUND_TASKS."
+            },
+            "agentQuestions": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Desktop: agents ask and keep working: Agents ask in chat instead of ending a turn to wait for your reply. A question that the rest of the work does not depend on stays open while the agent keeps going, and your answer reaches it even after its turn has ended. Renders DEN_FEATURE_AGENT_QUESTIONS."
+            },
+            "steadyLiveTurn": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Desktop: steady chat while a reply runs: While a reply runs, its steps and messages stay in the order they arrive and the chat keeps its place: nothing jumps and no empty gap opens between steps. The steps fold into “Worked for…” once the reply finishes. Turning this off restores the previous live layout. Renders DEN_FEATURE_STEADY_LIVE_TURN."
+            },
+            "ssoPerOrganization": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "SSO: optional unless required, enforced per organization: An organization with SSO set up offers \"Continue with SSO\" at sign-in but still lets people on its domain use their password or Google and join other organizations, for example from an invitation. Turning on \"Require SSO\" enforces it when someone opens that organization, and \"Restrict this domain to our SSO\" brings back sign-in-wide enforcement for the whole domain. Off: any email on the organization's verified domain must sign in with its SSO. Renders DEN_FEATURE_SSO_PER_ORGANIZATION."
+            },
+            "ssoSettingsOnSsoPage": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "SSO: sign-in requirement on the SSO page: The \"Require SSO\" and \"Restrict this domain to our SSO\" settings move from Org settings to the top of the SSO page, next to the SSO connection they depend on. Off: they stay in Org settings under Authentication. Renders DEN_FEATURE_SSO_SETTINGS_ON_SSO_PAGE."
+            },
+            "featureIntros": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Den: feature intros: Den pages, sub-pages and tabs explain themselves while nothing is set up: a full-screen intro, info box or banner with one action that leads straight to setup, a quiet dot on tabs not viewed yet, and a ? button to reopen the intro. Turning it off restores the previous empty states. Renders DEN_FEATURE_FEATURE_INTROS."
+            },
+            "authSecuritySettings": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Den: Auth & Security settings: Settings shows one Auth & Security page with Single sign-on (SSO) and User provisioning (SCIM) tabs instead of separate SSO and SCIM pages; old SSO and SCIM links open the matching tab. Turning it off restores the separate pages. Renders DEN_FEATURE_AUTH_SECURITY_SETTINGS."
             },
             "administratorRecovery": {
               "enum": [
@@ -211,6 +291,16 @@
               ],
               "description": "Workbot: reading Drive files: Workbot reads PDFs, Office files and large files from Google Drive or OneDrive on its computer instead of saying they are too large. When it has no computer (and in Slack) it says plainly when a file is too large and asks the person to send the file instead. Renders DEN_FEATURE_WORKBOT_DRIVE_FILES."
             },
+            "workbotAccountMenu": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Workbot: account menu: The avatar in Workbot's header opens a menu with the signed-in account and workspace, Switch workspace, Your dashboard and Sign out, instead of only linking to the dashboard. Renders DEN_FEATURE_WORKBOT_ACCOUNT_MENU."
+            },
             "workbotProactive": {
               "enum": [
                 "",
@@ -220,6 +310,26 @@
                 false
               ],
               "description": "Workbot: Your agent: Every member gets a read-only background agent that checks Gmail and Google Calendar each morning and about every three working hours, sending a short Workbot Slack DM only when needed. Members review checks and messages in My bot, tell it what they care about, narrow its hours and limits, undo changes, snooze or mute it. Admins choose its responsibilities and see aggregate 7-day health in Manage › Workbot, without member names or content. It never sends email, accepts invitations or edits data for them. Renders DEN_FEATURE_WORKBOT_PROACTIVE."
+            },
+            "workbotAgentBrief": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Workbot: Your agent's brief and check rhythm: With Your agent on, it checks on one rhythm (every 2 hours in working hours by default, plus up to 3 extra checks it asks for) instead of four fixed message types, and follows a plain-text brief: the organization's default plus each member's own lines, set in Manage › Workbot, My bot or chat. Each check researches first and then writes at most a few short messages, each one finding with a lock-screen first sentence. Messages per day and hours stay hard limits. Renders DEN_FEATURE_WORKBOT_AGENT_BRIEF."
+            },
+            "workbotSlackAnswerReply": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Workbot: Slack answers as their own reply: In Slack, Workbot's notes while it works (\"Let me check your calendar.\") stay in one message that updates in place, and its final answer is posted as a new reply that notifies the person, written in its own words. Replaces the fixed \"Done:\" ping that quoted the first line of the reply. Renders DEN_FEATURE_WORKBOT_SLACK_ANSWER_REPLY."
             },
             "browserUploadPermissions": {
               "enum": [
@@ -259,7 +369,17 @@
                 true,
                 false
               ],
-              "description": "Desktop: computer session history: Computer and browser actions share one compact session card in chat, with captured views to browse or replay. Turning it off restores individual actions and screenshots. Renders DEN_FEATURE_COMPUTER_SESSION_HISTORY."
+              "description": "Desktop: computer session history: Computer actions share one compact session card in chat, with captured views to browse or replay. Turning it off restores individual actions and screenshots. Renders DEN_FEATURE_COMPUTER_SESSION_HISTORY."
+            },
+            "parallelComputerUse": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Parallel computer use: On a Mac, agents a chat starts work in their own apps at the same time, as part of that chat: one Stop, Take over and output folder for all of them, a cursor name and color for each, and their windows in view while you watch the chat. Turning it off returns each agent to working on its own. Renders DEN_FEATURE_PARALLEL_COMPUTER_USE."
             },
             "browserUse": {
               "enum": [
@@ -340,6 +460,16 @@
                 false
               ],
               "description": "Connect: a tool for each action in OpenWork's engine: OpenWork Desktop, Web and automation runs get each connected action, Workflow and App as its own tool, found with their engine's Code Mode search; capability search stays for OpenWork's own operations and skills. Other clients are unaffected. Turning this off restores capability search. Renders DEN_FEATURE_CONNECT_ENGINE_TOOLS."
+            },
+            "standardCodeMode": {
+              "enum": [
+                "",
+                "true",
+                "false",
+                true,
+                false
+              ],
+              "description": "Workflows and computer programs as standard JavaScript: Workflows written from now on, Workflow tests, and computer-use programs on the desktop app and cloud computers run as standard JavaScript (ECMAScript, checked against test262), calling tools described the MCP way with JSON Schema. The engine is @opencode/codemode. Workflows saved before keep running as they always have. Turning this off returns new Workflows and computer programs to OpenWork's original Code Mode; Workflows saved as standard JavaScript stop with a message rather than switching interpreter, and run again when it is back on. Renders DEN_FEATURE_STANDARD_CODE_MODE."
             },
             "outlookAttachments": {
               "enum": [

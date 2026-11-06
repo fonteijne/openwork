@@ -369,7 +369,8 @@ export type ComputerRequest = {
   /** The exact script that runs if the person approves it. */
   script?: { app: "applescript" | "jxa" | "blender"; code: string };
   /** The files handed over if the person approves: names or full paths, and the app or site receiving them. */
-  files?: { app: string; names: string[]; site?: string; canRemember?: boolean };
+  /** `save`: the one name is where the app will save a file, not a file handed to it. */
+  files?: { app: string; names: string[]; site?: string; canRemember?: boolean; save?: boolean };
   /** Where the agent would type a password or one-time code: an exact site (origin) in the built-in browser, or a native app by name and id. */
   credential?: { site?: string; app?: string; appId?: string };
 };
@@ -402,6 +403,20 @@ export type ComputerSnapshot = {
   cleanupPending?: boolean;
   /** This chat's computer steps: time spent on the computer, and waiting for the model between steps. */
   timing?: { steps: number; computerMs: number; modelMs: number; last?: { name: string; computerMs: number; modelMs?: number } };
+};
+
+/** One of a chat's subagents on its computer, for the chat's crew view (`parallelComputerUse`). */
+export type ComputerCrewMember = {
+  sessionId: string;
+  /** Its cursor's name and color. */
+  name: string;
+  color: string;
+  app: string | null;
+  state: "working" | "waiting" | "paused" | "done";
+  /** Its latest step's intent, as its cursor shows it. */
+  intent: string | null;
+  /** Its app's newest frame while the crew view watches. */
+  frame?: { mimeType: "image/png"; data: string; width: number; height: number };
 };
 
 /** Settings: the computer every chat uses and whether it is set up. */
@@ -483,8 +498,12 @@ export type DesktopCommandMap = {
 
   // Computer use (macOS): chat ownership, the watch view and permission setup
   computerSnapshot: { args: [sessionId: string]; result: ComputerSnapshot };
+  /** The chat's subagents on its computer; `thumbnails` streams each app's newest frame. */
+  computerCrew: { args: [sessionId: string, thumbnails: boolean]; result: ComputerCrewMember[] };
   computerStatus: { args: []; result: ComputerStatus };
   computerPresentation: { args: [sessionId: string, visible: boolean]; result: ComputerPresentation | null };
+  /** This chat is on screen in a visible OpenWork window: its computer work follows along in view. */
+  computerFollow: { args: [sessionId: string, watching: boolean]; result: void };
   computerInteract: {
     args: [input: { sessionId: string; id: string; action: "takeover" | "resume" }];
     result: void;
@@ -494,10 +513,18 @@ export type DesktopCommandMap = {
   computerChoose: { args: [targetId: string]; result: ComputerStatus };
   computerHalt: { args: [sessionId: string]; result: ComputerSnapshot };
   computerAnswerRequest: { args: [input: { sessionId: string; answer: "dismiss" | "allow" | "always" | "remember"; id?: string }]; result: ComputerSnapshot };
+  computerOpenSavedFile: { args: [input: { sessionId: string; path: string; reveal?: boolean }]; result: DesktopWorkspaceFileOpenResult };
+  /** Files in the chat's output folder, newest first, with their size and last change (ms). */
+  computerChatFiles: { args: [input: { sessionId: string }]; result: { files: Array<{ path: string; bytes: number; modifiedAt: number }> } };
   computerListFileGrants: { args: []; result: { enabled: boolean; grants: Array<{ id: string; origin: string; folder: string; blocked?: boolean }> } };
   computerRemoveFileGrant: { args: [id: string]; result: { ok: boolean } };
   computerSetFeatureEnabled: { args: [enabled: boolean]; result: boolean };
+  agentQuestionsSetEnabled: { args: [enabled: boolean]; result: boolean };
   computerSetRemoteEnabled: { args: [enabled: boolean]; result: boolean };
+  /** Reports the `standardCodeMode` feature: computer programs that start afterwards run as standard JavaScript. */
+  computerSetStandardCodeMode: { args: [enabled: boolean]; result: boolean };
+  /** Reports the `parallelComputerUse` feature: a chat's subagents work on its computer as part of it. */
+  computerSetParallelAgents: { args: [enabled: boolean]; result: boolean };
   /** Compatibility-only no-op for older renderers; returns the computerUse state. */
   computerSetBackgroundEnabled: { args: [enabled: boolean]; result: boolean };
   computerResetPermission: { args: [permission: ComputerPermission]; result: { setupId: string } };
@@ -588,6 +615,7 @@ export type DesktopCommandMap = {
   // Window / OS utilities (dunder commands)
   __showContextMenu: { args: [request: NativeContextMenuRequest]; result: string | null };
   __cancelContextMenu: { args: [requestId: string]; result: boolean };
+  __resolveChatFilePath: { args: [target: string]; result: string | null };
   __openPath: { args: [target: string]; result: unknown };
   __openWorkspaceFile: { args: [workspaceRoot: string, target: string, options?: { reveal?: boolean }]; result: DesktopWorkspaceFileOpenResult };
   __revealItemInDir: { args: [target: string]; result: unknown };

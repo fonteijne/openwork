@@ -50,13 +50,34 @@ enum HandoverRules {
         "com.apple.PassbookUIService": "payment",
         "com.apple.PassKit.PaymentAuthorizationUIExtension": "payment",
     ]
+    /// How long an observation waits for the person to answer, well inside one call's time limit.
+    static let personWait: TimeInterval = 60
+    static let personPoll: TimeInterval = 0.5
     static func reason(bundleID: String?) -> String? { bundleID.flatMap { prompts[$0] } }
-    static func message(_ reason: String) -> String {
+    /// `waited`: an observation already waited `personWait` and the prompt is still open.
+    static func message(_ reason: String, waited: Bool = false) -> String {
+        let prompt: String
         switch reason {
-        case "permission": return "macOS is asking the person to allow something. Only they can answer it; ask them to, then observe again. Nothing was sent."
-        case "payment": return "A payment sheet is open. Only the person can confirm a payment; ask them to, then observe again. Nothing was sent."
-        default: return "macOS is asking the person to sign in or confirm it's them. Ask them to finish it, then observe again. Nothing was sent."
+        case "permission": prompt = "macOS is asking the person to allow something"
+        case "payment": prompt = "A payment sheet is open, and only the person can confirm a payment"
+        default: prompt = "macOS is asking the person to sign in or confirm it's them"
         }
+        return waited
+            ? "\(prompt), still unanswered after a minute. Only they can answer it; ask them to, then observe again. Nothing was sent."
+            : "\(prompt). Observe again: it waits up to a minute for them to answer. Nothing was sent."
+    }
+    /// Waits while a prompt only the person may answer is open. Returns nil once it is
+    /// gone, or the prompt still open after `limit`; Take over or Stop ends the wait (`check`).
+    @MainActor static func waitForPerson(prompt: () -> (reason: String, app: String)?, check: () throws -> Void,
+        now: () -> TimeInterval, sleep: (TimeInterval) async throws -> Void, limit: TimeInterval = personWait) async throws -> (reason: String, app: String)? {
+        let started = now()
+        while let open = prompt() {
+            try check()
+            guard now() - started < limit else { return open }
+            try await sleep(personPoll)
+        }
+        try check()
+        return nil
     }
 
     /// Follow a new window only when the agent's own last action opened it and the app focused it.
@@ -71,7 +92,7 @@ enum DialogRules {
     /// The most files one approval can name; the person sees every one.
     static let maxApprovedFiles = 20
     /// Default buttons that hand the chosen files to the app.
-    static let fileConfirmTitles: Set<String> = ["open", "choose", "upload", "select", "attach", "insert", "add", "import", "send"]
+    static let fileConfirmTitles: Set<String> = ["open", "choose", "upload", "select", "attach", "insert", "add", "import", "send", "place"]
 
     /// A panel for choosing files: the system panel process, or a dialog with a
     /// file browser whose default button hands files over.
@@ -90,7 +111,151 @@ enum DialogRules {
     }
 }
 
+/// Save and Export sheets: the step that writes a file answers their replace prompt itself.
+enum SaveRules {
+    /// The button to press when the sheet asks whether to replace a file, or nil when these
+    /// buttons are not that prompt. Replacing happens only when the step said so.
+    static func replaceAnswer(buttons: [String], replace: Bool) -> String? {
+        let titles = buttons.map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let yes = titles.first(where: { $0.lowercased() == "replace" }),
+              let no = titles.first(where: { $0.lowercased() == "cancel" }) else { return nil }
+        return replace ? yes : no
+    }
+}
+
+/// A file panel's Go To field, as a person uses it: open it (Command-Shift-G), set the path
+/// through accessibility and read it back, then Return. Save and Open steps both use it.
+enum PanelGoTo {
+    enum Failure: Equatable { case noField, notTaken }
+    /// How the Go To field is opened, in order until one does. Command-Shift-G first; a save sheet
+    /// shown collapsed (QuickTime's) may ignore it, so it is expanded and its name field focused
+    /// before trying again; last, a "/" typed into the name field opens Go To as it does for a person.
+    enum Way: Equatable { case shortcut, expanded, slashInName }
+    static func ways(save: Bool) -> [Way] { save ? [.shortcut, .expanded, .slashInName] : [.shortcut, .shortcut] }
+    static func open<Field>(_ ways: [Way], attempt: (Way) async throws -> Field?) async throws -> Field? {
+        for way in ways { if let field = try await attempt(way) { return field } }
+        return nil
+    }
+    static func enter<Field>(_ path: String, open: () async throws -> Field?, set: (Field, String) -> Bool,
+                             value: (Field) -> String?, submit: (Field) async throws -> Void) async throws -> Failure? {
+        guard let field = try await open() else { return .noField }
+        guard set(field, path), value(field) == path else { return .notTaken }
+        try await submit(field)
+        return nil
+    }
+}
+
+/// Open-style panels (Open, Place, Insert, Attach): the step that picks a file reads back what
+/// it chose and what the app did with it.
+enum OpenPanelRules {
+    /// How long open_in_panel waits for a panel that is still opening.
+    static let wait: TimeInterval = 2
+    /// A panel that hands a file to the app: a file panel with no Save name field, whose
+    /// default button opens or places what is selected.
+    static func isOpenPanel(kind: DialogTarget.Kind?, saveField: Bool, defaultButton: String?) -> Bool {
+        kind == .filePanel && !saveField && confirms(defaultButton)
+    }
+    static func confirms(_ title: String?) -> Bool {
+        title.map { DialogRules.fileConfirmTitles.contains($0.trimmingCharacters(in: .whitespaces).lowercased()) } == true
+    }
+    /// The step in a panel, with its controls passed in: Go To the file, which selects it, then
+    /// the default button. Nothing is pressed until the path and the selection read back right.
+    static func pick(_ file: URL, displayName: String? = nil, goTo: (String) async throws -> PanelGoTo.Failure?,
+                     selection: @escaping () -> [String], until: (() -> Bool) async throws -> Bool,
+                     button: () -> (title: String?, enabled: Bool)?, press: () throws -> AXError) async throws {
+        if let failure = try await goTo(file.path) {
+            throw UseError("panel_path_unavailable", failure == .noField
+                ? "The panel did not open its Go To field, so the file could not be chosen. Nothing was opened."
+                : "The Go To field did not take the path. Nothing was opened.", next: "observe")
+        }
+        guard try await until({ selects(selection(), file: file, displayName: displayName) }) else {
+            throw UseError("file_not_selected", "The panel did not select the file, so nothing was chosen. Observe the panel before trying again.", next: "observe")
+        }
+        guard let shown = button(), confirms(shown.title), shown.enabled else {
+            throw UseError("open_panel_required", "The panel has no Open, Place, Insert or Choose button to press. Nothing was opened.", next: "observe")
+        }
+        let pressed = try press()
+        guard pressed == .success || pressed == .cannotComplete else {
+            throw UseError("action_failed", "The panel did not accept the press. Observe before retrying.", next: "observe")
+        }
+    }
+    /// Exactly this file is selected. Panels may hide the extension, as Finder does.
+    static func selects(_ names: [String], file: URL, displayName: String? = nil) -> Bool {
+        guard names.count == 1, let name = names.first?.trimmingCharacters(in: .whitespaces) else { return false }
+        let shown = displayName ?? FileManager.default.displayName(atPath: file.path)
+        return name == file.lastPathComponent || name == shown
+    }
+    /// The step path once the panel was pressed, or nil while there is nothing to tell yet. An
+    /// alert refutes it; once the panel closed, a new window, a retitle or changed content proves it.
+    static func outcome(panelOpen: Bool, alert: [String: Any]?, windowOpened: Bool, retitled: Bool, contentChanged: Bool) -> String? {
+        if alert != nil { return "file_open_failed" }
+        guard !panelOpen else { return nil }
+        return windowOpened || retitled || contentChanged ? "file_chosen" : nil
+    }
+}
+
 extension MacAccessibility {
+    /// The name field of a Save or Export sheet ("Save As"), by the identifier AppKit gives it.
+    func saveNameField(_ dialog: WindowTarget) -> AXUIElement? {
+        firstElement(in: dialog.element) { element in
+            (attribute(element, kAXRoleAttribute) as? String) == "AXTextField"
+                && (attribute(element, kAXIdentifierAttribute) as? String)?.lowercased().contains("save") == true
+        }
+    }
+
+    /// Expands a save sheet shown collapsed (no file browser), by its disclosure button; false when
+    /// there is none or it is already expanded.
+    func expandSavePanel(_ dialog: WindowTarget) -> Bool {
+        guard let button = firstElement(in: dialog.element, where: { (attribute($0, kAXRoleAttribute) as? String) == "AXDisclosureTriangle" }),
+              (attribute(button, kAXValueAttribute) as? NSNumber)?.intValue == 0 else { return false }
+        return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+    }
+
+    /// The app's focused window when it is a file panel that is a window of its own rather than a
+    /// sheet: apps that run an Open or Place panel modally give it a standard window's subrole.
+    func focusedFilePanel(than target: WindowTarget, app: AppIdentity) async -> DialogTarget? {
+        guard let focused = elementAttribute(AXUIElementCreateApplication(app.pid), kAXFocusedWindowAttribute), !CFEqual(focused, target.element),
+              let found = await windowTarget(for: focused, pid: app.pid), isFilePanel(found, app: app) else { return nil }
+        return DialogTarget(target: found, app: app, kind: .filePanel)
+    }
+
+    /// The text field that has the keyboard in `pid`: after Command-Shift-G, the panel's Go To field.
+    func focusedTextField(_ pid: pid_t) -> AXUIElement? {
+        guard let focused = elementAttribute(AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute),
+              ["AXTextField", "AXComboBox"].contains(attribute(focused, kAXRoleAttribute) as? String ?? "") else { return nil }
+        return focused
+    }
+
+    /// The buttons of a prompt over a save sheet: a sheet on it, or a dialog the app focused.
+    func savePrompt(over dialog: WindowTarget, app: AppIdentity) -> [(title: String, button: AXUIElement)] {
+        var prompts = (attribute(dialog.element, kAXChildrenAttribute) as? [AXUIElement] ?? [])
+            .filter { (attribute($0, kAXRoleAttribute) as? String) == "AXSheet" }
+        if let focused = elementAttribute(AXUIElementCreateApplication(app.pid), kAXFocusedWindowAttribute), !CFEqual(focused, dialog.element),
+           DialogRules.dialogSubroles.contains(attribute(focused, kAXSubroleAttribute) as? String ?? "") {
+            prompts.append(focused)
+        }
+        return prompts.flatMap { prompt in
+            elements(in: prompt) { (attribute($0, kAXRoleAttribute) as? String) == "AXButton" }
+                .compactMap { button in (attribute(button, kAXTitleAttribute) as? String).map { ($0, button) } }
+        }
+    }
+
+    private func firstElement(in root: AXUIElement, where match: (AXUIElement) -> Bool) -> AXUIElement? {
+        elements(in: root, limit: 1, where: match).first
+    }
+    private func elements(in root: AXUIElement, limit: Int = 40, where match: (AXUIElement) -> Bool) -> [AXUIElement] {
+        var found: [AXUIElement] = []
+        var pending: [(AXUIElement, Int)] = [(root, 0)]
+        var visited = 0
+        while let (element, depth) = pending.popLast(), visited < 400, found.count < limit {
+            visited += 1
+            if match(element) { found.append(element) }
+            guard depth < 12, let children = attribute(element, kAXChildrenAttribute) as? [AXUIElement] else { continue }
+            pending += children.map { ($0, depth + 1) }
+        }
+        return found
+    }
+
     /// A dialog over `target`, if an action opened one.
     func dialog(over target: WindowTarget, app: AppIdentity) async -> DialogTarget? {
         let root = AXUIElementCreateApplication(app.pid)

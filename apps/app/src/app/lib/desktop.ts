@@ -96,6 +96,10 @@ declare global {
         command: C,
         ...args: DesktopCommandArgs<C>
       ) => Promise<DesktopCommandResult<C>>;
+      sessionPins?: {
+        read: () => { ok: true; pins: string[] | null } | { ok: false; error: string };
+        update: (change: { previous: string[]; next: string[] }) => { ok: true; pins: string[] } | { ok: false; error: string };
+      };
       computer?: {
         onRequest?: (callback: (payload: { sessionId: string; request: ComputerRequest | null }) => void) => () => void;
       };
@@ -544,6 +548,16 @@ export async function openDesktopUrlWithStatus(url: string): Promise<DesktopUrlO
 
 export async function openDesktopUrl(url: string): Promise<void> {
   await openDesktopUrlWithStatus(url);
+}
+
+/** Read-only native probe for chat file candidates; never opens or reveals the item. */
+export async function resolveDesktopChatFilePath(target: string): Promise<string | null> {
+  if (typeof window === "undefined" || !window.__OPENWORK_ELECTRON__?.invokeDesktop) return null;
+  try {
+    return await invokeElectronHelper("__resolveChatFilePath", target);
+  } catch {
+    return null;
+  }
 }
 
 export async function openDesktopPath(target: string): Promise<void> {

@@ -2,11 +2,12 @@
 
 import { Check, Copy, Pencil, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { getErrorMessage, requestJson } from "../../_lib/den-flow";
+import { getErrorMessage, requestJson, SsoSessionRequiredError } from "../../_lib/den-flow";
 import {
   getAllowedDesktopVersionsFromMetadata,
   getOrgAccessFlags,
-  getRequireSsoFromMetadata,
+  getSsoSettingsFromMetadata,
+  orgFeatureEnabled,
   permissionLockReason,
 } from "../../_lib/den-org";
 import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
@@ -21,6 +22,8 @@ import { OrgWebOriginsSection } from "./org-web-origins-section";
 import { OrgDefaultModelSection } from "./default-model-section";
 import { OrgAutomationSettingsSection } from "./org-automation-settings-section";
 import { SettingsToggle } from "./settings-toggle";
+import { SsoRequirementFields, ssoRequirementDescription } from "./sso-requirement-fields";
+import { ssoSettingsChanges, type SsoSettings } from "../../_lib/sso-settings";
 import {
   allPublishedDesktopVersionsAllowed,
   compareDesktopVersions,
@@ -170,7 +173,7 @@ export function OrgSettingsScreen() {
   const [allowedDomainsDraft, setAllowedDomainsDraft] = useState("");
   const [domainRestrictionsEnabled, setDomainRestrictionsEnabled] =
     useState(false);
-  const [requireSsoEnabled, setRequireSsoEnabled] = useState(false);
+  const [ssoDraft, setSsoDraft] = useState<SsoSettings>({ requireSso: false, restrictDomainToSso: false, ssoSessionMaxAgeHours: null });
   const [domainEditModeEnabled, setDomainEditModeEnabled] = useState(false);
   const [desktopVersionOptions, setDesktopVersionOptions] = useState<string[]>(
     [],
@@ -187,6 +190,7 @@ export function OrgSettingsScreen() {
     string | null
   >(null);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [ssoRecoveryPath, setSsoRecoveryPath] = useState<string | null>(null);
   const [copiedOrgId, setCopiedOrgId] = useState(false);
   const [denVersion, setDenVersion] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -259,7 +263,7 @@ export function OrgSettingsScreen() {
     setDomainRestrictionsEnabled(
       (orgContext.organization.allowedEmailDomains?.length ?? 0) > 0,
     );
-    setRequireSsoEnabled(getRequireSsoFromMetadata(orgContext.organization.metadata));
+    setSsoDraft(getSsoSettingsFromMetadata(orgContext.organization.metadata));
     setDomainEditModeEnabled(false);
   }, [orgContext]);
 
@@ -374,6 +378,8 @@ export function OrgSettingsScreen() {
 
   const organizationId = orgContext.organization.id;
   const organizationName = orgContext.organization.name;
+  const ssoPerOrganization = orgFeatureEnabled(orgContext, "ssoPerOrganization");
+  const ssoSettingsOnSsoPage = orgFeatureEnabled(orgContext, "ssoSettingsOnSsoPage");
 
   async function handleCopyOrgId() {
     await navigator.clipboard.writeText(organizationId);
@@ -398,6 +404,7 @@ export function OrgSettingsScreen() {
   async function handleSaveSettings(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPageError(null);
+    setSsoRecoveryPath(null);
     clearOrgSettingsCompletion();
 
     if (!canManageSettings) {
@@ -411,7 +418,13 @@ export function OrgSettingsScreen() {
         allowedEmailDomains: domainRestrictionsEnabled
           ? draftAllowedDomains
           : null,
-        requireSso: requireSsoEnabled,
+        ...(ssoSettingsOnSsoPage
+          ? {}
+          : ssoSettingsChanges({
+              perOrganization: ssoPerOrganization,
+              saved: getSsoSettingsFromMetadata(orgContext?.organization.metadata ?? null),
+              draft: ssoDraft,
+            })),
         ...(supportedDesktopVersionOptions.length > 0
           ? {
               allowedDesktopVersions: allDesktopVersionsAllowed
@@ -429,6 +442,9 @@ export function OrgSettingsScreen() {
           ? error.message
           : "Could not update workspace settings.",
       );
+      if (error instanceof SsoSessionRequiredError) {
+        setSsoRecoveryPath(`${error.signInPath}?callbackURL=${encodeURIComponent(window.location.href)}`);
+      }
     }
   }
 
@@ -488,10 +504,19 @@ export function OrgSettingsScreen() {
       )}
     >
       {orgContext && !orgContext.entitlements.orgControls ? (
-        <EnterprisePlanNotice feature="Enforced SSO and desktop version control" />
+        <EnterprisePlanNotice feature={ssoSettingsOnSsoPage ? "Desktop version control" : "Enforced SSO and desktop version control"} />
       ) : null}
       {pageError ? (
-        <DenNotice message={pageError} className="mb-6" />
+        <DenNotice
+          message={pageError}
+          className="mb-6"
+          tone={ssoRecoveryPath ? "neutral" : "error"}
+          action={ssoRecoveryPath ? (
+            <DenButton href={ssoRecoveryPath} variant="secondary" size="sm">
+              Sign in with SSO
+            </DenButton>
+          ) : undefined}
+        />
       ) : null}
       {pageSuccess ? (
         <div className="mb-6 rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-[14px] text-emerald-700">
@@ -548,7 +573,7 @@ export function OrgSettingsScreen() {
           </div>
         </DenCard>
 
-        <DenCard size="spacious" className="grid gap-6">
+        <DenCard id="allowed-email-domains" size="spacious" className="grid scroll-mt-6 gap-6">
           <div className="flex items-start justify-between gap-4">
             <div className="grid gap-2">
               <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-gray-400">
@@ -634,34 +659,26 @@ export function OrgSettingsScreen() {
           ) : null}
         </DenCard>
 
-        <DenCard size="spacious" className="grid gap-6">
-          <div className="grid gap-2">
-            <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-gray-400">
-              Authentication
-            </p>
-            <h2 className="text-[24px] font-semibold tracking-[-0.04em] text-gray-900">
-              Single sign-on requirement
-            </h2>
-            <p className="text-[14px] text-gray-500">
-              Require members to use the workspace SSO entrypoint when their email domain matches this organization.
-            </p>
-          </div>
-
-          <div className="flex items-start justify-between gap-4 rounded-[24px] border border-gray-200 bg-white px-5 py-4">
-            <div className="grid gap-1 pr-4">
-              <p className="text-[15px] font-medium text-gray-900">Require SSO for matching domains</p>
-              <p className="text-[13px] text-gray-500">
-                Email/password sign-in will redirect users to the org SSO flow when their email domain matches the configured SSO connection.
+        {ssoSettingsOnSsoPage ? null : (
+          <DenCard size="spacious" className="grid gap-6">
+            <div className="grid gap-2">
+              <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+                Authentication
               </p>
+              <h2 className="text-[24px] font-semibold tracking-[-0.04em] text-gray-900">
+                Single sign-on requirement
+              </h2>
+              <p className="text-[14px] text-gray-500">{ssoRequirementDescription(ssoPerOrganization)}</p>
             </div>
-            <SettingsToggle
-              label="Require SSO for this organization"
-              checked={requireSsoEnabled}
+
+            <SsoRequirementFields
+              perOrganization={ssoPerOrganization}
+              draft={ssoDraft}
               disabled={!canManageSettings}
-              onChange={setRequireSsoEnabled}
+              onChange={setSsoDraft}
             />
-          </div>
-        </DenCard>
+          </DenCard>
+        )}
 
         <OrgAutomationSettingsSection canManage={canManageSettings} />
 

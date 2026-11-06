@@ -31,9 +31,10 @@ const { useSessionActivityStore } = await import("../src/react-app/domains/sessi
 const { McpAppTile } = await import("../src/react-app/domains/dashboard/mcp-app-tile")
 const { DASHBOARD_AUTO_REFRESH_INTERVAL_MS, readDashboardTileCache, rememberDashboardTileRead, removeDashboardTileCache, writeDashboardTileCache } = await import("../src/react-app/domains/dashboard/dashboard-tile-cache")
 const { RetainedArtifactSurface } = await import("../src/react-app/domains/dashboard/retained-artifact-surface")
+const { reconcileMemberAccess, resetMemberAccessSession, setMemberAccessScope, trackMemberAccessCheck } = await import("../src/react-app/domains/dashboard/mcp-app-member-access")
 const { flushDashboardTileCacheStorage, resetDashboardTileCacheMemory } = await import("../src/app/lib/dashboard-cache-storage")
 const { setMcpAppDocumentBackend } = await import("../src/app/lib/mcp-app-document-store")
-const { forgetMcpAppResult, rememberMcpAppResult } = await import("../src/app/lib/mcp-app-result-cache")
+const { cachedMcpAppResult, forgetMcpAppResult, rememberMcpAppResult } = await import("../src/app/lib/mcp-app-result-cache")
 const { createMcpAppPresentationCache, mcpAppPresentationScope } = await import("../src/app/lib/mcp-app-presentation-cache")
 const {
   buildMcpAppCsp,
@@ -689,6 +690,7 @@ describe("MCP App stored reads on a saved tile", () => {
   const actionContext = { requestId: 1, signal: new AbortController().signal,
     sendNotification: async () => {}, sendRequest: async () => { throw new Error("Unexpected request") } }
   const settle = async () => { await act(async () => { await new Promise(resolve => setImmediate(resolve)) }) }
+  const member = { baseUrl: "den", organizationId: "org_saved_tile", memberId: "member" }
   type ToolCall = Parameters<OpenworkServerClient["callMcpAppTool"]>[1]
 
   /** A tile restored from storage, with a stored result when asked, up to the point its App can ask for that result. */
@@ -697,6 +699,12 @@ describe("MCP App stored reads on a saved tile", () => {
     /** Stops short of the App starting, for a test about what shows meanwhile. */
     starts?: boolean
     storedRead?: boolean
+    /** Whether this session has compared the member's access yet. */
+    confirmed?: boolean
+    /** A check of the member's access under way as the tile opens. */
+    checking?: Promise<unknown>
+    /** What the host offers when one of the App's tools changed. */
+    fix?: (tool: string) => Promise<void>
     resolve: () => Promise<{ app: OpenworkMcpAppResource }>
     run: (request: ToolCall) => Promise<Awaited<ReturnType<OpenworkServerClient["callMcpAppTool"]>>>
   }) {
@@ -711,31 +719,43 @@ describe("MCP App stored reads on a saved tile", () => {
       spyOn(host.client, "callMcpAppTool").mockImplementation(async (_workspace, request) => { calls.push(request); return await options.run(request) }),
     ]
     localStorage.setItem("openwork.den.authToken", "stored-read-token")
+    localStorage.setItem("openwork.den.activeOrgId", "org_saved_tile")
     writeDashboardTileCache(scope, "stored-0", {
       argumentsSignature: "{}", cachedAt: Date.now(), workspaceId: "fixture", app, result: { content: [] },
     })
     if (options.stored !== false) {
       await rememberMcpAppResult(origin, app, "read_detail", {}, { content: [{ type: "text", text: "stored" }], _meta: checked })
     }
+    resetMemberAccessSession()
+    setMemberAccessScope(member)
+    if (options.confirmed !== false) reconcileMemberAccess(member, null, { capabilities: { plugins: [] }, connections: [] })
     if (options.storedRead) {
       rememberDashboardTileRead(scope, "stored-0", { name: "read_detail", arguments: {} },
         { providerIdentity: "provider-1", result: { content: [{ type: "text", text: "stored" }] } })
     }
-    await host.renderElement(createElement(WorkspaceProvider, {
+    if (options.checking) trackMemberAccessCheck(options.checking)
+    const render = () => host.renderElement(createElement(WorkspaceProvider, {
       client: null, openworkServerClient: host.client, workspaceId: "fixture", selectedWorkspaceRoot: "/fixture",
     }, createElement(McpAppTile, {
       entry: { kind: "mcp", id: "stored-0", title: "Stored 0", serverName: "fixture", toolName: "render-0",
         projectedToolName: "render-0", resourceUri: fixture().resourceUri, autoLaunch: true },
       cacheScopeKey: scope,
+      onFixChangedTool: options.fix,
     })))
+    await render()
     const start = async () => {
       await host.notify(0, "ui/notifications/sandbox-proxy-ready")
       await act(async () => { host.bridges[0].oninitialized?.() })
     }
     if (options.starts !== false) await start()
     return {
-      host, calls, start,
+      host, calls, start, rerender: render,
       storedReads: () => readDashboardTileCache(scope, "stored-0")?.storedReads ?? [],
+      /** Waits for the tile to drop its stored result, which it does behind an answer. */
+      async forgotten() {
+        for (let turn = 0; turn < 100 && await cachedMcpAppResult(origin, app, "read_detail", {}); turn += 1) await settle()
+        return !await cachedMcpAppResult(origin, app, "read_detail", {})
+      },
       ask: (request: { name: string; arguments: Record<string, unknown>; _meta?: Record<string, unknown> } = storedRead) => {
         const answer = host.bridges[0].oncalltool?.(request, actionContext)
         if (!answer) throw new Error("The tile takes no tool calls")
@@ -743,6 +763,8 @@ describe("MCP App stored reads on a saved tile", () => {
       },
       async close() {
         await forgetMcpAppResult(origin, app, "read_detail", {})
+        resetMemberAccessSession()
+        localStorage.removeItem("openwork.den.activeOrgId")
         localStorage.removeItem("openwork.den.authToken")
         removeDashboardTileCache(scope, "stored-0")
         flushDashboardTileCacheStorage()
@@ -751,9 +773,10 @@ describe("MCP App stored reads on a saved tile", () => {
     }
   }
 
-  test("a stored result answers while the launch is still running its reads, and the tool does not run", async () => {
+  test("before access is compared, a stored result answers while the launch is still running its reads, and the tool does not run", async () => {
     const launch = Promise.withResolvers<{ content: [] }>()
     const tile = await savedTile({
+      confirmed: false,
       resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }),
       run: async request => request.checkOnly ? { content: [], _meta: checked } : request.name === "render-0" ? await launch.promise : { content: [] },
     })
@@ -783,10 +806,11 @@ describe("MCP App stored reads on a saved tile", () => {
     }
   })
 
-  test("a stored result waits for a lease, so access is always confirmed before it shows", async () => {
+  test("before access is compared, a stored result waits for a lease and a current check", async () => {
     const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
     const launch = Promise.withResolvers<{ content: [] }>()
     const tile = await savedTile({
+      confirmed: false,
       resolve: () => discovery.promise,
       run: async request => request.checkOnly ? { content: [], _meta: checked } : await launch.promise,
     })
@@ -807,9 +831,10 @@ describe("MCP App stored reads on a saved tile", () => {
   test.each([
     ["another provider identity", { content: [], _meta: { ...checked, "openwork/providerIdentity": "provider-2" } }],
     ["a refused check", new OpenworkServerError(403, "tool_denied", "Forbidden")],
-  ])("%s shows nothing and drops the stored result", async (_name, outcome) => {
+  ])("before access is compared, %s shows nothing and drops the stored result", async (_name, outcome) => {
     const launch = Promise.withResolvers<{ content: [] }>()
     const tile = await savedTile({
+      confirmed: false,
       resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }),
       run: async request => {
         if (!request.checkOnly) return await launch.promise
@@ -821,6 +846,7 @@ describe("MCP App stored reads on a saved tile", () => {
       const refused = await tile.ask()
       expect(refused.content).toEqual([])
       expect(refused._meta?.["openwork/cached"]).toBe(false)
+      expect(await tile.forgotten()).toBe(true)
       const checks = tile.calls.filter(call => call.checkOnly).length
       expect((await tile.ask())._meta?.["openwork/cached"]).toBe(false)
       expect(tile.calls.filter(call => call.checkOnly)).toHaveLength(checks)
@@ -830,9 +856,9 @@ describe("MCP App stored reads on a saved tile", () => {
     }
   })
 
-  test("a launch that fails before its lease never answers from storage", async () => {
+  test("before access is compared, a launch that fails before its lease never answers from storage", async () => {
     const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
-    const tile = await savedTile({ resolve: () => discovery.promise, run: async () => ({ content: [] }) })
+    const tile = await savedTile({ confirmed: false, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
     try {
       const answer = tile.ask().then(() => "answered", (cause: Error) => cause.message)
       await settle()
@@ -857,6 +883,81 @@ describe("MCP App stored reads on a saved tile", () => {
     } finally { await tile.close() }
   })
 
+  test("once access is compared, a stored result answers before there is any lease, and the check follows", async () => {
+    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
+    const tile = await savedTile({
+      resolve: () => discovery.promise,
+      run: async request => request.checkOnly ? { content: [], _meta: checked } : { content: [] },
+    })
+    try {
+      const answer = await tile.ask()
+      expect(answer.content).toEqual([{ type: "text", text: "stored" }])
+      expect(answer._meta?.["openwork/cached"]).toBe(true)
+      expect(tile.calls).toEqual([])
+      await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
+      await settle()
+      expect(tile.calls.filter(call => call.checkOnly).map(call => call.launchId)).toEqual(["lease-1"])
+      expect(tile.calls.filter(call => call.name === "read_detail" && !call.checkOnly)).toEqual([])
+      expect((await tile.ask())._meta?.["openwork/cached"]).toBe(true)
+    } finally { await tile.close() }
+  })
+
+  test.each([
+    ["another provider identity", { content: [], _meta: { ...checked, "openwork/providerIdentity": "provider-2" } }],
+    ["a refused check", new OpenworkServerError(403, "tool_denied", "Forbidden")],
+  ])("once access is compared, %s drops a stored result that already showed", async (_name, outcome) => {
+    const tile = await savedTile({
+      resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }),
+      run: async request => {
+        if (!request.checkOnly) return { content: [] }
+        if (outcome instanceof Error) throw outcome
+        return outcome
+      },
+    })
+    try {
+      expect((await tile.ask()).content).toEqual([{ type: "text", text: "stored" }])
+      expect(await tile.forgotten()).toBe(true)
+      const checks = tile.calls.filter(call => call.checkOnly).length
+      expect(checks).toBe(1)
+      expect((await tile.ask())._meta?.["openwork/cached"]).toBe(false)
+      expect(tile.calls.filter(call => call.checkOnly)).toHaveLength(checks)
+    } finally { await tile.close() }
+  })
+
+  test("a live App's stored read still waits for its check, even once access is compared", async () => {
+    const check = Promise.withResolvers<{ content: []; _meta: typeof checked }>()
+    const checking = Promise.withResolvers<void>()
+    const tile = await savedTile({
+      starts: false,
+      resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-0" }) }),
+      run: async request => {
+        if (!request.checkOnly) return { content: [] }
+        checking.resolve()
+        return await check.promise
+      },
+    })
+    try {
+      await tile.host.renderElement(createElement(WorkspaceProvider, {
+        client: null, openworkServerClient: tile.host.client, workspaceId: "fixture", selectedWorkspaceRoot: "/fixture",
+      }, createElement(McpAppSandboxView, {
+        origin: { client: tile.host.client, workspaceId: "fixture", sessionId: null, readOnly: false },
+        app: fixture({ toolName: "render-0", launchId: "lease-1" }), toolName: "render-0",
+        inputArguments: {}, result: { content: [] }, unavailableNotice: "Unavailable", presentation: "dashboard",
+      })))
+      await tile.host.notify(0, "ui/notifications/sandbox-proxy-ready")
+      const bridges = tile.host.bridges.length
+      expect(bridges).toBeGreaterThan(0)
+      let answered = false
+      const answer = tile.host.bridges[bridges - 1].oncalltool?.(storedRead, actionContext).then(result => { answered = true; return result })
+      await act(async () => { await checking.promise })
+      await settle()
+      expect(answered).toBe(false)
+      expect(tile.calls.filter(call => call.checkOnly).map(call => call.launchId)).toEqual(["lease-1"])
+      await act(async () => { check.resolve({ content: [], _meta: checked }) })
+      expect((await answer)?.content).toEqual([{ type: "text", text: "stored" }])
+    } finally { await tile.close() }
+  })
+
   test("what the App last loaded arrives as it starts, before there is any lease", async () => {
     const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
     const tile = await savedTile({ storedRead: true, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
@@ -867,6 +968,55 @@ describe("MCP App stored reads on a saved tile", () => {
       expect(delivered?._meta?.["openwork/initialResults"]).toMatchObject([{ name: "read_detail", arguments: {}, result: { content: [{ type: "text", text: "stored" }] } }])
     } finally {
       await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
+      await tile.close()
+    }
+  })
+
+  test("stored data stays hidden until this session has compared the member's access", async () => {
+    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
+    const tile = await savedTile({ storedRead: true, confirmed: false, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
+    try {
+      await settle()
+      expect(tile.host.resultSpy).toHaveBeenCalled()
+      expect(tile.host.resultSpy.mock.calls.at(-1)?.[0]._meta?.["openwork/initialResults"]).toBeUndefined()
+      expect(tile.host.container.querySelector("iframe")).not.toBeNull()
+    } finally {
+      await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
+      await tile.close()
+    }
+  })
+
+  test("a saved tile waits for a check under way, then shows stored data if it passes", async () => {
+    const check = Promise.withResolvers<void>()
+    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
+    const held = await savedTile({ storedRead: true, confirmed: false, starts: false, checking: check.promise, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
+    try {
+      await settle()
+      expect(held.host.container.querySelector("[data-dashboard-tile]")).toBeNull()
+      reconcileMemberAccess(member, null, { capabilities: { plugins: [] }, connections: [] })
+      await act(async () => { check.resolve() })
+      await settle()
+      await held.start()
+      await settle()
+      expect(held.host.resultSpy.mock.calls.at(-1)?.[0]._meta?.["openwork/initialResults"]).toMatchObject([{ name: "read_detail" }])
+    } finally {
+      await act(async () => { discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
+      await held.close()
+    }
+  })
+
+  test("a later check never closes a tile that is already open", async () => {
+    const discovery = Promise.withResolvers<{ app: OpenworkMcpAppResource }>()
+    const tile = await savedTile({ storedRead: true, confirmed: false, resolve: () => discovery.promise, run: async () => ({ content: [] }) })
+    const frame = tile.host.frame(0)
+    const check = Promise.withResolvers<void>()
+    try {
+      trackMemberAccessCheck(check.promise)
+      await tile.rerender()
+      await settle()
+      expect(tile.host.frame(0)).toBe(frame)
+    } finally {
+      await act(async () => { check.resolve(); discovery.resolve({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }) })
       await tile.close()
     }
   })
@@ -917,6 +1067,30 @@ describe("MCP App stored reads on a saved tile", () => {
       next = "errors"
       await tile.ask(again)
       expect(tile.storedReads()).toEqual([])
+    } finally { await tile.close() }
+  })
+
+  test.each([true, false])("a call refused because its tool changed offers Fix with agent only when the host can (%j)", async offered => {
+    const refusal = { isError: true, content: [{ type: "text", text: JSON.stringify({
+      error: "policy_blocked", reason: "app_needs_update", tool: "read_detail", message: "read_detail now takes different inputs." }) }] }
+    const fixes: string[] = []
+    const tile = await savedTile({
+      stored: false,
+      resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1" }) }),
+      run: async request => request.name === "render-0" ? { content: [] } : refusal,
+      ...(offered ? { fix: async (tool: string) => { fixes.push(tool) } } : {}),
+    })
+    try {
+      await settle()
+      expect(tile.host.container.querySelector("[data-testid=mcp-app-changed-tool]")).toBeNull()
+      expect(await tile.ask({ name: "read_detail", arguments: {}, _meta: { "openwork/userInteraction": true } })).toEqual(refusal)
+      await settle()
+      const row = tile.host.container.querySelector("[data-testid=mcp-app-changed-tool]")
+      expect(row === null).toBe(!offered)
+      if (offered) {
+        await act(async () => row?.querySelector("button")?.click())
+        expect(fixes).toEqual(["read_detail"])
+      }
     } finally { await tile.close() }
   })
 
@@ -1061,6 +1235,7 @@ describe("MCP App stored reads on a saved tile", () => {
     const refresh = Promise.withResolvers<{ content: [] }>()
     let launches = 0
     const tile = await savedTile({
+      confirmed: false,
       resolve: async () => ({ app: fixture({ toolName: "render-0", launchId: "lease-1",
         refresh: { resourceDigest: "a".repeat(64), expiresAt: Number.MAX_SAFE_INTEGER } }) }),
       run: async request => {
@@ -1925,6 +2100,18 @@ describe("MCP App resolution", () => {
       expect(host.container.querySelector("iframe")).toBeNull()
       expect(host.errorSpy).not.toHaveBeenCalled()
       expect(host.callSpy).not.toHaveBeenCalled()
+    } finally { await host.dispose() }
+  })
+
+  test.each(["", " \n\t"])("does not mount a blank iframe for an empty App document (%j)", async html => {
+    const host = resolutionFixture(true)
+    host.resolveSpy.mockResolvedValue({ app: fixture({ html }) })
+    try {
+      await host.render()
+      expect(host.resolveSpy).toHaveBeenCalledTimes(1)
+      expect(host.container.querySelector("iframe")).toBeNull()
+      expect(host.container.querySelector("[data-mcp-app-resource]")).toBeNull()
+      expect(host.container.textContent).toBe("")
     } finally { await host.dispose() }
   })
 

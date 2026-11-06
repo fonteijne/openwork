@@ -23,6 +23,7 @@ import {
   getAnalyticsRoute,
   getApiKeysRoute,
   getAuditLogsRoute,
+  getAuthSecurityRoute,
   getAutomationsRoute,
   getBillingRoute,
   getDesktopPoliciesRoute,
@@ -44,7 +45,7 @@ import {
 } from "../../_lib/den-org";
 import type { DenOrgMode } from "../../_lib/runtime-config";
 import { canOpenAdminRoute } from "./admin-route-access";
-import { WORKBOT_ENTRY_HREF, type WorkbotEntry, workbotNavMarker } from "./workbot-entry";
+import { type WorkbotEntry, workbotEntryHref, workbotNavMarker } from "./workbot-entry";
 
 export type DashboardNavChild = {
   href: string;
@@ -97,8 +98,12 @@ export type BuildDashboardNavSectionsInput = {
   canManageDeploymentServices?: boolean;
   /** What clicking Workbot does; a blocked entry stays visible with a marker. */
   workbotEntry?: WorkbotEntry;
+  /** The workspace on screen, so the Workbot entry opens Workbot for it. */
+  organizationId?: string | null;
   /** The member's own agent is available to them (see myAgentAvailable). */
   myBot?: boolean;
+  /** The authSecuritySettings feature: one Auth & Security entry instead of SSO and SCIM. */
+  authSecuritySettings?: boolean;
 };
 
 export function buildDashboardNavSections({
@@ -111,13 +116,15 @@ export function buildDashboardNavSections({
   desktopPolicyScreenRemoved = false,
   canManageDeploymentServices = false,
   workbotEntry = { kind: "open" },
+  organizationId = null,
   myBot = false,
+  authSecuritySettings = false,
 }: BuildDashboardNavSectionsInput): DashboardNavSection[] {
   const workflowsEnabled = capabilities.workflows;
   const showWeb = runtimeConfigLoaded && capabilities.openworkWeb;
   const workItems: DashboardNavItem[] = [
     ...(capabilities.workbot
-      ? [{ href: WORKBOT_ENTRY_HREF, label: "Workbot", icon: MessageCircle, testId: "dashboard-nav-workbot", ...workbotNavMarker(workbotEntry) }]
+      ? [{ href: workbotEntryHref(organizationId), label: "Workbot", icon: MessageCircle, testId: "dashboard-nav-workbot", ...workbotNavMarker(workbotEntry) }]
       : []),
     ...(myBot && orgSlug
       ? [{ href: getLibraryMyAgentRoute(orgSlug), label: "My bot", icon: Radar, testId: "dashboard-nav-my-bot" }]
@@ -172,8 +179,7 @@ export function buildDashboardNavSections({
           { href: getApiKeysRoute(orgSlug), label: "API Keys" },
         ].filter((item) => canOpen(item.href)),
         ...permissionsNavChildren(orgSlug, access, canOpen(getMembersRoute(orgSlug))),
-        ...(access.canViewSso ? [{ href: getSsoRoute(orgSlug), label: "SSO" }] : []),
-        ...(access.canViewScim ? [{ href: getScimRoute(orgSlug), label: "SCIM" }] : []),
+        ...authSecurityNavChildren(orgSlug, access, authSecuritySettings),
         ...(canOpen(getMarketplacesRoute(orgSlug))
           ? [{ href: getMarketplacesRoute(orgSlug), label: "Advanced" }]
           : []),
@@ -210,6 +216,17 @@ function permissionsNavChildren(orgSlug: string, access: DenOrgAccessFlags, memb
   return access.canViewPermissions && !membersOpen ? [{ href: getPermissionsRoute(orgSlug), label: "Roles" }] : [];
 }
 
+/** SSO and SCIM: one Auth & Security entry with the feature on, shown when either tab is visible. */
+function authSecurityNavChildren(orgSlug: string, access: DenOrgAccessFlags, combined: boolean): DashboardNavChild[] {
+  if (combined) {
+    return access.canViewSso || access.canViewScim ? [{ href: getAuthSecurityRoute(orgSlug), label: "Auth & Security" }] : [];
+  }
+  return [
+    ...(access.canViewSso ? [{ href: getSsoRoute(orgSlug), label: "SSO" }] : []),
+    ...(access.canViewScim ? [{ href: getScimRoute(orgSlug), label: "SCIM" }] : []),
+  ];
+}
+
 // Alias order is ranking priority in the command palette.
 const PAGE_KEYWORDS: Record<string, string[]> = {
   Advanced: ["marketplace", "collections", "branding", "brand appearance"],
@@ -217,6 +234,7 @@ const PAGE_KEYWORDS: Record<string, string[]> = {
   Analytics: ["usage", "stats", "workflow runs", "history"],
   "Audit logs": ["audit", "history", "operations", "changes", "security"],
   "API Keys": ["token", "secret"],
+  "Auth & Security": ["sso", "single sign on", "saml", "oidc", "scim", "provisioning", "directory", "okta", "entra", "identity provider"],
   Billing: ["plan", "invoice", "payment"],
   "Bring Your Own Keys (Legacy)": ["llm", "provider", "byok", "api key"],
   Connectors: ["mcp", "integrations", "servers", "connect"],

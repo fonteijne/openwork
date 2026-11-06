@@ -158,8 +158,10 @@ import { DevProfiler } from "@/react-app/shell/dev-profiler"
 import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCompleted, getMessageCreated, getRunStartedAt, getWaitedMs, formatMessageTimestamp, splitTurnAtAnswer, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl, getSafeFileRevealPath } from "./utils"
 import type { AnyToolPart } from "@/lib/tool-aggregate"
 import { collectComputerSessionHistory, withoutComputerHistory, type ComputerSessionHistory as ComputerHistory } from "@/lib/computer-session-history"
-import { ComputerSessionHistory } from "./computer-session-history"
+import { ComputerSessionHistory, desktopSavedFileActions } from "./computer-session-history"
+import { ComputerCrewCard, useComputerCrew } from "./computer-crew"
 import { useComputerSessionHistoryStore } from "./computer-session-history-store"
+import { useSteadyLiveTurnStore } from "./steady-live-turn-store"
 import { resolveConnectorToolIdentity } from "@/react-app/domains/connections/connector-tool-identity"
 
 const SEARCH_HIGHLIGHT_MARK_CLASS = "rounded px-0.5 bg-amber-4/70 text-current"
@@ -1396,53 +1398,57 @@ function getRenderableMessage(message: UIMessage) {
 }
 
 /**
- * Running steps only ever grow. When a finished step folds its live detail
- * before the next step's row arrives, the area briefly got shorter and the
- * chat jumped; holding the tallest height seen during the run keeps it still.
- * The hold ends when the turn folds or the App panel replaces these steps.
+ * steadyLiveTurn: while a turn runs, the chat never gets shorter. When the
+ * live turn shrinks (a step folds its detail before the next row arrives) the
+ * room it gave up moves here, to the very end of the list, below the Working
+ * line; whatever arrives next fills it before anything moves. Nothing above is
+ * held open, so no gap can open between steps, and the scroll position stays.
+ * Measured from the last turn's top, so history placeholders swapping above
+ * do not count. A shrink the person causes (collapsing a row) is not held.
+ * Released when the turn ends, where the steps fold anyway.
  */
-function LiveSteps({ children, active }: { children: React.ReactNode; active: boolean }) {
+function LiveTurnReserve({ active }: { active: boolean }) {
   const ref = React.useRef<HTMLDivElement>(null)
   React.useLayoutEffect(() => {
-    const element = ref.current
-    if (!element) return
-    // The hold only protects a running turn from the engine's own shrinks.
-    // A finished turn, or a group the person collapsed, may get shorter.
-    if (!active || typeof ResizeObserver === "undefined") {
-      element.style.minHeight = ""
-      return
-    }
+    const spacer = ref.current
+    const list = spacer?.parentElement
+    if (!spacer || !list) return
+    spacer.style.height = ""
+    if (!active || typeof ResizeObserver === "undefined") return
+    let anchor: Element | null = null
     let tallest = 0
-    const hold = () => {
-      element.style.minHeight = ""
-      const height = element.getBoundingClientRect().height
-      if (height > tallest) tallest = height
-      element.style.minHeight = `${tallest}px`
+    let releaseUntil = 0
+    const measure = () => {
+      const groups = list.querySelectorAll(":scope > [data-thread-group], :scope > [data-thread-placeholder]")
+      const last = groups[groups.length - 1]
+      // Scrolled far into history: the turn is not mounted, keep what is reserved.
+      if (!last || last.hasAttribute("data-thread-placeholder")) return
+      const box = spacer.getBoundingClientRect()
+      const span = box.top - last.getBoundingClientRect().top
+      // A new last group (a follow-up mid-run) keeps the room already reserved.
+      if (last !== anchor) {
+        tallest = anchor ? span + box.height : span
+        anchor = last
+      }
+      tallest = performance.now() < releaseUntil ? span : Math.max(tallest, span)
+      const reserve = Math.max(0, tallest - span)
+      if (Math.abs(reserve - box.height) > 0.5) spacer.style.height = reserve > 0 ? `${reserve}px` : ""
     }
-    const release = () => {
-      tallest = 0
-      element.style.minHeight = ""
-    }
-    hold()
-    const observer = new ResizeObserver(hold)
-    for (const child of element.children) observer.observe(child)
-    const mutations = new MutationObserver(() => {
-      observer.disconnect()
-      for (const child of element.children) observer.observe(child)
-      hold()
-    })
-    mutations.observe(element, { childList: true })
-    element.addEventListener("pointerdown", release)
-    element.addEventListener("keydown", release)
+    const release = () => { releaseUntil = performance.now() + 500 }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(list)
+    list.addEventListener("pointerdown", release)
+    list.addEventListener("keydown", release)
     return () => {
       observer.disconnect()
-      mutations.disconnect()
-      element.removeEventListener("pointerdown", release)
-      element.removeEventListener("keydown", release)
-      element.style.minHeight = ""
+      list.removeEventListener("pointerdown", release)
+      list.removeEventListener("keydown", release)
+      spacer.style.height = ""
     }
   }, [active])
-  return <div ref={ref} data-live-steps="" className="flex flex-col gap-2">{children}</div>
+  // -mt-2 cancels the list's gap, so an empty reserve adds no space.
+  return <div ref={ref} aria-hidden="true" data-live-turn-reserve="" className="-mt-2 shrink-0" style={{ overflowAnchor: "none" }} />
 }
 
 /**
@@ -1536,7 +1542,7 @@ function MessageGroup({
   isStreaming,
   newestAppCallIds,
 }: AssistantMessageGroupProps) {
-  const { onForkAtMessage, forkingMessageId, showThinking, readOnly, getConnectionDecision, resolveReplyModelTitle, autoRoutes, resolveAutoRouteName } = useMessageList()
+  const { onForkAtMessage, forkingMessageId, showThinking, readOnly, getConnectionDecision, resolveReplyModelTitle, autoRoutes, resolveAutoRouteName, sessionId } = useMessageList()
   const connectionCardParts = React.useMemo(() => connectionCardPartIds(items, getConnectionDecision), [items, getConnectionDecision])
   const newestAppCalls = React.useMemo(() => new Set(newestAppCallIds.split("\n")), [newestAppCallIds])
   const lastItem = items[items.length - 1]
@@ -1556,7 +1562,22 @@ function MessageGroup({
   )
   const remoteThreadStarts = React.useMemo(() => collectRemoteThreadStarts(items), [items])
   const computerHistoryEnabled = useComputerSessionHistoryStore(state => state.enabled)
-  const computerHistory = React.useMemo(() => computerHistoryEnabled ? collectComputerSessionHistory(items.map(item => item.message)) : null, [computerHistoryEnabled, items])
+  const computerHistory = React.useMemo(() => computerHistoryEnabled ? collectComputerSessionHistory(items.map(item => item.message), { thinking: showThinking }) : null, [computerHistoryEnabled, items, showThinking])
+  const computerWorking = useComputerSessionHistoryStore(state => Boolean(state.working[sessionId]))
+  const parallelComputer = useComputerSessionHistoryStore(state => state.parallel)
+  // The newest turn's card lists the chat's agents on its computer; a row opens that agent's live view.
+  const crewMembers = useComputerCrew(sessionId, parallelComputer && isLastGroup && isElectronRuntime() && !readOnly)
+  const crew = React.useMemo(() => crewMembers.length ? { members: crewMembers, onOpen: (member: { sessionId: string }) => {
+    const history = useComputerSessionHistoryStore.getState()
+    history.setAgent(sessionId, member.sessionId)
+    history.setWatching(sessionId, true)
+  } } : undefined, [crewMembers, sessionId])
+  const savedFileActions = React.useMemo(() => isElectronRuntime() && !readOnly ? desktopSavedFileActions(sessionId) : undefined, [readOnly, sessionId])
+  const watchingComputer = useComputerSessionHistoryStore(state => Boolean(state.watching[sessionId]))
+  // steadyLiveTurn: a running turn keeps its parts in arrival order (no
+  // steps/answer split until it finishes) and reserves room only at the list's
+  // end (LiveTurnReserve). With the flag off, neither area reserves height.
+  const steadyLiveTurn = useSteadyLiveTurnStore(state => state.enabled)
   // The skill this turn produced stays in view as its result, even when the
   // steps fold; later updates and shares change this card, not add another.
   const { cards: createdSkillCards } = useCreatedSkills()
@@ -1602,8 +1623,12 @@ function MessageGroup({
   // OpenCode delivers a whole turn as one assistant message with steps and
   // the answer interleaved in its parts. Split the first prose message so
   // its leading steps fold with the rest instead of pinning the run open.
+  // While the turn runs with steadyLiveTurn on, the split waits: it keys off
+  // the latest text, so every new text moved rows between the steps area and
+  // the answer and the chat jumped or kept a gap. The App panel keeps its fold.
   const firstProse = proseItems[0]
-  if (firstProse && firstProse.message.role === "assistant" && !isSessionErrorMessage(firstProse.message)) {
+  const splitAtAnswer = !(steadyLiveTurn && isLiveGroup && !panelLive)
+  if (splitAtAnswer && firstProse && firstProse.message.role === "assistant" && !isSessionErrorMessage(firstProse.message)) {
     const split = splitTurnAtAnswer(firstProse.message)
     if (split) {
       stepItems = [...stepItems, { index: firstProse.index, message: split.steps }]
@@ -1778,11 +1803,11 @@ function MessageGroup({
             </div>
           </CompletedStepRun>
         ) : (
-          <LiveSteps active={isLiveGroup && !panelLive}>
-            {/* The App panel replaces ordinary steps. Release their held height
-                as they fold away, otherwise an empty rail pushes the panel down. */}
+          <div data-live-steps="" className="flex flex-col gap-2">
+            {/* Do not hold folded tool content open. Scroll stabilization belongs
+                to LiveTurnReserve, behind steadyLiveTurn, below the Working line. */}
             {renderItems(stepItems, 0, panelLive)}
-          </LiveSteps>
+          </div>
         )
       ) : null}
       {creationRuns.map(run => <Message key={`creation-${run.id}`} className="mx-auto flex w-full max-w-3xl flex-col px-2 md:px-10"><AppBuilderStep run={run} startedAt={getMessageCreated(items[0]!.message)} completedAt={getMessageCompleted(lastItem.message)} activity={run === creationRuns.at(-1) ? panelActivity : null} active={creationLive && (run === creationRuns.at(-1) || Boolean(run.preparation && isToolPartInFlight(run.preparation)) || run.builds.some(isToolPartInFlight))} /></Message>)}
@@ -1794,7 +1819,14 @@ function MessageGroup({
       ))}
       {renderItems(proseItems, stepItems.length, collapseSteps || panelLive)}
       {computerHistory ? <Message className="mx-auto flex w-full max-w-3xl flex-col px-2 md:px-10">
-        <ComputerSessionHistory key={computerHistory.id} history={computerHistory} active={isLiveGroup && parentActive} renderAction={part => <ToolMessage part={part} />} />
+        <ComputerSessionHistory key={computerHistory.id} history={computerHistory} active={isLiveGroup && parentActive} renderAction={part => <ToolMessage part={part} />}
+          live={computerWorking && isLastGroup ? { watching: watchingComputer, onWatch: watching => useComputerSessionHistoryStore.getState().setWatching(sessionId, watching) } : undefined}
+          fileActions={savedFileActions}
+          turnEndedAt={isLiveGroup && parentActive ? null : getMessageCompleted(lastItem.message)}
+          turnStartedAt={parallelComputer ? getMessageCreated(items[0]!.message) ?? null : null}
+          crew={crew} />
+      </Message> : crew ? <Message className="mx-auto flex w-full max-w-3xl flex-col px-2 md:px-10">
+        <ComputerCrewCard members={crew.members} onOpen={crew.onOpen} />
       </Message> : null}
       {groupSkillCards.length > 0 ? (
         <div data-created-skills="" className="mx-auto mt-1 flex w-full max-w-3xl flex-col gap-2 px-2 md:px-10">
@@ -2034,6 +2066,7 @@ export function MessageList({ messages, messageIdReplacements, status, activityS
     [latestAssistantToolParts],
   )
   const createdSkills = useCreatedSkillsModel(messages, appRunActive && !syncDegraded)
+  const steadyLiveTurn = useSteadyLiveTurnStore(state => state.enabled)
 
   return (
     <CreatedSkillsContext.Provider value={createdSkills}>
@@ -2110,6 +2143,7 @@ export function MessageList({ messages, messageIdReplacements, status, activityS
         {!showLoading && backgroundShells.length > 0 && <BackgroundTasksMessage shells={backgroundShells} stale={syncDegraded} />}
         {retryStatus ? <RetryMessage status={retryStatus} /> : null}
         {error && !hasSessionErrorMessage && !sessionErrorHandled ? <ErrorMessage error={error} /> : null}
+        {steadyLiveTurn ? <LiveTurnReserve key={sessionId} active={runActive || status === "submitted"} /> : null}
       </ProgressiveMessageList>
     </CurrentToolLifecycleProvider>
     </BuiltAppPreviewSync>
