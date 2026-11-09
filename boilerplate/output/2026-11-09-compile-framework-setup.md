@@ -1,0 +1,5 @@
+# Framework setup brief — 2026-11-09
+
+Set up the project as a source-grounded knowledge compiler: `raw/` preserves inputs, `wiki/` holds linked synthesis, and `output/` holds briefs and requested deliverables. Added a canonical operating guide in [`CLAUDE.md`](../CLAUDE.md), an agent entry point in [`AGENTS.md`](../AGENTS.md), a wiki map and review queue, and captured the initiating article in [`raw/`](../raw/2026-08-20-rvaniaaa-second-brain-compiler.md) with a provisional concept page at [`wiki/knowledge-compilation.md`](../wiki/knowledge-compilation.md).
+
+The workflow requires source provenance, a search-before-create pass, contradiction tracking, verification, and human review for unresolved or consequential changes; it avoids the article's fixed link-count implication and does not assume scheduled-task or product-plan capabilities. No personal profile was invented: `CLAUDE.md` notes that role, goals, communication preferences, strengths, weaknesses, and projects still need to come from the user.
