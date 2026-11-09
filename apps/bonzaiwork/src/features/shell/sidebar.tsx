@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { BookOpen, CalendarClock, ChevronRight, Inbox, MessageSquarePlus, PanelLeftClose, Plus, Search, Settings } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
@@ -86,9 +86,8 @@ function ProjectRow(props: { project: Project; status: ChipStatus; open: boolean
           type="button"
           aria-expanded={props.expanded}
           aria-label={props.expanded ? copy.shell.collapseProject(project.name) : copy.shell.expandProject(project.name)}
-          disabled={props.open}
           onClick={props.onToggle}
-          className="flex size-6 shrink-0 items-center justify-center rounded-full text-subtle-foreground hover:bg-active hover:text-foreground disabled:opacity-60 pointer-coarse:size-11"
+          className="flex size-6 shrink-0 items-center justify-center rounded-full text-subtle-foreground hover:bg-active hover:text-foreground pointer-coarse:size-11"
         >
           <ChevronRight className={cn("size-3.5 transition-transform duration-150 motion-reduce:transition-none", props.expanded && "rotate-90")} aria-hidden="true" />
         </button>
@@ -126,6 +125,9 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
   const { projects, summaries, isLoading } = useSidebarProjects();
   const counts = useAttentionCounts();
   const openId = props.projectId;
+  // The open project starts expanded; its chevron folds it in until another project is opened.
+  const [collapsedOpen, setCollapsedOpen] = useState<string | null>(null);
+  if (collapsedOpen !== null && collapsedOpen !== openId) setCollapsedOpen(null);
   const activeChatId = props.route.name === "project" ? props.route.chatId : null;
   // "Jouw brein" is no project row (decision B1), but its chats are: while a page of the brain's own
   // project is open they sit under the nav item. On #/brein the page itself lists them (P7).
@@ -134,7 +136,7 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
   const personalProject = personalId ? ((allProjects.data ?? []).find((project) => project.id === personalId) ?? null) : null;
   const inBrainProject = personalId !== null && openId === personalId;
 
-  // The open project is always listed and always expanded; one other row may be open by hand.
+  // The open project is always listed and expanded unless folded in by hand; one other row may be open by hand.
   const visible = useMemo(() => {
     const rows = projects.slice(0, MAX_ROWS);
     if (openId && !rows.some((project) => project.id === openId)) {
@@ -221,9 +223,12 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
                   project={project}
                   status={projectStatus}
                   open={open}
-                  expanded={open || project.id === expandedId}
+                  expanded={open ? collapsedOpen !== project.id : project.id === expandedId}
                   activeChatId={open ? activeChatId : null}
-                  onToggle={() => setExpanded(expandedId === project.id ? null : project.id)}
+                  onToggle={() => {
+                    if (open) setCollapsedOpen(collapsedOpen === project.id ? null : project.id);
+                    else setExpanded(expandedId === project.id ? null : project.id);
+                  }}
                 />
               );
             })}
