@@ -105,6 +105,14 @@ export type DownstreamServerHooks = {
   enginePolicies?(): readonly DownstreamEnginePolicy[];
   /** Extra engine permission rules (`allow`/`ask`/`deny` per tool action), written with the same config. */
   enginePermissions?(): readonly DownstreamEnginePermission[];
+  /**
+   * The database for engine v2's history when OpenWork's own v2 database holds
+   * no chats yet, instead of the one shared with other OpenCode installs. Read
+   * once, when v2 first selects its history; an explicit `OPENCODE_DB` wins.
+   * Engine v1 is unaffected, so its own fallback for a database v2 converted
+   * still applies.
+   */
+  engineHistoryDatabase?(): string | undefined;
   start?(host: DownstreamServerHost): Promise<void>;
 };
 
@@ -154,6 +162,19 @@ export function downstreamEnginePermissions(): DownstreamEnginePermission[] {
   return (active?.enginePermissions?.() ?? []).map((rule) => ({ ...rule }));
 }
 
+/**
+ * The environment engine v2 selects its history from
+ * (`resolveOpencodeHistoryDatabase`). Without a hook value, or with an
+ * explicit `OPENCODE_DB`, it is the process environment, unchanged.
+ */
+export function downstreamEngineHistoryEnvironment(environment: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  if (environment.OPENCODE_DB?.trim()) return environment;
+  const database = active?.engineHistoryDatabase?.()?.trim();
+  if (!database) return environment;
+  if (!isAbsolute(database)) throw new Error("engineHistoryDatabase must return an absolute path.");
+  return { ...environment, OPENCODE_DB: database };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -170,11 +191,12 @@ function isDownstreamRoute(value: unknown): value is DownstreamRoute {
 
 function isDownstreamServerHooks(value: unknown): value is DownstreamServerHooks {
   if (!isRecord(value)) return false;
-  const { allowedProviderIds, routes, start, enginePolicies, enginePermissions } = value;
+  const { allowedProviderIds, routes, start, enginePolicies, enginePermissions, engineHistoryDatabase } = value;
   return (allowedProviderIds === undefined || (Array.isArray(allowedProviderIds) && allowedProviderIds.every((id) => typeof id === "string")))
     && (routes === undefined || (Array.isArray(routes) && routes.every(isDownstreamRoute)))
     && (enginePolicies === undefined || typeof enginePolicies === "function")
     && (enginePermissions === undefined || typeof enginePermissions === "function")
+    && (engineHistoryDatabase === undefined || typeof engineHistoryDatabase === "function")
     && (start === undefined || typeof start === "function");
 }
 

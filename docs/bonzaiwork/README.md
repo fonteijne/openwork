@@ -51,8 +51,7 @@ PATCHES.md, bonzaiwork.upstream.json, scripts/bonzaiwork/check-patches.mjs
 ```
 Electron main (BonzaiWork-entry)
   ├─ env: BONZAIWORK_* (ingebakken), OPENWORK_DISABLE_FREE_INFERENCE/HOSTED_MODELS=1,
-  │       OPENWORK_SERVER_HOOKS=<bundel>/server-hooks.js,
-  │       OPENCODE_DB=userData/bonzaiwork/opencode/opencode.db (eigen chatgeschiedenis, zie risico's)
+  │       OPENWORK_SERVER_HOOKS=<bundel>/server-hooks.js
   ├─ registerKeyStore(SafeStorageKeyStore)      ← OS-keychain, in hetzelfde proces als de server
   ├─ registerPresenceSource(ElectronPresenceSource) ← focus en idle voor de agenda, zelfde patroon
   └─ import upstream electron/main.mjs          ← start in-process openwork-server
@@ -60,6 +59,7 @@ Electron main (BonzaiWork-entry)
              ├─ allowedProviderIds = ["litellm"]
              │    ├─ organizationProviderGate()  → mirror duwt alleen litellm naar de engine
              │    └─ engine-config experimental.policies: provider.use * deny, litellm allow
+             ├─ engineHistoryDatabase → v2-geschiedenis in userData/bonzaiwork/opencode/opencode.db
              ├─ provider "litellm" in de globale runtime-config:
              │    baseURL http://127.0.0.1:<poort>/bonzaiwork/litellm/v1, apiKey = lokaal token
              └─ routes
@@ -173,13 +173,20 @@ leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI impor
   Zolang die nog geen chats heeft, krijgt de engine `OPENCODE_DB`, en anders de database die elke
   OpenCode-installatie deelt (`$XDG_DATA_HOME/opencode/opencode.db`); die zet upstream ter plekke om naar
   v2 (`apps/server/src/opencode-history.ts`). Zonder maatregel zou BonzaiWork dus chats uit een losse
-  OpenCode-CLI of -app tonen en die database omzetten. De BonzaiWork-entry zet daarom altijd
-  `OPENCODE_DB` op `userData/bonzaiwork/opencode/opencode.db` (`desktop-main/engine-history.ts`), ook
-  voor de v1-engine. Een expliciete `OPENCODE_DB` (dev, tests, blank-slate-profiel) gaat voor.
+  OpenCode-CLI of -app tonen en die database omzetten. De server-hook `engineHistoryDatabase`
+  (`packages/bonzaiwork-server-hooks/src/engine-history.ts`) geeft v2 daarom
+  `userData/bonzaiwork/opencode/opencode.db`; de patch is één regel in `engine-v2-preview.ts` (zie
+  `PATCHES.md`). Een expliciete `OPENCODE_DB` (dev, tests, blank-slate-profiel) gaat voor. Bewust
+  alleen voor v2: een procesbrede `OPENCODE_DB` bereikt ook de v1-engine, die het door v2 aangemaakte
+  bestand dan niet kan openen ("Database is not empty and has no session table"), en upstream's
+  uitwijkroute voor v1 naar een eigen database staat uit zodra `OPENCODE_DB` gezet is. De verpakte
+  smoketest startte daardoor niet; zo is het gevonden. v1 houdt dus het gedrag van upstream (zie
+  "v1-engine draait mee").
   Bestaande BonzaiWork-chats blijven waar ze zijn: de server houdt zijn eigen v2-database aan zodra die
   chats heeft. Gevolg: chats die alleen in de gedeelde database staan (v1-engine, nooit naar de eigen
   v2-database gekopieerd) toont BonzaiWork niet meer; ze blijven daar onaangeroerd staan. Getest met een
-  unit-test en in de smoketest (de gedeelde database blijft weg, de chat staat in de eigen). Auth- en
+  test in `downstream-hooks.test.ts` (zonder de hook kiest upstream de gedeelde database), een
+  unit-test in `@bonzaiwork/server-hooks` en in de smoketest (de gedeelde database blijft weg, de chat staat in de eigen). Auth- en
   andere bestanden van de engine onder `$XDG_DATA_HOME/opencode` blijven gedeeld, zoals voorheen.
 - **Computer use** (upstream, via `main.mjs`): app-vensters bedienen, kopiëren tussen apps, bestanden
   opslaan in `Downloads`. Staat in `packages/computer-use` standaard uit (`featureEnabled = false`);

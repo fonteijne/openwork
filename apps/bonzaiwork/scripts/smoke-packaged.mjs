@@ -9,7 +9,7 @@
  *   5. fails when any request went to *.openworklabs.com (workstream C);
  *   6. checks the git for brains is in the app and runs (brains plan §3.1);
  *   7. checks the chat landed in BonzaiWork's own history, not in OpenCode's shared database
- *      (desktop-main/engine-history.ts, fonteijne/openwork#34).
+ *      (packages/bonzaiwork-server-hooks/src/engine-history.ts, fonteijne/openwork#34).
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -187,7 +187,7 @@ try {
   check("one chat turn via LiteLLM in the packaged app", answered);
   await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-chat.png") });
   check("LiteLLM received the linked key", litellmCalls.some((call) => call.url === "/v1/chat/completions" && call.authorization === `Bearer ${KEY}`));
-  // Engine history (#34): without BonzaiWork's own OPENCODE_DB, upstream picks the database every
+  // Engine history (#34): without the engineHistoryDatabase hook, upstream picks the database every
   // OpenCode install shares and converts it in place. The chat must be in BonzaiWork's own file.
   const sharedHistory = join(profile, ".local/share/opencode/opencode.db");
   check("OpenCode's shared history database is left alone", !existsSync(sharedHistory), sharedHistory);

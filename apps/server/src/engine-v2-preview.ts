@@ -7,6 +7,7 @@ import { createV2ProviderSessionBridge } from "./opencode-v2-provider-session.js
 import type { CloudProviderDenSession } from "./cloud-provider-sync.js";
 import { ApiError } from "./errors.js";
 import { adoptOriginalHistory, opencodeV1DatabasePath, originalHistoryUsesV2, resolveOpencodeHistoryDatabase } from "./opencode-history.js";
+import { downstreamEngineHistoryEnvironment } from "./downstream-hooks.js";
 import { executionRules } from "./managed-policy-rules.js";
 import { agentPermissionEngineMcpDenial, agentPermissionRulesOf } from "./agent-permission-engine.js";
 import { CONNECT_MCP_APP_HOST_CAPABILITY_HEADER, registeredOrganizationMcpServers } from "./connect-mcp-server-catalog.js";
@@ -768,7 +769,7 @@ export function createEngineV2Preview(options: {
   let selectedHistoryDatabase = initialState.historyDatabase;
   async function selectHistoryDatabase(): Promise<string> {
     if (!selectedHistoryDatabase) {
-      selectedHistoryDatabase = await resolveOpencodeHistoryDatabase(rootDir);
+      selectedHistoryDatabase = await resolveOpencodeHistoryDatabase(rootDir, downstreamEngineHistoryEnvironment());
       // A path receipt, not a migration checkpoint: never switch databases
       // after the user deletes their last chat, or resurrect an old history.
       await persistState();
