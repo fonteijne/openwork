@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { CalendarClock, CircleAlert, GitMerge, HelpCircle, ShieldQuestion, UserRoundPen } from "lucide-react";
+import { CalendarClock, CircleAlert, GitMerge, HelpCircle, PackageCheck, ShieldQuestion, UserRoundPen } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { projectHasKey, projectModels, startModel, useRefreshAttention, useStatus } from "~/backend/queries";
@@ -501,15 +501,21 @@ function BrainCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kin
   const { item, project } = props;
   const status = props.brain?.status ?? null;
   const target = href({ name: "project-brain", projectId: project.id });
+  const outdated = status?.outdated.length ?? 0;
   const title =
-    item.state === "conflict" ? copy.attention.brain.conflict(status?.conflictBy ?? null) : item.state === "needs_trust" ? copy.attention.brain.needsTrust : copy.attention.brain.error;
+    item.state === "conflict" ? copy.attention.brain.conflict(status?.conflictBy ?? null)
+      : item.state === "needs_trust" ? copy.attention.brain.needsTrust
+        : item.state === "outdated" ? copy.brain.harness.outdatedTitle(outdated)
+          : copy.attention.brain.error;
   const sentence =
     item.state === "conflict"
       ? copy.home.conflictFiles(status?.conflictFiles.length ?? 0)
       : item.state === "needs_trust"
         ? copy.home.trustCount(status?.pendingTrust.length ?? 0)
-        : (status?.error ?? copy.brain.states.error);
-  const icon = item.state === "conflict" ? <GitMerge /> : item.state === "needs_trust" ? <ShieldQuestion /> : <CircleAlert />;
+        : item.state === "outdated"
+          ? copy.brain.harness.outdatedState
+          : (status?.error ?? copy.brain.states.error);
+  const icon = item.state === "conflict" ? <GitMerge /> : item.state === "needs_trust" ? <ShieldQuestion /> : item.state === "outdated" ? <PackageCheck /> : <CircleAlert />;
   return (
     <Callout
       ref={props.cardRef}
@@ -519,7 +525,7 @@ function BrainCard(props: { isFocal: boolean; item: Extract<AttentionItem, { kin
       keyShortcuts="Enter"
       testId={`attention-brain-${item.state}`}
       label={title}
-      decision={item.state !== "error"}
+      decision={item.state !== "error" && item.state !== "outdated"}
       tone={item.state === "error" ? "failure" : "neutral"}
       icon={icon}
       title={title}

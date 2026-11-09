@@ -11,6 +11,10 @@ import {
   type BrainState,
   type BrainStatus,
   type ConceptView,
+  type HarnessInfo,
+  type HarnessItem,
+  type HarnessItemKind,
+  type OutdatedItem,
   type PreferenceProposal,
   type RemoteCheck,
   type RemoteProblem,
@@ -70,6 +74,29 @@ export function readBrainStatus(value: unknown): BrainStatus | null {
       const branch = str(proposal, "branch");
       return branch ? { branch, url: str(proposal, "url") ?? null, manual: field(proposal, "manual") === true } : null;
     })(),
+    outdated: list(value, "outdated").flatMap((item): OutdatedItem[] => {
+      const itemKind = ITEM_KINDS.find((entry) => entry === str(item, "kind"));
+      const name = str(item, "name");
+      const to = str(item, "to");
+      return itemKind && name && to ? [{ kind: itemKind, name, from: str(item, "from") ?? null, to, modified: field(item, "modified") === true }] : [];
+    }),
+  };
+}
+
+const ITEM_KINDS: readonly HarnessItemKind[] = ["skill", "command", "agent"];
+
+function readHarness(value: unknown): HarnessInfo {
+  const previous = field(value, "previous");
+  const previousId = str(previous, "workspaceId");
+  return {
+    version: str(value, "version") ?? "",
+    items: list(value, "items").flatMap((item): HarnessItem[] => {
+      const itemKind = ITEM_KINDS.find((entry) => entry === str(item, "kind"));
+      const name = str(item, "name");
+      return itemKind && name ? [{ kind: itemKind, name, source: str(item, "source") === "personal" ? "personal" : "bundled", version: str(item, "version") ?? null, description: str(item, "description") ?? "" }] : [];
+    }),
+    personalId: str(value, "personal") ?? null,
+    previous: previousId ? { projectId: previousId, at: num(previous, "at") ?? null } : null,
   };
 }
 
@@ -256,6 +283,14 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     },
     setAuthor: async (author) => void (await req("/bonzaiwork/brains/settings", { method: "PUT", body: author, ...host })),
     proposals: async () => readProposals(await req("/bonzaiwork/brains/proposals")),
+    harness: async () => readHarness(await req("/bonzaiwork/harness")),
+    harnessDiff: async (projectId, kind, name) => str(await req(`${brain(projectId)}/harness/diff?kind=${enc(kind)}&name=${enc(name)}`), "diff") ?? "",
+    harnessUpdate: async (projectId, items) => requireStatus(await req(`${brain(projectId)}/harness/update`, { method: "POST", body: { items }, ...host, timeoutMs: 120_000 })),
+    harnessRemove: async (projectId, items) => requireStatus(await req(`${brain(projectId)}/harness/remove`, { method: "POST", body: { items }, ...host, timeoutMs: 120_000 })),
+    harnessDismiss: async (projectId, items) => requireStatus(await req(`${brain(projectId)}/harness/dismiss`, { method: "POST", body: { items }, ...host })),
+    adoptSkill: async (personalId, fromProjectId, name, move) => void (await req(`${brain(personalId)}/skills/adopt`, { method: "POST", body: { fromWorkspaceId: fromProjectId, name, move }, ...host })),
+    savePersonalSkill: async (personalId, input) => void (await req(`${brain(personalId)}/skills/${enc(input.name)}`, { method: "PUT", body: { description: input.description, content: input.content }, ...host })),
+    removePersonalSkill: async (personalId, name) => void (await req(`${brain(personalId)}/skills/${enc(name)}`, { method: "DELETE", ...host })),
     decide: async (proposalId, decision, text) => void (await req(`/bonzaiwork/brains/proposals/${enc(proposalId)}`, { method: "POST", body: { decision, ...(text ? { text } : {}) }, ...host })),
   };
 }

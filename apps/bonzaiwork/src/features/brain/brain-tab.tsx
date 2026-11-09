@@ -21,6 +21,7 @@ import { fileName } from "~/lib/tools";
 import { useOpenProjectFile } from "../chat/file-link";
 import { useBrainAction } from "./actions";
 import { BrainAttentionCard } from "./cards";
+import { HarnessCard } from "./harness-card";
 import { HistorySection } from "./history";
 import { JoinBrainForm } from "./join-brain";
 import { KnowledgeSection } from "./knowledge";
@@ -371,6 +372,7 @@ function BrainOverview(props: { project: Project; brain: Brain; readOnly: boolea
       <div className="flex flex-col gap-4">
         <StateLine brain={brain} />
         <BrainAttentionCard projectId={project.id} link={false} />
+        <HarnessCard projectId={project.id} link={false} />
         <StateRows brain={brain} readOnly={props.readOnly} />
       </div>
       <KnowledgeSection projectId={project.id} readOnly={props.readOnly || status.mode === "read_only"} onOpen={openFile} onSetUp={setUp} setUpBusy={busy !== null} />

@@ -89,10 +89,15 @@ describe("sjabloon", () => {
       }
     }
     await walk(root);
-    expect([...TEMPLATE_FILES.keys()].sort()).toEqual(files.filter((file) => file !== "vendor/README.md").sort());
-    expect([...templateTargets("project").keys()]).toContain(".opencode/skills/icm-architect/SKILL.md");
-    expect([...templateTargets("personal").keys()]).toContain("_meta/voorkeuren.md");
-    for (const [path, content] of TEMPLATE_FILES) if (path.includes("commands/")) expect(content).not.toMatch(/!`/);
+    expect([...TEMPLATE_FILES.keys()].sort()).toEqual(files.sort());
+    // A project brain carries the harness skills and commands as stamped copies (brein-harnas-plan H3); the personal brain does not.
+    const project = templateTargets("project");
+    expect([...project.keys()]).toEqual(expect.arrayContaining([".opencode/skills/icm-architect/SKILL.md", ".opencode/skills/okf-query/SKILL.md", ".opencode/commands/verwerk.md", ".opencode/commands/onthoud.md"]));
+    expect([...project.keys()].some((path) => path.startsWith(".opencode/agents/"))).toBe(false);
+    expect(project.get(".opencode/skills/okf-query/SKILL.md")).toMatch(/^harness: okf-query@\d+\.\d+\.\d+$/m);
+    const personal = templateTargets("personal");
+    expect([...personal.keys()]).toContain("_meta/voorkeuren.md");
+    expect([...personal.keys()].some((path) => path.startsWith(".opencode/"))).toBe(false);
   });
 
   test("een lege map wordt een conform brein; bestaande notities blijven", async () => {

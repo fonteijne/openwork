@@ -309,7 +309,7 @@ function ProjectRow(props: { project: Project; summary: ProjectSummary | undefin
     </a>
   ) : need?.kind === "brain" ? (
     <a href={href({ name: "project-brain", projectId: project.id })} className="truncate text-xs text-electric-11 hover:underline underline-offset-2">
-      {copy.brain.states[need.state]}
+      {need.state === "outdated" ? copy.brain.harness.outdatedLabel : copy.brain.states[need.state]}
     </a>
   ) : (
     <span className="truncate text-xs text-muted-foreground">{summary ? (summary.chatCount ? copy.projects.chats(summary.chatCount) : copy.projects.noChats) : ""}</span>

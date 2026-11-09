@@ -43,6 +43,7 @@ describe("brain status", () => {
       warnings: [],
       excluded: ["Dagboek"],
       proposal: null,
+      outdated: [],
     });
   });
 

@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookOpen, FolderOpen, MessageSquarePlus } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, useBrains, useProjects, useRoutines, useStatus } from "~/backend/queries";
-import type { Brain, Project, RemoteCheck, RoutineInput } from "~/backend/types";
+import { keys, useBrains, useHarness, useProjects, useRoutines, useStatus } from "~/backend/queries";
+import type { Brain, HarnessInfo, Project, RemoteCheck, RoutineInput } from "~/backend/types";
 import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
@@ -28,6 +28,8 @@ import { KnowledgeSection } from "./knowledge";
 import { BrainLinkField } from "./link-field";
 import { brainChip } from "./model";
 import { TypedFolder, usePersonalSetup } from "./personal-setup";
+import { SkillsSection } from "./skills-section";
+import { useStartChat } from "./start-chat";
 
 const PREFERENCES = "_meta/voorkeuren.md";
 
@@ -48,7 +50,7 @@ function Shell(props: { children: React.ReactNode; actions?: React.ReactNode }) 
 }
 
 /** No personal brain yet: one card with the two ways to start (brief §8; the onboarding step is gone). */
-function SetupCard(props: { readOnly: boolean }) {
+function SetupCard(props: { readOnly: boolean; previous: Project | null }) {
   const setup = usePersonalSetup();
   const disabled = props.readOnly || setup.busy !== null;
   return (
@@ -57,7 +59,8 @@ function SetupCard(props: { readOnly: boolean }) {
       label={copy.brain.personal.setupTitle}
       icon={<BookOpen />}
       title={copy.brain.personal.setupTitle}
-      state={copy.brain.personal.setupState}
+      state={props.previous ? copy.brain.harness.previousBody(props.previous.name) : copy.brain.personal.setupState}
+      link={props.previous ? <a href={href({ name: "project", projectId: props.previous.id, chatId: null })}>{copy.brain.harness.previousOpen}</a> : undefined}
       actions={
         <>
           <Button variant="primary" disabled={disabled} onClick={() => void setup.createNew()}>
@@ -241,8 +244,38 @@ function ChatsSection(props: { project: Project }) {
   );
 }
 
-function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly: boolean }) {
+/** Brein-harnas-plan H5: the brain from before the harness is a project now; the agent Brein takes over what still counts. */
+function PreviousBrainRow(props: { brain: Brain; previous: Project; readOnly: boolean }) {
+  const startChat = useStartChat(props.brain.projectId);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Section title={copy.brain.harness.previousTitle}>
+      <Row
+        label={copy.brain.harness.takeFromPrevious}
+        hint={copy.brain.harness.takeFromPreviousHint}
+        action={
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={props.readOnly || busy}
+            data-testid="brain-previous-take"
+            onClick={() => {
+              setBusy(true);
+              void startChat({ title: copy.brain.harness.takeFromPreviousChat, prompt: copy.brain.harness.takeFromPreviousPrompt(props.previous.name) }).finally(() => setBusy(false));
+            }}
+          >
+            {copy.brain.harness.takeFromPreviousAction}
+          </Button>
+        }
+      />
+      <Row label={props.previous.name} action={<a className="text-sm text-muted-foreground underline-offset-2 hover:underline" href={href({ name: "project", projectId: props.previous.id, chatId: null })}>{copy.brain.harness.previousOpen}</a>} />
+    </Section>
+  );
+}
+
+function PersonalBrain(props: { brain: Brain; project: Project | null; previous: Project | null; readOnly: boolean }) {
   const { brain } = props;
+  const backend = useBackend();
   const chip = brainChip(brain.status);
   const [preview, setPreview] = useState<string | null>(null);
   return (
@@ -260,7 +293,9 @@ function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly:
           <ChatsSection project={props.project} />
         </ProjectRuntimeProvider>
       ) : null}
+      {props.previous ? <PreviousBrainRow brain={brain} previous={props.previous} readOnly={props.readOnly} /> : null}
       <PreferencesSection brain={brain} readOnly={props.readOnly} />
+      {backend.capabilities.harness ? <SkillsSection personalId={brain.projectId} readOnly={props.readOnly} /> : null}
       <KnowledgeSection projectId={brain.projectId} readOnly={props.readOnly} onOpen={setPreview} />
       <HistorySection projectId={brain.projectId} readOnly={props.readOnly} />
       <Section title={copy.brain.personal.privacy}>
@@ -287,9 +322,11 @@ export function PersonalPage() {
   const status = useStatus();
   const brains = useBrains();
   const projects = useProjects();
+  const harness = useHarness();
   const readOnly = status.data?.readOnly ?? false;
   const personal = (brains.data ?? []).find((brain) => brain.status.kind === "personal") ?? null;
   const project = personal ? ((projects.data ?? []).find((candidate) => candidate.id === personal.projectId) ?? null) : null;
+  const previous = usePreviousBrain(harness.data ?? null, projects.data ?? [], readOnly);
   if (!backend.capabilities.brains) {
     return (
       <Shell>
@@ -311,7 +348,24 @@ export function PersonalPage() {
   }
   return (
     <Shell actions={project ? <NewChatButton projectId={project.id} /> : undefined}>
-      {personal ? <PersonalBrain brain={personal} project={project} readOnly={readOnly} /> : <SetupCard readOnly={readOnly} />}
+      {personal ? <PersonalBrain brain={personal} project={project} previous={previous} readOnly={readOnly} /> : <SetupCard readOnly={readOnly} previous={previous} />}
     </Shell>
   );
+}
+
+/**
+ * The brain from before the harness (H5): its project, renamed once to "<naam> (tot <datum>)" so
+ * the list says what it is. The rename happens here, not on the server: names are the app's.
+ */
+function usePreviousBrain(harness: HarnessInfo | null, projects: readonly Project[], readOnly: boolean): Project | null {
+  const backend = useBackend();
+  const previousId = harness?.previous?.projectId ?? null;
+  const at = harness?.previous?.at ?? null;
+  const previous = previousId ? (projects.find((candidate) => candidate.id === previousId) ?? null) : null;
+  useEffect(() => {
+    if (!previous || readOnly || /\(tot [^)]+\)$/.test(previous.name)) return;
+    const date = new Date(at ?? Date.now()).toLocaleDateString("nl-NL", { day: "numeric", month: "long", year: "numeric" });
+    void backend.projects.update(previous.id, { name: copy.brain.harness.previousName(previous.name, date) }).catch(() => undefined);
+  }, [backend, previous, at, readOnly]);
+  return previous;
 }

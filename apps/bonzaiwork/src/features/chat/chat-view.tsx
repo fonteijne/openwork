@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { ArrowDown, ChevronLeft, Clock, Ellipsis, RotateCcw, WifiOff } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { projectModels, startModel, useRefreshAttention, useStatus } from "~/backend/queries";
+import { projectModels, startModel, usePersonalBrain, useRefreshAttention, useStatus } from "~/backend/queries";
 import type { ChatError, Message, Project } from "~/backend/types";
 import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
@@ -74,6 +74,12 @@ export function ChatView(props: { project: Project; chatId: string }) {
   const [dragging, setDragging] = useState(false);
   const [routineFrom, setRoutineFrom] = useState<Message | null>(null);
   const [agent, setAgent] = useState<string | null>(null);
+  // A chat with Jouw brein starts with the agent Brein (brein-harnas-plan H4); the picker can still change it.
+  const personal = usePersonalBrain();
+  const brainAgent = backend.capabilities.harness && personal?.projectId === props.project.id;
+  useEffect(() => {
+    if (brainAgent) setAgent((current) => current ?? "brein");
+  }, [brainAgent]);
   const [modelOverride, setModelOverride] = useState<string | null>(null);
   /** The scroll area ends where the composer dock begins (brief §7). */
   const [dockHeight, setDockHeight] = useState(0);

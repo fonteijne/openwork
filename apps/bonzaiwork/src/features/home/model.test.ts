@@ -61,6 +61,7 @@ const brain = (projectId: string, kind: "project" | "personal" = "project"): Bra
     warnings: [],
     excluded: [],
     proposal: null,
+    outdated: [],
   },
 });
 

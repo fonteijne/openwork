@@ -6,6 +6,7 @@ import {
   type BrainState,
   type BrainStatus,
   type ConceptView,
+  type HarnessInfo,
   type HistoryAuthor,
   type PreferenceProposal,
   type TrustItem,
@@ -34,6 +35,8 @@ type DemoBrains = {
   /** Workflow stage states per project: the demo has no folder to read them from. */
   stages?: Record<string, WorkflowStage["state"][]>;
   reads?: Record<string, string[]>;
+  /** The user's own skills in Jouw brein (brein-harnas-plan §1.4). */
+  ownSkills?: Array<{ name: string; description: string; content: string }>;
 };
 
 const DEMO_WORKFLOW: Omit<Workflow, "stages"> & { stages: Array<Omit<WorkflowStage, "state" | "failure" | "missing">> } = {
@@ -67,12 +70,29 @@ const SWITCHES: Record<string, Partial<BrainStatus>> = {
   achter: { state: "behind", behind: 2 },
   "niet-gedeeld": { state: "synced", unshared: [{ path: "offerte-van-dijk.pptx", reason: "not_markdown" }, { path: "scan-contract.md", reason: "too_large" }] },
   bezig: { state: "syncing" },
+  // Brein-harnas-plan H3: an unchanged copy from an older app, and one the team changed.
+  verouderd: { outdated: [{ kind: "skill", name: "okf-query", from: "1.0.0", to: "1.2.0", modified: false }, { kind: "command", name: "verwerk", from: "1.0.0", to: "1.2.0", modified: true }] },
 };
+
+const DEMO_HARNESS_VERSION = "1.2.0";
+const DEMO_HARNESS: HarnessInfo["items"] = [
+  { kind: "skill", name: "okf-query", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Een vraag beantwoorden uit de kennis van dit brein, stap voor stap via de indexen." },
+  { kind: "skill", name: "okf-ingest", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Een bron verwerken in de kennis van dit brein." },
+  { kind: "skill", name: "okf-lint", source: "bundled", version: DEMO_HARNESS_VERSION, description: "De kennis van dit brein controleren op tegenstrijdigheden, verlopen en gebroken links." },
+  { kind: "skill", name: "icm-architect", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Een proces of kennisgebied inrichten als werkwijze met stappen en controles." },
+  { kind: "skill", name: "brein-mensen", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Iemand opzoeken of bijwerken in je brein." },
+  { kind: "command", name: "verwerk", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Een bron verwerken in de kennis" },
+  { kind: "command", name: "vastleggen", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Het laatste antwoord als concept bewaren" },
+  { kind: "command", name: "onderhoud", source: "bundled", version: DEMO_HARNESS_VERSION, description: "De kennis van dit brein controleren" },
+  { kind: "command", name: "werkwijze", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Een werkwijze maken of aanpassen" },
+  { kind: "command", name: "onthoud", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Leg uit dit gesprek vast wat ook buiten dit project telt" },
+  { kind: "agent", name: "brein", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Jouw brein. Weet wat je over jezelf, je mensen en je projecten hebt vastgelegd." },
+];
 
 function base(now: number, path: string, kind: BrainStatus["kind"], remote: string | null): BrainStatus & { path: string } {
   return {
     path, kind, state: remote ? "synced" : "local_only", mode: "auto", remote, branch: "main", ahead: 0, behind: 0,
-    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, fixInNotes: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
+    lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, fixInNotes: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null, outdated: [],
   };
 }
 
@@ -102,6 +122,7 @@ function seed(now: number, home: string, state: string | null): DemoBrains {
     author: { name: "Jij", email: "jij@voorbeeld.nl" },
     proposals: state === "voorkeur" ? [{ id: "pref-demo", preference: "Samenvattingen altijd in drie punten, conclusie eerst.", reason: "Zo vroeg je het bij de klantmail.", at: now - MIN }] : [],
     verified: {},
+    ownSkills: [{ name: "klantmail-schrijven", description: "Een klantmail in mijn toon, kort en zonder jargon", content: "# Klantmail\n\n1. Begin met de kern.\n2. Eén vraag per mail.\n" }],
   };
 }
 
@@ -347,6 +368,49 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
     author: async () => ({ author: state.author, suggested: state.author ? null : { name: "Jij", email: "jij@voorbeeld.nl" } }),
     setAuthor: async (author) => { await later(); state.author = author; save(); },
     proposals: async () => structuredClone(state.proposals),
+    async harness() {
+      await later(80);
+      const personal = Object.entries(state.brains).find(([, entry]) => entry.kind === "personal")?.[0] ?? null;
+      const own = (state.ownSkills ?? []).map((skill) => ({ kind: "skill" as const, name: skill.name, source: "personal" as const, version: null, description: skill.description }));
+      const previous = switchState === "vorig-brein" ? { projectId: DEMO_BRAINS.offertes, at: Date.now() - 60 * MIN } : null;
+      return { version: DEMO_HARNESS_VERSION, items: [...DEMO_HARNESS.filter((item) => !own.some((entry) => entry.name === item.name)), ...own], personalId: personal, previous };
+    },
+    async harnessDiff(_projectId, kind, name) {
+      await later(120);
+      return `--- a/${kind === "skill" ? `${name}/SKILL.md` : `${name}.md`}\n+++ b/${kind === "skill" ? `${name}/SKILL.md` : `${name}.md`}\n ---\n name: ${name}\n-harness: ${name}@1.0.0\n+harness: ${name}@${DEMO_HARNESS_VERSION}\n ---\n-3. Antwoord met links.\n+3. Antwoord met links naar de concepten die je gebruikte en noem de status.\n`;
+    },
+    async harnessUpdate(projectId, items) {
+      await later(400);
+      const current = brain(projectId);
+      const left = current.outdated.filter((entry) => !items.some((item) => item.kind === entry.kind && item.name === entry.name));
+      state.history[projectId] = [{ commit: Date.now().toString(36).slice(-7), author: state.author?.name ?? "Jij", at: Date.now(), title: `BonzaiWork-onderdelen bijgewerkt naar ${DEMO_HARNESS_VERSION}`, chatId: null, files: items.map((item) => (item.kind === "skill" ? `.opencode/skills/${item.name}/SKILL.md` : `.opencode/commands/${item.name}.md`)) }, ...(state.history[projectId] ?? [])];
+      return set(projectId, { outdated: left, lastSyncAt: Date.now() });
+    },
+    async harnessRemove(projectId, items) {
+      await later(400);
+      const current = brain(projectId);
+      return set(projectId, { outdated: current.outdated.filter((entry) => !items.some((item) => item.kind === entry.kind && item.name === entry.name)), lastSyncAt: Date.now() });
+    },
+    async harnessDismiss(projectId, items) {
+      await later(80);
+      const current = brain(projectId);
+      return set(projectId, { outdated: current.outdated.filter((entry) => !items.some((item) => item.kind === entry.kind && item.name === entry.name)) });
+    },
+    async adoptSkill(_personalId, _fromProjectId, name, _move) {
+      await later(300);
+      state.ownSkills = [...(state.ownSkills ?? []).filter((skill) => skill.name !== name), { name, description: "Overgenomen uit een project", content: "# Overgenomen\n" }];
+      save();
+    },
+    async savePersonalSkill(_personalId, input) {
+      await later(200);
+      state.ownSkills = [...(state.ownSkills ?? []).filter((skill) => skill.name !== input.name), input];
+      save();
+    },
+    async removePersonalSkill(_personalId, name) {
+      await later(200);
+      state.ownSkills = (state.ownSkills ?? []).filter((skill) => skill.name !== name);
+      save();
+    },
     async decide(proposalId) {
       await later();
       state.proposals = state.proposals.filter((item) => item.id !== proposalId);

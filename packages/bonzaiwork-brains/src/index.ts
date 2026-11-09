@@ -22,3 +22,7 @@ export {
 } from "./okf.ts";
 export { checkContract, contentWarnings, isStageContract } from "./icm.ts";
 export { applyTemplate, templateTargets, type TemplateKind } from "./template.ts";
+export {
+  composeHarness, isTextFile, itemVersions, materializeHarness, outdatedItems, personalItems, removeItems, unifiedDiff, updateItems,
+  type ComposedHarness, type HarnessSource, type HarnessView, type OutdatedItem,
+} from "./harness.ts";

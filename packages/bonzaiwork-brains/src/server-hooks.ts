@@ -1,10 +1,13 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
+import { HARNESS_VERSION, itemKey, type HarnessItemKind } from "@bonzaiwork/harness";
+
 import { createGit, type Git } from "./git.ts";
+import { composeHarness, isTextFile, itemVersions, outdatedItems, personalItems, removeItems, unifiedDiff, updateItems, type HarnessView } from "./harness.ts";
 import { handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
 import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
 import { answerBrainReads } from "./answers.ts";
@@ -48,7 +51,11 @@ export type BrainsHost = {
   followSessions?(workspaceId: string): Promise<boolean>;
   sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
   updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
-  setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
+  /**
+   * What counts in every chat of every project (plan §5.1; brein-harnas-plan §1.2): the global
+   * instructions, one junction per skill, and command and agent files as copies (fase 0 E4).
+   */
+  setEngineGlobalContext(input: EngineGlobalContext): Promise<void>;
   /** OPENCODE_CONFIG_DIR: the global instructions; closed to the ordinary tools like a brain. */
   engineConfigDirectory?: string;
   /** Rebuilds the engine's loaded folders with the current config and registers their MCPs again. */
@@ -56,6 +63,16 @@ export type BrainsHost = {
   /** A call to a workspace's engine through the server's own proxy (downstream-hooks.ts). */
   engineRequest?(workspaceId: string, method: string, path: string, body?: unknown): Promise<{ status: number; body: unknown }>;
   log: Log;
+};
+
+export type EngineGlobalContext = {
+  instructions: string | null;
+  /** Skill name → folder (a junction in `<OPENCODE_CONFIG_DIR>/skills/<name>`). */
+  skills: Record<string, string>;
+  /** Command name → content of `<OPENCODE_CONFIG_DIR>/command/<name>.md`. */
+  commands: Record<string, string>;
+  /** Agent name → content of `<OPENCODE_CONFIG_DIR>/agent/<name>.md`. */
+  agents: Record<string, string>;
 };
 
 /** A preference the AI proposed with voorkeur_voorstellen; the user decides on a card (plan §7.3). */
@@ -93,6 +110,8 @@ export type BrainsHooksOptions = {
   /** Tests only. */
   allowFileProtocol?: boolean;
   ssh?: Partial<SshOptions>;
+  /** The harness (brein-harnas-plan): shipped skills, commands and the agent Brein in every project. BONZAIWORK_HARNESS=0 turns it off. */
+  harness?: boolean;
 };
 
 /** Plan §7.4, laag 1: the AI runs no git and writes nothing in .git (fase 0 §6.4). */
@@ -166,6 +185,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   const quietMs = options.quietMs ?? (Number(environment.BONZAIWORK_TEST_QUIET_MS) || 15_000);
   const allowFileProtocol = options.allowFileProtocol ?? environment.BONZAIWORK_TEST_FILE_REMOTES === "1";
   const prepareTimeoutMs = options.prepareTimeoutMs ?? 5_000;
+  const harnessEnabled = options.harness ?? environment.BONZAIWORK_HARNESS?.trim() !== "0";
   const sshOptions: SshOptions = { knownHostsFile: join(stateDirectory, "known_hosts"), platform, environment, ...options.ssh };
   const registry = new BrainRegistry(join(stateDirectory, "brains.json"));
 
@@ -249,6 +269,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   const mcpToken = `bwb_${randomBytes(32).toString("base64url")}`;
   let personalDirty = false;
   let globalContext = "";
+  /** What the engine's config folder holds now, for `GET /bonzaiwork/harness`. */
+  let harnessItemsView: HarnessView[] = [];
   let personalWarning: string | null = null;
   const proposalsFile = join(stateDirectory, "proposals.json");
   let proposals: PreferenceProposal[] = [];
@@ -265,7 +287,10 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   function syncFor(record: BrainRecord): BrainSync {
     if (!git) throw new Error("brains not started");
-    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService, busy: async () => chatsWriteIn(record) });
+    return new BrainSync({
+      git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService, busy: async () => chatsWriteIn(record),
+      inspect: (current) => (harnessEnabled ? outdatedItems(current.path, registry.dismissed(current.id)) : Promise.resolve([])),
+    });
   }
 
   /** A chat runs that may write in this brain: its own project, or for the personal brain any project. */
@@ -325,12 +350,150 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     const root = own?.snapshot.path ?? null;
     const instructions = await composeInstructions(root);
     personalWarning = instructions.truncated ? "Je persoonlijke instructies zijn groter dan 32 KiB en worden ingekort meegestuurd. Maak ze korter." : null;
-    const skills = root && (await stat(join(root, ".opencode", "skills")).catch(() => null))?.isDirectory() ? join(root, ".opencode", "skills") : null;
-    const signature = JSON.stringify([instructions.text, skills]);
+    let context: EngineGlobalContext;
+    if (harnessEnabled) {
+      const composed = await composeHarness({ stateDirectory, personalRoot: root });
+      harnessItemsView = composed.items;
+      context = { instructions: instructions.text, skills: composed.skills, commands: composed.commands, agents: composed.agents };
+    } else {
+      // Without the harness: only the user's own skills, as before (plan §5.1).
+      const skills: Record<string, string> = {};
+      if (root) for (const item of await personalItems(root)) if (item.kind === "skill") skills[item.name] = item.path;
+      harnessItemsView = [];
+      context = { instructions: instructions.text, skills, commands: {}, agents: {} };
+    }
+    // A changed skill behind an existing junction is included through its modification time.
+    const stamps = await Promise.all(Object.values(context.skills).map((folder) => skillStamp(folder)));
+    const signature = JSON.stringify([context, stamps]);
     if (signature === globalContext) return false;
-    await host.setEngineGlobalContext({ instructions: instructions.text, skillsDirectory: skills });
+    await host.setEngineGlobalContext(context);
     globalContext = signature;
     return true;
+  }
+
+  /** Newest modification time in a skill folder (one level of files and their folders is enough). */
+  async function skillStamp(folder: string): Promise<number> {
+    let newest = 0;
+    async function walk(dir: string, depth: number): Promise<void> {
+      for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) { if (depth < 3) await walk(path, depth + 1); continue; }
+        const info = await stat(path).catch(() => null);
+        if (info && info.mtimeMs > newest) newest = info.mtimeMs;
+      }
+    }
+    await walk(folder, 0);
+    return newest;
+  }
+
+  /**
+   * Brein-harnas-plan H5, once: the personal brain from before the harness becomes an ordinary brain
+   * project (same folder, history and remote; nothing removed), and Jouw brein starts afresh.
+   */
+  async function migratePersonal(): Promise<void> {
+    const previous = registry.brains.find((record) => record.kind === "personal") ?? null;
+    if (previous) await registry.upsert({ ...previous, kind: "project" });
+    await registry.setHarness({ migratedAt: Date.now(), previousPersonal: previous?.id ?? null });
+    if (previous) log("info", "The personal brain from before the harness is a project now", { brain: previous.id });
+  }
+
+  type ItemRef = { kind: HarnessItemKind; name: string };
+  const ITEM_KINDS: readonly HarnessItemKind[] = ["skill", "command", "agent"];
+  const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+  function itemRefs(body: Record<string, unknown>): ItemRef[] {
+    const items = Array.isArray(body.items) ? body.items : [];
+    return items.flatMap((item): ItemRef[] => {
+      if (!isRecord(item)) return [];
+      const kind = ITEM_KINDS.find((candidate) => candidate === item.kind);
+      const name = typeof item.name === "string" ? item.name.trim() : "";
+      return kind && SKILL_NAME.test(name) ? [{ kind, name }] : [];
+    });
+  }
+
+  /** Brein-harnas-plan H3: "Bijwerken", "Uit het project halen" and "Zo laten" for outdated copies in a project brain. */
+  async function harnessAction(request: Request, workspaceId: string, action: "update" | "remove" | "dismiss"): Promise<Response> {
+    const sync = known(workspaceId);
+    if (!sync) return notABrain();
+    if (sync.snapshot.kind !== "project") return failure(409, "not_project_brain", "Only a project brain holds copies of harness items.");
+    const items = itemRefs((await readBody(request)) ?? {});
+    if (!items.length) return failure(400, "invalid_body", "Send items: [{ kind, name }].");
+    if (action === "dismiss") {
+      await registry.dismiss(workspaceId, Object.fromEntries(items.map((item) => [itemKey(item.kind, item.name), HARNESS_VERSION])));
+      return json({ changed: [], status: await sync.status() });
+    }
+    const message = action === "update" ? `BonzaiWork-onderdelen bijgewerkt naar ${HARNESS_VERSION}` : "BonzaiWork-onderdelen uit het project gehaald; BonzaiWork levert ze";
+    const result = await sync.applyHarness(message, () => (action === "update" ? updateItems(sync.snapshot.path, items) : removeItems(sync.snapshot.path, items)));
+    await refreshPolicies();
+    return json(result);
+  }
+
+  async function harnessDiff(request: Request, workspaceId: string): Promise<Response> {
+    const sync = known(workspaceId);
+    if (!sync) return notABrain();
+    const url = new URL(request.url);
+    const kind = ITEM_KINDS.find((candidate) => candidate === url.searchParams.get("kind"));
+    const name = url.searchParams.get("name")?.trim() ?? "";
+    if (!kind || !SKILL_NAME.test(name)) return failure(400, "invalid_item", "Send kind and name.");
+    const versions = await itemVersions(sync.snapshot.path, kind, name);
+    if (!versions) return failure(404, "item_not_found", "This project has no copy of that item.");
+    return json({ kind, name, to: HARNESS_VERSION, diff: unifiedDiff(versions.copy, versions.shipped) });
+  }
+
+  /** After the user changed their own skills: recorded in the personal brain's history and live in the engine. */
+  async function personalChanged(own: BrainSync): Promise<void> {
+    if (!chatsWriteIn(own.snapshot)) await own.share();
+    else personalDirty = true;
+    await refreshGlobalContext();
+  }
+
+  /** Brein-harnas-plan §1.4: the user's own skills in the personal brain, from Jouw brein or "Overal gebruiken" in a project. */
+  async function personalSkill(request: Request, workspaceId: string, name: string): Promise<Response> {
+    const own = known(workspaceId);
+    if (!own || own.snapshot.kind !== "personal") return failure(404, "not_personal_brain", "Only the personal brain holds your own skills.");
+    if (!SKILL_NAME.test(name)) return failure(400, "invalid_name", "A skill name is lowercase letters, digits and hyphens.");
+    const folder = join(own.snapshot.path, ".opencode", "skills", name);
+    if (request.method === "DELETE") {
+      await rm(folder, { recursive: true, force: true });
+      await personalChanged(own);
+      return json({ ok: true, status: await own.status() });
+    }
+    const body = (await readBody(request)) ?? {};
+    const content = text(body, "content") ?? "";
+    const description = (text(body, "description") ?? "").replace(/\s+/g, " ");
+    if (!content) return failure(400, "invalid_body", "Send content (and a description).");
+    const file = content.startsWith("---") ? content : `---\nname: ${name}\ndescription: ${description || name}\n---\n\n${content.trimEnd()}\n`;
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "SKILL.md"), file);
+    await personalChanged(own);
+    return json({ ok: true, status: await own.status() });
+  }
+
+  /** "Overal gebruiken": a project's skill goes to the personal brain; with `move` it leaves the project. */
+  async function adoptSkill(request: Request, workspaceId: string): Promise<Response> {
+    const own = known(workspaceId);
+    if (!own || own.snapshot.kind !== "personal") return failure(404, "not_personal_brain", "Only the personal brain holds your own skills.");
+    const body = (await readBody(request)) ?? {};
+    const name = text(body, "name") ?? "";
+    const fromId = text(body, "fromWorkspaceId") ?? "";
+    const from = host?.workspaces().find((workspace) => workspace.id === fromId);
+    if (!from || !SKILL_NAME.test(name)) return failure(400, "invalid_body", "Send fromWorkspaceId and the skill name.");
+    const source = join(from.path, ".opencode", "skills", name);
+    if (!await readFile(join(source, "SKILL.md"), "utf8").catch(() => null)) return failure(404, "skill_not_found", "That project has no skill of that name.");
+    const target = join(own.snapshot.path, ".opencode", "skills", name);
+    await rm(target, { recursive: true, force: true });
+    // Text files only: a skill's scripts and notes travel, a stray binary does not (N5 stays for the rest).
+    await cp(source, target, { recursive: true, filter: async (path) => (await stat(path)).isDirectory() || isTextFile(path) });
+    if (body.move === true) {
+      const project = known(fromId);
+      if (project && project.snapshot.kind === "project") {
+        await project.applyHarness(`Skill ${name} verhuisd naar Jouw brein`, async () => (await rm(source, { recursive: true, force: true }), [`.opencode/skills/${name}`]));
+      } else {
+        await rm(source, { recursive: true, force: true });
+      }
+    }
+    await personalChanged(own);
+    return json({ ok: true, status: await own.status() });
   }
 
   async function saveProposals(): Promise<void> {
@@ -843,6 +1006,19 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   }));
 
   const routes: BrainsRoute[] = ([
+    {
+      method: "GET", path: "/bonzaiwork/harness", auth: "client",
+      handle: async () => {
+        if (!harnessEnabled) return failure(404, "harness_off", "The harness is off on this server.");
+        const { migratedAt, previousPersonal } = registry.harness;
+        return json({
+          version: HARNESS_VERSION,
+          items: harnessItemsView.map(({ kind, name, source, version, description }) => ({ kind, name, source, version, description })),
+          personal: personal()?.snapshot.id ?? null,
+          previous: previousPersonal && syncs.has(previousPersonal) ? { workspaceId: previousPersonal, at: migratedAt } : null,
+        });
+      },
+    },
     { method: "GET", path: "/bonzaiwork/brains/proposals", auth: "client", handle: async () => json({ proposals }) },
     {
       method: "POST", path: "/bonzaiwork/brains/proposals/:proposalId", auth: "host-token",
@@ -962,6 +1138,13 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         return act(params.workspaceId, async (sync) => ({ concept: await sync.concept(path) }));
       },
     },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/harness/update", auth: "host-token", handle: (request, params) => harnessAction(request, params.workspaceId, "update") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/harness/remove", auth: "host-token", handle: (request, params) => harnessAction(request, params.workspaceId, "remove") },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/harness/dismiss", auth: "host-token", handle: (request, params) => harnessAction(request, params.workspaceId, "dismiss") },
+    { method: "GET", path: "/bonzaiwork/brains/:workspaceId/harness/diff", auth: "client", handle: (request, params) => harnessDiff(request, params.workspaceId) },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/skills/adopt", auth: "host-token", handle: (request, params) => adoptSkill(request, params.workspaceId) },
+    { method: "PUT", path: "/bonzaiwork/brains/:workspaceId/skills/:name", auth: "host-token", handle: (request, params) => personalSkill(request, params.workspaceId, params.name) },
+    { method: "DELETE", path: "/bonzaiwork/brains/:workspaceId/skills/:name", auth: "host-token", handle: (request, params) => personalSkill(request, params.workspaceId, params.name) },
     {
       method: "POST", path: "/bonzaiwork/brains/:workspaceId/verify", auth: "host-token",
       handle: async (request, params) => {
@@ -993,6 +1176,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         });
         await ensureKnownHosts(sshOptions.knownHostsFile);
         await registry.load();
+        if (harnessEnabled && registry.harness.migratedAt === null) await migratePersonal();
         await loadProposals();
         await reconcile();
         await refreshGlobalContext();

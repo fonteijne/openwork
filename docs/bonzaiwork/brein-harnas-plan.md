@@ -209,6 +209,26 @@ een ongewijzigde oude kopie toont de kaart, "Bijwerken" geeft één commit die e
 bestaand persoonlijk brein is na de upgrade een gewoon project met zijn geschiedenis, en het nieuwe Jouw brein start
 leeg (H5). `/onthoud` werkt in elke chat. Agent "Brein" staat in de kiezer en antwoordt op `#/brein`.
 
+### 1.7 Stand fase 1 (gebouwd, 09-11)
+
+- `packages/bonzaiwork-harness`: `harness/skills` (`okf-ingest`, `okf-query`, `okf-lint`, `icm-architect`, nieuw `brein-mensen`),
+  `harness/commands` (`/verwerk`, `/vastleggen`, `/onderhoud`, `/werkwijze`, nieuw `/onthoud`), `harness/agents/brein.md`,
+  `harness.json` (versie `1.0.0` + vingerafdruk per onderdeel per versie), `scripts/manifest.mjs`, `src/index.ts`
+  (`harnessItems`, `shippedVersion`, `stampedFiles`, `readStamp`), tests.
+- Breinen: `harness.ts` (samenstellen, uitschrijven naar `<state>/harness/<versie>/`, eigen skills uit het
+  persoonlijke brein, `outdatedItems`, `updateItems`, `removeItems`, `unifiedDiff`), `template.ts` schrijft
+  gestempelde kopieën in projectbreinen en niets in het persoonlijke brein, `registry.ts` (`harness`, `dismissed`),
+  `sync.ts` (`outdated` in de status, `applyHarness`, tekstbestanden van eigen skills mee), `server-hooks.ts`
+  (migratie H5 bij de eerste start, `GET /bonzaiwork/harness`, de `harness/*`- en `skills/*`-routes,
+  `BONZAIWORK_HARNESS=0`), `personal.ts` (app-regel over `/onthoud` en de agent Brein).
+- Aanhaakpunt: `setEngineGlobalContext({ instructions, skills, commands, agents })` schrijft een echte `skills/`-map
+  met per skill een junction (steeds opnieuw aangemaakt) en kopieën in `command/` en `agent/`.
+- UI: `Capabilities.harness`, Jouw brein → "Werkwijzen en skills" en "Overnemen uit je vorige brein", de kaart
+  op het Brein-tab en op Vandaag, "Overal gebruiken" en herkomst-chips in Werkwijzen, de agent Brein standaard op
+  Jouw brein, demo-staten `?brein=verouderd` en `?brein=vorig-brein`. Schermafbeeldingen `screenshots/harnas-*.png`.
+- Niet gebouwd in fase 1: de skills-hub en MCP-hub (H6, later), de harnas-repo en de dagverwerking (fase 2), een
+  OKF-type-lijst uit het harnas (fase 2), en een "harnas-skill aanwezig"-stap in de verpakte smoketest.
+
 ## Fase 2: harnas-repo (H1) en de dagelijkse verwerking (H2)
 
 ### 2.1 Harnas-repo

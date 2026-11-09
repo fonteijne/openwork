@@ -123,15 +123,24 @@ export const LOCAL_EXCLUDES = [
 /** Never part of a personal brain, whatever the user ticks (plan §5.1.1). */
 export const ALWAYS_EXCLUDED_FOLDERS = [".obsidian", ".trash", ".logseq", ".git"];
 
+/** The user's own skills and commands in a personal brain: text files there travel too (brein-harnas-plan §1.4). */
+export const PERSONAL_HARNESS_FOLDERS = [".opencode/skills/", ".opencode/commands/"];
+
+export function isPersonalHarnessPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return PERSONAL_HARNESS_FOLDERS.some((folder) => lower.startsWith(folder));
+}
+
 /**
  * A personal brain keeps history of Markdown only (N5), outside the folders
- * the user excluded; attachments never make the history big.
+ * the user excluded; attachments never make the history big. Its own skills
+ * and commands are the exception: a script in a skill goes with it.
  */
 export function personalExcludes(excluded: readonly string[]): string[] {
   const folders = [...ALWAYS_EXCLUDED_FOLDERS, ...excluded]
     .map((folder) => folder.replace(/^\/+|\/+$/g, ""))
     .filter((folder) => folder && !folder.includes(".."));
-  return ["*", "!*/", "!*.md", ...[...new Set(folders)].map((folder) => `/${folder.replace(/[\\*?[\]!#]/g, (char) => `\\${char}`)}/`)];
+  return ["*", "!*/", "!*.md", ...PERSONAL_HARNESS_FOLDERS.map((folder) => `!/${folder}**`), ...[...new Set(folders)].map((folder) => `/${folder.replace(/[\\*?[\]!#]/g, (char) => `\\${char}`)}/`)];
 }
 
 export function withLocalExcludes(current: string, extra: readonly string[] = []): string {

@@ -176,7 +176,7 @@ function SecondLine(props: { project: Project; summary: ProjectSummary | undefin
   if (need?.kind === "brain") {
     return (
       <a href={href({ name: "project-brain", projectId: project.id })} className={SECOND_LINK} data-testid="project-need">
-        {copy.project.tabs.brain} · {copy.brain.states[need.state]}
+        {copy.project.tabs.brain} · {need.state === "outdated" ? copy.brain.harness.outdatedLabel : copy.brain.states[need.state]}
       </a>
     );
   }

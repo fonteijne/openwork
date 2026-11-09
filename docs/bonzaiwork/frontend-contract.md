@@ -519,6 +519,37 @@ Projectinstellingen → Brein, Instellingen → Breinen, en de OKF-gegevens bove
 Schermafbeeldingen: `screenshots/brein-*.png`. Beheer van een gedeeld brein:
 [`brein-beheer.md`](./brein-beheer.md).
 
+#### Het harnas (brein-harnas-plan, fase 1)
+
+`Capabilities.harness` gaat aan als `GET /bonzaiwork/harness` antwoordt (uit met `BONZAIWORK_HARNESS=0` op
+de server; dan `404 harness_off`). Server: `packages/bonzaiwork-harness` (de onderdelen) en
+`packages/bonzaiwork-brains/src/harness.ts`; UI-client: `apps/bonzaiwork/src/backend/live/brains.ts`.
+
+```ts
+type HarnessItemKind = "skill" | "command" | "agent";
+type HarnessItem = { kind: HarnessItemKind; name: string; source: "bundled" | "personal"; version: string | null; description: string };
+type HarnessInfo = { version: string; items: HarnessItem[]; personal: string | null; previous: { workspaceId: string; at: number | null } | null };
+// BrainStatus krijgt erbij:
+type OutdatedItem = { kind: HarnessItemKind; name: string; from: string | null; to: string; modified: boolean };
+// outdated: OutdatedItem[]   alleen bij kind "project": kopieën van harnas-onderdelen die ouder zijn dan de app
+```
+
+| Route | Auth | Doel |
+|---|---|---|
+| `GET /bonzaiwork/harness` | client | `HarnessInfo`: wat in elk project meetelt (meegeleverd en eigen), het persoonlijke brein, en het brein van vóór het harnas (H5) |
+| `GET /bonzaiwork/brains/:workspaceId/harness/diff?kind=&name=` | client | `{ diff }`: de kopie in het brein tegen de meegeleverde versie (unified diff) |
+| `POST /bonzaiwork/brains/:workspaceId/harness/update` | host | `{ items: [{ kind, name }] }`: "Bijwerken" / "Versie van BonzaiWork overnemen"; één commit, daarna `{ changed, status }` |
+| `POST /bonzaiwork/brains/:workspaceId/harness/remove` | host | `{ items }`: "Uit het project halen"; het harnas levert het onderdeel voortaan |
+| `POST /bonzaiwork/brains/:workspaceId/harness/dismiss` | host | `{ items }`: "Zo laten", per gebruiker, tot een nieuwere harnasversie |
+| `POST /bonzaiwork/brains/:workspaceId/skills/adopt` | host | persoonlijk brein; `{ fromWorkspaceId, name, move }`: "Overal gebruiken" (tekstbestanden mee; `move` haalt hem uit het project) |
+| `PUT` / `DELETE /bonzaiwork/brains/:workspaceId/skills/:name` | host | persoonlijk brein; `{ description, content }`: eigen skill schrijven of verwijderen; telt meteen in elk project |
+
+Schermen: Jouw brein → "Werkwijzen en skills" (Van BonzaiWork <versie> / Van jou), de kaart "Onderdelen van
+BonzaiWork zijn verouderd" op het Brein-tab en als aandachtsitem op Vandaag, "Overal gebruiken" in
+Projectinstellingen → Agent → Werkwijzen, herkomst-chips in Instellingen → Alle, de agent Brein in de
+agent-kiezer (standaard op Jouw brein), en na de upgrade de rij "Overnemen uit je vorige brein".
+Schermafbeeldingen: `screenshots/harnas-*.png` (Jouw brein, Brein-tab met verouderde onderdelen, verschillen, Instellingen → Voor alle projecten, Overal gebruiken, vorig brein, telefoon).
+
 ---
 
 ### 7.5 Feedback

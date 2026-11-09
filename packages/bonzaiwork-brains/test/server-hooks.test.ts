@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type SessionActivity } from "../src/server-hooks.ts";
+import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type EngineGlobalContext, type SessionActivity } from "../src/server-hooks.ts";
 import { createWorld, type World } from "./world.ts";
 
 let world: World;
@@ -15,7 +15,7 @@ afterEach(async () => {
 
 type FakeHost = BrainsHost & {
   emit(activity: SessionActivity): void; reloads: number; running: string[]; workspaceList: Array<{ id: string; path: string }>; followed: string[];
-  mcp: Record<string, Record<string, unknown> | null>; context: { instructions: string | null; skillsDirectory: string | null } | null;
+  mcp: Record<string, Record<string, unknown> | null>; context: EngineGlobalContext | null;
 };
 
 function fakeHost(): FakeHost {
