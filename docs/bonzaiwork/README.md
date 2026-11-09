@@ -186,8 +186,10 @@ leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI impor
   chats heeft. Gevolg: chats die alleen in de gedeelde database staan (v1-engine, nooit naar de eigen
   v2-database gekopieerd) toont BonzaiWork niet meer; ze blijven daar onaangeroerd staan. Getest met een
   test in `downstream-hooks.test.ts` (zonder de hook kiest upstream de gedeelde database), een
-  unit-test in `@bonzaiwork/server-hooks` en in de smoketest (de gedeelde database blijft weg, de chat staat in de eigen). Auth- en
-  andere bestanden van de engine onder `$XDG_DATA_HOME/opencode` blijven gedeeld, zoals voorheen.
+  unit-test in `@bonzaiwork/server-hooks` en in de smoketest (de chat staat als v2-chat in de eigen
+  database; de gedeelde database heeft geen v2-tabellen). De v1-engine opent de gedeelde database nog
+  wel, zoals voorheen, en auth- en andere bestanden van de engine onder `$XDG_DATA_HOME/opencode`
+  blijven gedeeld.
 - **Computer use** (upstream, via `main.mjs`): app-vensters bedienen, kopiëren tussen apps, bestanden
   opslaan in `Downloads`. Staat in `packages/computer-use` standaard uit (`featureEnabled = false`);
   alleen de upstream-UI zet het aan (`computerSetFeatureEnabled`). De BonzaiWork-UI roept dat niet aan,

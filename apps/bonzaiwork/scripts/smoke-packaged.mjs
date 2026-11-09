@@ -8,14 +8,15 @@
  *   4. opens Feedback sturen and saves a report (window capture, redacted logs);
  *   5. fails when any request went to *.openworklabs.com (workstream C);
  *   6. checks the git for brains is in the app and runs (brains plan §3.1);
- *   7. checks the chat landed in BonzaiWork's own history, not in OpenCode's shared database
- *      (packages/bonzaiwork-server-hooks/src/engine-history.ts, fonteijne/openwork#34).
+ *   7. checks the chat landed in BonzaiWork's own v2 history and that engine v2 left OpenCode's
+ *      shared database alone (packages/bonzaiwork-server-hooks/src/engine-history.ts, fonteijne/openwork#34).
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -187,15 +188,24 @@ try {
   check("one chat turn via LiteLLM in the packaged app", answered);
   await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-chat.png") });
   check("LiteLLM received the linked key", litellmCalls.some((call) => call.url === "/v1/chat/completions" && call.authorization === `Bearer ${KEY}`));
-  // Engine history (#34): without the engineHistoryDatabase hook, upstream picks the database every
-  // OpenCode install shares and converts it in place. The chat must be in BonzaiWork's own file.
+  // Engine history (#34): without the engineHistoryDatabase hook, engine v2 picks the database every
+  // OpenCode install shares and converts it to v2 in place. Engine v1 still opens that one (as
+  // upstream does), so it may exist, but it must hold no v2 tables; the chat is in BonzaiWork's own file.
+  const v2Chats = (path) => {
+    const db = new DatabaseSync(path, { readOnly: true });
+    try {
+      if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_v2'").get()) return null;
+      return Number(db.prepare("SELECT COUNT(*) AS count FROM session_v2").get()?.count ?? 0);
+    } finally { db.close(); }
+  };
   const sharedHistory = join(profile, ".local/share/opencode/opencode.db");
-  check("OpenCode's shared history database is left alone", !existsSync(sharedHistory), sharedHistory);
+  check("engine v2 left OpenCode's shared history database alone", !existsSync(sharedHistory) || v2Chats(sharedHistory) === null, sharedHistory);
   const histories = readdirSync(profile, { recursive: true, encoding: "utf8" })
     .filter((path) => path.endsWith("opencode.db"))
     .map((path) => join(profile, path));
-  const ownHistory = histories.filter((path) => path.endsWith(join("bonzaiwork", "opencode", "opencode.db")));
-  check("the chat is stored in BonzaiWork's own history", ownHistory.length === 1, histories.join(", ") || "no opencode.db");
+  const ownHistory = histories.find((path) => path.endsWith(join("bonzaiwork", "opencode", "opencode.db")));
+  const ownChats = ownHistory ? v2Chats(ownHistory) : null;
+  check("the chat is stored in BonzaiWork's own history", (ownChats ?? 0) > 0, `${ownHistory ?? "no BonzaiWork history"}: ${ownChats ?? "no v2 tables"} chat(s)`);
 
   // Feedback (#9): the dialog shows Electron's capture of this window, and saving writes it with redacted logs.
   // Feedback lives in the help menu in the sidebar foot (brief §4): open it, then pick the item.
