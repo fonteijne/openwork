@@ -3,9 +3,10 @@ import { DESKTOP_POLICY_ENFORCEMENT_ENABLED } from "@openwork/types/den/desktop-
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import net from "node:net";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import {
   cp,
+  lstat,
   mkdir,
   readFile,
   readdir,
@@ -23,6 +24,7 @@ import { globalOpencodeConfigDir, workspaceOpencodeConfigCandidates } from "@ope
 
 import { configureFakeMediaForTests, installMediaPermissionHandlers } from "./media-permissions.mjs";
 import { registerMigrationIpc } from "./migration.mjs";
+import { registerSessionPins } from "./session-pins.mjs";
 import { createRuntimeManager, createSystemCaCertificateVerifyProc } from "./runtime.mjs";
 import { registerUpdaterIpc, resolveAppVersion } from "./updater.mjs";
 import { createUiControlServer } from "./ui-control-server.mjs";
@@ -58,7 +60,7 @@ import {
 } from "./connect-link-branding.mjs";
 import { resolveConnectLinkPublicKeys } from "./connect-link-keys.mjs";
 import { openExternalUrl } from "./open-external.mjs";
-import { openChatWorkspaceFile, resolveWorkspaceFileLaunch } from "./workspace-file-access.mjs";
+import { chatOutputFolder, listChatOutputFiles, openChatWorkspaceFile, opensFromChatOutput, resolveChatFilePath, resolveWorkspaceFileLaunch } from "./workspace-file-access.mjs";
 import { createOpenWithApplications, installedApplicationCommand } from "./open-with-applications.mjs";
 const openWithApplications = createOpenWithApplications();
 import { resolveAppIdentifier, resolveUserDataPath } from "./dev-profile.mjs";
@@ -238,9 +240,18 @@ const computerControl = createComputerControl({
     stateDir: path.join(app.getPath("userData"), "computer-scripting"),
     bridgeScript: path.join(__dirname, "computer-scripting", "openwork_blender.py").replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`),
   }) } : {}),
+  // A chat's own output folder: computer saves there need no approval, so it must be a real
+  // folder OpenWork made, never a link to somewhere else.
+  saveFolder: async (sessionId) => {
+    const folder = chatOutputFolder(app.getPath("downloads"), sessionId);
+    if (!folder) return null;
+    await mkdir(folder, { recursive: true });
+    const real = await realpath(folder);
+    return real === folder && (await lstat(folder)).isDirectory() ? real : null;
+  },
   // Where computer steps spend their time: on this computer, or waiting for the model.
-  onTiming: (_sessionId, step) => console.info(`[computer] ${step.name} computer ${Math.round(step.computerMs)} ms${step.modelMs === undefined ? "" : ` · model ${Math.round(step.modelMs)} ms`}`),
-  runProgram: async (request, host, signal) => (await import("@openwork/computer-use/runtime")).runComputerProgram(request, host, signal),
+  onTiming: (_sessionId, step) => console.info(`[computer] ${step.name} computer ${Math.round(step.computerMs)} ms${step.modelMs === undefined ? "" : ` · model ${Math.round(step.modelMs)} ms`}${step.followed === undefined ? "" : step.followed ? " · in view" : " · background"}`),
+  runProgram: async (request, host, signal, options) => (await import("@openwork/computer-use/runtime")).runComputerProgram(request, host, signal, options),
   browserTask: (request, options) => browserPanel?.browserTask(request, options) ?? Promise.resolve({ ok: false, code: "browser_unavailable" }),
   readRemoteFeatureEnabled: async () => {
     const server = await runtimeManager.openworkServerInfo();
@@ -293,6 +304,9 @@ const computerControl = createComputerControl({
     const entry = await readComputerPermissionEntry();
     return { name: entry.name, ours: entry.ours };
   },
+  // Files and the clipboard between apps follow the organization's Agent permissions:
+  // with no rule the agent goes ahead and nothing asks.
+  movePolicy: ({ kind, sessionId }) => computerAgentPermissions.check({ kind, sessionId }),
   // The chat asks the person when the agent needs computer use it does not have yet.
   onRequest: (sessionId, request) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("openwork:computer:request", { sessionId, request });
@@ -336,6 +350,9 @@ function computerPolicyDenied(message) {
   return { ok: false, error: { code: "organization_policy_denied", message } };
 }
 
+/** The chat a call belongs to: a subagent's is the chat that started it, as the trusted bridge reports. */
+const computerChatOf = (args) => computerControl.parallelAgents() && typeof args?.rootSessionId === "string" && args.rootSessionId ? args.rootSessionId : args?.sessionId;
+
 /** @param {string} sessionId */
 async function checkComputerPermission(sessionId) {
   const decision = await computerAgentPermissions.check({ kind: "computer", sessionId });
@@ -346,6 +363,9 @@ async function checkComputerPermission(sessionId) {
   return null;
 }
 
+/** The renderer reports the `agentQuestions` feature; the engine offers ask_without_waiting while it is on. */
+let agentQuestionsEnabled = false;
+
 const uiControlServer = createUiControlServer({
   app,
   appName: APP_NAME,
@@ -354,14 +374,14 @@ const uiControlServer = createUiControlServer({
   browserTask: (args, options) => browserPanel?.browserTask(args, options) ?? { ok: false, code: "browser_unavailable" },
   computerTask: async (args, options) => {
     if (!["computer_status", "computer_close"].includes(args?.name)) {
-      const denied = await checkComputerPermission(args?.sessionId);
+      const denied = await checkComputerPermission(computerChatOf(args));
       if (denied) return denied;
     }
     return computerControl.execute(args, options);
   },
   computerProgram: async (args, options) => {
     if (args?.surface === "computer") {
-      const denied = await checkComputerPermission(args?.sessionId);
+      const denied = await checkComputerPermission(computerChatOf(args));
       if (denied) return denied;
     }
     return computerControl.program(args, options);
@@ -372,6 +392,8 @@ const uiControlServer = createUiControlServer({
     return computerControl.script(args, { ...options, approveEachScript: decision.effect === "ask" });
   },
   computerEnabled: () => computerControl.featureEnabled(),
+  computerParallel: () => computerControl.parallelAgents(),
+  agentQuestionsEnabled: () => agentQuestionsEnabled,
 });
 
 const terminalProcesses = new Map();
@@ -2147,6 +2169,10 @@ const desktopCommandHandlers = {
       assertComputerSender(event);
       return computerControl.snapshot({ sessionId: String(sessionId ?? "") });
   },
+  "computerCrew": async (event, sessionId, thumbnails) => {
+      assertComputerSender(event);
+      return computerControl.crew({ sessionId: String(sessionId ?? ""), thumbnails: thumbnails === true });
+  },
   "computerStatus": async (event) => {
       assertComputerSender(event);
       return computerControl.status();
@@ -2154,6 +2180,10 @@ const desktopCommandHandlers = {
   "computerPresentation": async (event, sessionId, visible) => {
       assertComputerSender(event);
       return computerControl.presentation({ sessionId: String(sessionId ?? ""), visible: visible === true });
+  },
+  "computerFollow": async (event, sessionId, watching) => {
+      assertComputerSender(event);
+      computerControl.follow({ sessionId: String(sessionId ?? ""), watching: watching === true });
   },
   "computerInteract": async (event, input) => {
       assertComputerSender(event);
@@ -2184,6 +2214,27 @@ const desktopCommandHandlers = {
       assertComputerSender(event);
       return computerControl.answerRequest({ sessionId: String(input?.sessionId ?? ""), answer: input?.answer, ...(typeof input?.id === "string" ? { id: input.id } : {}) });
   },
+  "computerOpenSavedFile": async (event, input) => {
+      assertComputerSender(event);
+      // A path from the chat: only a file this chat's computer use saved here launches, and
+      // only while it is still a regular file, not a link. Anything else is at most shown in its folder.
+      const target = String(input?.path ?? "");
+      const sessionId = String(input?.sessionId ?? "");
+      const file = await resolveChatFilePath(target);
+      if (!file) return { ok: true, action: "unavailable" };
+      // Also a file in the chat's own output folder, however the chat made it.
+      const launch = input?.reveal !== true && ((computerControl.savedFile({ sessionId, path: target }) && lstatSync(target).isFile())
+        || await opensFromChatOutput(chatOutputFolder(app.getPath("downloads"), computerControl.chatOf({ sessionId })), target));
+      if (!launch) { shell.showItemInFolder(file); return { ok: true, action: "revealed" }; }
+      const error = await shell.openPath(target);
+      return error?.trim() ? { ok: false, error } : { ok: true, action: "opened" };
+  },
+  "computerChatFiles": async (event, input) => {
+      assertComputerSender(event);
+      // A subagent saves in the folder of the chat that started it.
+      const folder = chatOutputFolder(app.getPath("downloads"), computerControl.chatOf({ sessionId: String(input?.sessionId ?? "") }));
+      return { files: folder ? await listChatOutputFiles(folder) : [] };
+  },
   "computerListFileGrants": async (event) => {
       assertComputerSender(event);
       return browserUploadPermissions.list();
@@ -2197,9 +2248,22 @@ const desktopCommandHandlers = {
       assertComputerSender(event);
       return computerControl.setFeatureEnabled(enabled === true);
   },
+  "agentQuestionsSetEnabled": async (event, enabled) => {
+      if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Only the main OpenWork window reports features.");
+      agentQuestionsEnabled = enabled === true;
+      return agentQuestionsEnabled;
+  },
   "computerSetRemoteEnabled": async (event, enabled) => {
       assertComputerSender(event);
       return computerControl.setRemoteEnabled(enabled === true);
+  },
+  "computerSetStandardCodeMode": async (event, enabled) => {
+      assertComputerSender(event);
+      return computerControl.setStandardCodeMode(enabled === true);
+  },
+  "computerSetParallelAgents": async (event, enabled) => {
+      assertComputerSender(event);
+      return computerControl.setParallelAgents(enabled === true);
   },
   // Compatibility for older renderers; background delivery now follows computerUse.
   "computerSetBackgroundEnabled": async (event) => {
@@ -2440,6 +2504,9 @@ const desktopCommandHandlers = {
   },
   "opencodeMcpAuth": async (event, ...args) => {
       return runtimeManager.opencodeMcpAuth(String(args[0] ?? "").trim(), String(args[1] ?? "").trim());
+  },
+  "__resolveChatFilePath": async (event, ...args) => {
+      return resolveChatFilePath(args[0]);
   },
   "__openPath": async (event, ...args) => {
       const target = String(args[0] ?? "").trim();
@@ -3005,6 +3072,12 @@ async function createMainWindowInner() {
 
   return mainWindow;
 }
+
+registerSessionPins({
+  ipcMain,
+  directory: userDataPath,
+  isTrusted: event => Boolean(mainWindow && event.sender === mainWindow.webContents && event.senderFrame === event.sender.mainFrame),
+});
 
 ipcMain.on("openwork:desktop-bootstrap-sync", (event) => {
   event.returnValue = workspaceStore.readDesktopBootstrapConfigSync();

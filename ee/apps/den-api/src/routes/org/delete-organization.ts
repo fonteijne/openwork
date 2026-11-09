@@ -34,6 +34,8 @@ import {
   DesktopPolicyTable,
   DesktopStartupReportTable,
   ExternalIdentityTable,
+  SessionSsoAuthenticationTable,
+  SessionSsoProofTable,
   ExternalMcpConnectionAccessGrantTable,
   ExternalMcpConnectionTable,
   InferenceKeyTable,
@@ -107,6 +109,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { deleteOrganizationAgentPermissions } from "../../agent-permissions.js"
 import { deleteOrganizationDefaultModels } from "../../default-model.js"
+import { deleteOrganizationFeatureIntroStates } from "../../feature-intros.js"
 import { deleteOrganizationPrompts } from "../../prompts.js"
 import { deleteOrganizationAutoRouters } from "../../auto-router.js"
 import { deleteHeadlessSessionIndexForOrganization } from "../../headless-runner/session-index.js"
@@ -612,6 +615,8 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(SsoProviderTable).where(eq(SsoProviderTable.organizationId, organizationId))
         await tx.delete(SsoConnectionTable).where(eq(SsoConnectionTable.organizationId, organizationId))
         await tx.delete(ExternalIdentityTable).where(eq(ExternalIdentityTable.organizationId, organizationId))
+        await tx.delete(SessionSsoAuthenticationTable).where(eq(SessionSsoAuthenticationTable.organizationId, organizationId))
+        await tx.delete(SessionSsoProofTable).where(eq(SessionSsoProofTable.organizationId, organizationId))
 
         // Explicit owner-authorized organization erasure, not resource cleanup.
         // No settlement is active for these pilot facts. Billing evidence needs
@@ -629,6 +634,7 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(CapabilityUsageEventTable).where(eq(CapabilityUsageEventTable.organization_id, organizationId))
         await tx.delete(CapabilityUsageRollupTable).where(eq(CapabilityUsageRollupTable.organization_id, organizationId))
         await tx.delete(FeatureUsageTable).where(eq(FeatureUsageTable.organization_id, organizationId))
+        await deleteOrganizationFeatureIntroStates(tx, organizationId)
         await deleteHeadlessSessionIndexForOrganization(tx, organizationId)
         // Resume grants are useless once the members are gone (the exchange needs an active member); delete them too.
         await unlessResumeTableMissing("headless_resume_grant", () => tx.delete(HeadlessResumeGrantTable).where(eq(HeadlessResumeGrantTable.organizationId, organizationId)))

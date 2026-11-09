@@ -1,4 +1,5 @@
 import type { BillingPlanTier } from "@openwork/types/den/billing-plans";
+import type { SsoSettings } from "./sso-settings";
 import { parseDeploymentCapabilities, type DeploymentCapabilities } from "@openwork/types/den/deployment-capabilities";
 import { mapFeatures, type FeatureMap } from "@openwork/features";
 import { PERMISSION_KEYS, getPermissionDefinition, isPermissionKey, isPermissionOwnerOnlyByDefault, permissionDefaultKeys, type PermissionKey } from "@openwork/types/den/permissions";
@@ -91,7 +92,7 @@ export type DenInvitationPreview = {
 export type DenCanonicalRole = "owner" | "admin" | "member";
 
 /** Roles the member pickers offer. Owner moves only by ownership transfer. */
-export const ASSIGNABLE_ORG_ROLES = ["member", "admin"] as const;
+export const ASSIGNABLE_ORG_ROLES = ["member", "admin", "super-admin"] as const;
 
 /**
  * What the signed-in member can do in the dashboard. Each `can*` flag is the
@@ -102,8 +103,14 @@ export const ASSIGNABLE_ORG_ROLES = ["member", "admin"] as const;
 export type DenOrgAccessFlags = {
   canonicalRole: DenCanonicalRole;
   isOwner: boolean;
+  /**
+   * Super-admin role (never the owner): every permission the owner has, so
+   * they can also make, change and remove super-admins. Only deleting the
+   * organization and transferring ownership stay with the owner.
+   */
+  isSuperAdmin: boolean;
   isMember: boolean;
-  /** Owner, admin role, or member of an Admin team. Role-derived; prefer a permission flag for gating an action. */
+  /** Owner, admin or super-admin role, or member of an Admin team. Role-derived; prefer a permission flag for gating an action. */
   isAdmin: boolean;
   /**
    * Holds at least one organization permission, so some admin page has
@@ -383,6 +390,8 @@ export type DenOrgCapabilities = {
 export type DenOrganizationMetadata = {
   allowedDesktopVersions?: string[];
   requireSso?: boolean;
+  restrictDomainToSso?: boolean;
+  ssoSessionMaxAgeHours?: number;
   brandAppName?: string;
   brandLogoUrl?: string;
   brandIconUrl?: string;
@@ -474,6 +483,35 @@ export function getRequireSsoFromMetadata(metadata: string | null): boolean {
   return parsed?.requireSso === true;
 }
 
+/** ssoPerOrganization: every email on the verified SSO domain must sign in with this organization's SSO. */
+export function getRestrictDomainToSsoFromMetadata(metadata: string | null): boolean {
+  const parsed = parseOrganizationMetadata(metadata);
+  return parsed?.restrictDomainToSso === true;
+}
+
+/** ssoPerOrganization: "Ask for SSO again after" choices, in hours (matches den-api SSO_SESSION_MAX_AGE_HOURS). */
+export const SSO_SESSION_MAX_AGE_HOURS = [8, 24, 168, 720] as const;
+export type SsoSessionMaxAgeHours = (typeof SSO_SESSION_MAX_AGE_HOURS)[number];
+
+export function isSsoSessionMaxAgeHours(value: unknown): value is SsoSessionMaxAgeHours {
+  return SSO_SESSION_MAX_AGE_HOURS.some((hours) => hours === value);
+}
+
+/** The organization's stored SSO requirement settings. */
+export function getSsoSettingsFromMetadata(metadata: string | null): SsoSettings {
+  return {
+    requireSso: getRequireSsoFromMetadata(metadata),
+    restrictDomainToSso: getRestrictDomainToSsoFromMetadata(metadata),
+    ssoSessionMaxAgeHours: getSsoSessionMaxAgeHoursFromMetadata(metadata),
+  };
+}
+
+/** ssoPerOrganization: how long an SSO sign-in opens the organization; null while the session lasts. */
+export function getSsoSessionMaxAgeHoursFromMetadata(metadata: string | null): SsoSessionMaxAgeHours | null {
+  const value = parseOrganizationMetadata(metadata)?.ssoSessionMaxAgeHours;
+  return isSsoSessionMaxAgeHours(value) ? value : null;
+}
+
 export function getManagedBrandAssetFromMetadata(
   metadata: string | null,
   kind: "logo" | "icon",
@@ -528,10 +566,20 @@ export function splitRoleString(value: string): string[] {
     .filter(Boolean);
 }
 
+function normalizeRoleSlug(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+/** The role value names super-admin and not owner. */
+export function isSuperAdminRole(roleValue: string): boolean {
+  const roles = splitRoleString(roleValue).map(normalizeRoleSlug);
+  return roles.includes("super-admin") && !roles.includes("owner");
+}
+
 function normalizeCanonicalRole(value: string): DenCanonicalRole | null {
-  const normalized = value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const normalized = normalizeRoleSlug(value);
   if (normalized === "owner") return "owner";
-  // Super-admin was merged into admin; a stray value reads as admin.
+  // A super-admin is also an admin; isSuperAdminRole tells them apart.
   if (normalized === "admin" || normalized === "super-admin") return "admin";
   if (normalized === "member") return "member";
   return null;
@@ -559,8 +607,9 @@ export function getHighestCanonicalRole(roleValue: string, isOwner: boolean): De
   return "member";
 }
 
-/** The picker value for a stored role: admin when it names admin, else member. */
+/** The picker value for a stored role: super-admin or admin when it names one, else member. */
 export function assignableOrgRole(roleValue: string): (typeof ASSIGNABLE_ORG_ROLES)[number] {
+  if (isSuperAdminRole(roleValue)) return "super-admin";
   return getHighestCanonicalRole(roleValue, false) === "admin" ? "admin" : "member";
 }
 
@@ -577,9 +626,10 @@ export function canRefreshInvitationRole(role: string, access: Pick<DenOrgAccess
 export function getOrgAccessFlags(roleValue: string, isOwner: boolean, permissions?: readonly PermissionKey[] | null): DenOrgAccessFlags {
   const canonicalRole = getHighestCanonicalRole(roleValue, isOwner);
   const resolvedIsOwner = canonicalRole === "owner";
+  const isSuperAdmin = !resolvedIsOwner && isSuperAdminRole(roleValue);
   const isAdmin = resolvedIsOwner || canonicalRole === "admin";
   const held = new Set<PermissionKey>(
-    resolvedIsOwner
+    resolvedIsOwner || isSuperAdmin
       ? PERMISSION_KEYS
       : permissions ?? [...permissionDefaultKeys("member"), ...(isAdmin ? permissionDefaultKeys("admin") : [])],
   );
@@ -588,6 +638,7 @@ export function getOrgAccessFlags(roleValue: string, isOwner: boolean, permissio
   return {
     canonicalRole,
     isOwner: resolvedIsOwner,
+    isSuperAdmin,
     isMember: canonicalRole === "member",
     isAdmin,
     canViewSettings: isAdmin || held.size > 0,
@@ -659,6 +710,7 @@ export function permissionLockReason(key: PermissionKey): string {
 }
 
 export function formatRoleLabel(role: string): string {
+  if (normalizeRoleSlug(role) === "super-admin") return "Super admin";
   const canonicalRole = normalizeCanonicalRole(role);
   if (canonicalRole === "admin") return "Admin";
   return role
@@ -909,6 +961,22 @@ export function getScimRoute(orgSlug?: string | null): string {
 export function getSsoRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/sso`;
 }
+
+export type AuthSecurityTab = "sso" | "scim";
+
+/**
+ * Settings › Auth & Security (feature `authSecuritySettings`): SSO and SCIM as
+ * tabs. `setup` opens the tab's setup form directly instead of its intro.
+ */
+export function getAuthSecurityRoute(orgSlug?: string | null, tab?: AuthSecurityTab, options: { setup?: boolean } = {}): string {
+  const base = `${getOrgDashboardRoute(orgSlug)}/auth-security`;
+  const params = new URLSearchParams();
+  if (tab) params.set("tab", tab);
+  if (options.setup) params.set("setup", "1");
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
 
 export function getPluginsRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/plugins`;

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Check, ChevronDown, ChevronRight, Lock, PencilLine } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  AGENT_CHECK_EVERY_HOURS,
+  AGENT_MEMBER_BRIEF_MAX,
   AGENT_PREFERENCE_COPY,
   AGENT_PREFERENCE_FIELDS,
   AGENT_PREFERENCE_MAX,
@@ -31,11 +33,13 @@ import {
   changeSourceLine,
   clockLabel,
   dayClockLabel,
+  everyHoursLabel,
   hourLabel,
   hoursLabel,
   isSameDay,
   latestChange,
   myAgentStateLine,
+  nextChecksLine,
   sentTodayLabel,
   whenPhrase,
 } from "./my-agent-view";
@@ -213,6 +217,48 @@ function WordsField({ view, field, now, saving, onChange }: { view: MemberAgentV
   );
 }
 
+/**
+ * Your brief (`workbotAgentBrief`): the member's own lines in one text, with where the last change came from and Undo,
+ * and the organization's brief behind a disclosure (read only).
+ */
+function BriefSection({ view, now, saving, onChange }: { view: MemberAgentView; now: number; saving: boolean; onChange: Change }) {
+  const id = useId();
+  const brief = view.brief;
+  const value = brief?.lines ?? "";
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  if (!brief) return null;
+  const changed = draft.trim() !== value.trim();
+  const change = latestChange(view, "brief");
+  return (
+    <ItemSection title="Your brief" variant="rule" testId="my-agent-brief">
+      <div className="flex flex-col gap-1.5 py-2.5">
+        <label htmlFor={id} className="sr-only">Your brief</label>
+        <DenTextarea id={id} rows={Math.max(3, growRows(draft))} maxLength={AGENT_MEMBER_BRIEF_MAX} value={draft} disabled={saving}
+          placeholder={"Also watch our Render bill.\nNever tell me about newsletters."} className={GROW} onChange={(event) => setDraft(event.target.value)} />
+        <div className="flex min-h-5 flex-wrap items-center justify-between gap-2">
+          {change
+            ? <ChangeNote view={view} field="brief" now={now} saving={saving} onChange={onChange} />
+            : brief.carriedOver ? <span className="text-[12px] leading-4 text-gray-500" data-testid="my-agent-brief-carried">From your earlier settings.</span> : <span />}
+          {changed ? (
+            <span className="ml-auto flex gap-2">
+              <DenButton variant="secondary" size="xs" onClick={() => setDraft(value)}>Discard</DenButton>
+              <DenButton size="xs" disabled={saving} onClick={() => onChange({ brief: { set: draft.trim() } })}>Save</DenButton>
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <details className="group border-t border-gray-100" data-testid="my-agent-organization-brief">
+        <summary className="flex min-h-10 cursor-pointer list-none items-center gap-1.5 text-[13px] font-medium text-gray-700 [&::-webkit-details-marker]:hidden">
+          <ChevronRight className="h-4 w-4 text-gray-500 transition-transform duration-150 ease-out group-open:rotate-90 motion-reduce:transition-none" aria-hidden />
+          Your organization's brief
+        </summary>
+        <p className="whitespace-pre-wrap pb-3 pl-5.5 text-[13px] leading-5 text-gray-700">{brief.organization}</p>
+      </details>
+    </ItemSection>
+  );
+}
+
 function focalLine(view: MemberAgentView, now: number): { title: string; sentence: ReactNode } {
   if (!view.available) return { title: "Turned off by your admin", sentence: <LockNote>Your admin turns it on in Manage › Workbot.</LockNote> };
   if (!view.on) return { title: "Off", sentence: "It isn't checking your email or calendar." };
@@ -256,7 +302,8 @@ export function MyAgentPanel({ view, now, links, saving, error, earlier, onChang
         <p className="text-[14px] leading-5 text-gray-700">{focal.sentence}</p>
         {active ? (
           <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] leading-5 text-gray-500">
-            {view.nextCheckAt ? <span>{`Next check ${whenPhrase(view.nextCheckAt, view.timeZone, now)}`}</span> : null}
+            {view.nextChecks ? (nextChecksLine(view, now) ? <span data-testid="my-agent-next-checks">{nextChecksLine(view, now)}</span> : null)
+              : view.nextCheckAt ? <span>{`Next check ${whenPhrase(view.nextCheckAt, view.timeZone, now)}`}</span> : null}
             {limits && view.sentToday !== undefined ? <span>{`${view.sentToday} of ${limits.dailyCap} sent today`}</span> : null}
             {view.snoozedUntil ? <DenButton variant="secondary" size="xs" disabled={saving} onClick={() => onChange({ snooze: null })}>Resume</DenButton> : null}
             {fix === "reconnect_google" ? <Link href={google.href} className="font-medium text-gray-900 underline-offset-2 hover:underline">Reconnect Google</Link> : null}
@@ -284,6 +331,9 @@ export function MyAgentPanel({ view, now, links, saving, error, earlier, onChang
         </details>
       </ItemSection>
 
+      {view.brief ? <BriefSection view={view} now={now} saving={saving} onChange={onChange} /> : null}
+
+      {view.brief ? null : (
       <ItemSection title="What it tells you about" variant="rule" testId="my-agent-responsibilities">
         <div className="flex flex-col divide-y divide-gray-100">
           {view.responsibilities.map((responsibility) => (
@@ -298,11 +348,15 @@ export function MyAgentPanel({ view, now, links, saving, error, earlier, onChang
         </div>
       </ItemSection>
 
+      )}
+
+      {view.brief ? null : (
       <ItemSection title="In your words" variant="rule" testId="my-agent-words">
         <div className="flex flex-col divide-y divide-gray-100">
           {AGENT_PREFERENCE_FIELDS.map((field) => <WordsField key={field} view={view} field={field} now={now} saving={saving} onChange={onChange} />)}
         </div>
       </ItemSection>
+      )}
 
       <ItemSection title="What it reads" variant="rule" testId="my-agent-uses">
         <div className="flex flex-col divide-y divide-gray-100">
@@ -316,6 +370,16 @@ export function MyAgentPanel({ view, now, links, saving, error, earlier, onChang
       {limits ? (
         <ItemSection title="Limits" variant="rule" testId="my-agent-limits">
           <div className="flex flex-col divide-y divide-gray-100">
+            {limits.checkEveryHours !== undefined && limits.admin.checkEveryHours !== undefined ? (
+              <Row label="Checks" testId="my-agent-check-every" note={limits.narrowed.checkEveryHours ? <ChangeNote view={view} field="checkEveryHours" now={now} saving={saving} onChange={onChange} /> : null}>
+                <div className="w-40">
+                  <DenSelect aria-label="How often your agent checks" menuWidth="trigger" value={String(limits.checkEveryHours)} disabled={saving}
+                    onChange={(event) => onChange({ checkEveryHours: Number(event.target.value) === limits.admin.checkEveryHours ? null : AGENT_CHECK_EVERY_HOURS.find((hours) => String(hours) === event.target.value) ?? null })}>
+                    {AGENT_CHECK_EVERY_HOURS.filter((hours) => hours >= (limits.admin.checkEveryHours ?? 1)).map((hours) => <option key={hours} value={String(hours)}>{everyHoursLabel(hours)}</option>)}
+                  </DenSelect>
+                </div>
+              </Row>
+            ) : null}
             <Row label="Hours" labelId={ids.hours} testId="my-agent-hours"
               note={limits.narrowed.hours ? <ChangeNote view={view} field="hours" now={now} saving={saving} onChange={onChange} /> : null}>
               <span className="text-[13px] text-gray-500">{limits.workingDays === "everyday" ? "Every day" : "Weekdays"}</span>
@@ -334,7 +398,7 @@ export function MyAgentPanel({ view, now, links, saving, error, earlier, onChang
               </div>
             </Row>
             {limits.quietWindow ? (
-              <Row label="Only urgent" testId="my-agent-quiet-window" note={<ChangeNote view={view} field="quietWindow" now={now} saving={saving} onChange={onChange} />}>
+              <Row label={view.brief ? "Quiet hours" : "Only urgent"} testId="my-agent-quiet-window" note={<ChangeNote view={view} field="quietWindow" now={now} saving={saving} onChange={onChange} />}>
                 <span className="text-[13px] text-gray-900">{hoursLabel(limits.quietWindow)}</span>
               </Row>
             ) : null}
@@ -361,6 +425,9 @@ function SourceChangeNote({ view, sourceId, field, now }: { view: MemberAgentVie
  * Whether a source's row shows a lock: not allowed, or another source the admin turned on for everyone. Calendar,
  * email and team chat on for everyone show no lock: picking where they read from is the member's control there.
  */
+/** A source whose connector has no read-only tools: the agent can't read it until an admin allows one. */
+export const NO_READ_TOOLS = "No read-only tools found. An admin can review its tools.";
+
 function sourceLocked(source: MemberAgentSource) {
   return source.policy === "off" || (source.kind === "other" && source.policy === "everyone");
 }
@@ -473,6 +540,8 @@ function SourceRow({ view, source, now, saving, links, onChange }: { view: Membe
           ? null
           : source.lastReadAt ? `Last read ${whenPhrase(source.lastReadAt, view.timeZone, now)}` : "Not read yet";
   const instructionLabel = `${source.instruction ? "Edit the" : "Add an"} instruction for ${source.name}`;
+  // Your agent's brief: a connector with no read-only tools still shows, and says so.
+  const noReadTools = !core && source.policy !== "off" && source.readTools === 0;
   const connectAction = source.on && source.policy !== "off" && !ready ? (
     fix
       ? <Link href={links.connector(fix.id)} className="whitespace-nowrap text-[12px] font-medium text-gray-900 underline-offset-2 hover:underline">{`${fix.state === "reconnect" ? "Reconnect" : "Connect"} ${fix.name}`}</Link>
@@ -485,6 +554,9 @@ function SourceRow({ view, source, now, saving, links, onChange }: { view: Membe
           {core ? <SourceIcon kind={core} /> : logoFrom ? <ConnectorLogo name={logoFrom.name} url={logoFrom.url} size="xs" /> : <SourceIcon kind={source.kind} />}
           <span className="flex min-w-0 flex-col">
             <span className={`truncate text-[13px] font-medium ${source.on ? "text-gray-900" : "text-gray-500"}`}>{source.name}</span>
+            {noReadTools ? (
+              <span className="text-[12px] leading-4 text-gray-500" data-testid={`my-agent-no-read-tools-${source.id}`}>{NO_READ_TOOLS}</span>
+            ) : null}
             {core && (status || connectAction) ? (
               <span className="flex min-w-0 items-center gap-2 text-[12px] leading-4 text-gray-500" data-testid={`my-agent-state-${source.id}`}>
                 {status ? <span className="truncate">{status}</span> : null}

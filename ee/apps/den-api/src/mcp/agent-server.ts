@@ -32,8 +32,9 @@ function agentMcpDetailedInstructions(appServers: boolean, toolView: Instruction
     "Use create_skill to create one private Cloud skill in a new Plugin, and update_skill to publish a new immutable version of an existing skill. Both return text and structured skill details; do not route these flows through execute_capability, postPlugins, or postConfigObjectsVersions.",
     "Skills have direct tools: list_skills returns every built-in and marketplace skill this member may use, and get_skill returns one skill's SKILL.md by its name or exact capability. Prefer them over keyword search for skills; search_capabilities with type skills and execute_capability still return the same skills, and the skill:// resources are unchanged.",
     "Built-in remote skills create-skill, share-plugin, add-to-marketplace, and add-user-to-marketplace are always listed by list_skills and in the skill index. Retrieve and follow the matching one with get_skill (or by executing its exact capability); do not invent a local copy.",
-    appServers ? "To build or change an App (a dashboard, tracker, lookup, form, calculator, or other interactive view), read the build-an-app skill with get_skill and follow it. It uses the direct prepare_app, create_app, read_app, and update_app tools, whose presence means App building is on; never substitute save_artifact_view, config-object writes, or a local HTML file. Create a Workflow only for a reusable procedure, and an Automation only when the user asks for a schedule." :"For an app, dashboard, or artifact view of Workflow results, call the direct MCP tool save_artifact_view and follow its prerequisites. It is a Cloud MCP tool, not a desktop-only RPC or a search_capabilities match. Its presence in the available tools confirms availability; an empty capability search does not establish a disabled feature flag. Do not substitute a local HTML file for an in-app artifact. Build the complete app in one shot without asking about Workflow internals, names, or runtime code. Live workflows use server-supplied input.runtime for current dates and caller timezone. Use one friendly name for the workflow and app; the user previews the draft and chooses Save to keep both on their dashboard. Only create an Automation when the user asks for a schedule.",
+    appServers ? "To build or change an App, which OpenWork also calls an artifact (a dashboard, tracker, lookup, form, calculator, or other interactive view), read the build-an-app skill with get_skill and follow it. It uses the direct prepare_app, create_app, read_app, and update_app tools, whose presence means App building is on; never substitute save_artifact_view, config-object writes, or a local HTML file. Create a Workflow only for a reusable procedure, and an Automation only when the user asks for a schedule." :"For an app, dashboard, or artifact view of Workflow results, call the direct MCP tool save_artifact_view and follow its prerequisites. It is a Cloud MCP tool, not a desktop-only RPC or a search_capabilities match. Its presence in the available tools confirms availability; an empty capability search does not establish a disabled feature flag. Do not substitute a local HTML file for an in-app artifact. Build the complete app in one shot without asking about Workflow internals, names, or runtime code. Live workflows use server-supplied input.runtime for current dates and caller timezone. Use one friendly name for the workflow and app; the user previews the draft and chooses Save to keep both on their dashboard. Only create an Automation when the user asks for a schedule.",
     "Skills teach how to perform work. Workflows are saved procedures discovered through search_capabilities and run through execute_capability. Author an ad hoc procedure with execute_capability_script; Workflow runs produce artifacts rendered by render_workflow_artifact, and Automations trigger Workflows. To keep a successful Code Mode result, save it as a Workflow inside the existing Plugin the member names (pass that pluginId); omit pluginId only for a private Workflow in their My Workflows Plugin. A Workflow inherits discovery and sharing from its Plugin and Marketplaces; never create a separate Workflow package or marketplace entry.",
+    WORKFLOW_CONVERSATION_GUIDANCE,
     "To open an App, execute its kind mcp_app match from search_capabilities. Never import, convert, or browse for a standalone HTML URL instead; standalone URL-imported Apps are not part of this release.",
     "To add a public GitHub plugin to an organization marketplace, search for the marketplace list, GitHub plugin import preview, GitHub plugin marketplace import, and resolved marketplace detail capabilities. Preview first; do not recreate the plugin by hand. Before importing, confirm the target marketplace, selected skill/server keys, and who can use them; omitting selectedSkillKeys imports every supported skill. A marketplace repository (for example a Claude Cowork marketplace) lists each plugin in the preview: import one plugin per call with its folder URL (https://github.com/<owner>/<repo>/tree/<branch>/<plugin folder>). Importing the same plugin again from the same repository updates it in place (mode: updated, with updatedSkills and unchanged), so a migration can be re-run safely; skills and MCP servers deleted upstream since the last import are removed from the plugin and listed in removed, while components added by hand are kept. Do not choose one authentication type for every server: the import route resolves known presets and plugin declarations, and the request authType is only a fallback for unknown servers. Claude-specific connectors are mapped to what OpenWork already knows: each preview server reports mapsTo (a preset, or native Google Workspace / Microsoft 365) and reuse (the organization's existing connection it will use); tell the person it uses their existing <reuse.connectionName> connection instead of promising a new one. Servers skipped as native_connector are Claude-only; relay connecting that provider in OpenWork as the next step.",
     "After importing, retrieve the resolved marketplace detail and report each plugin's cloudReadiness. An import or plugin binding is not proof that an MCP connection is usable: relay needs_admin_setup or needs_signin as the next human action instead of claiming the connection is ready. Connectors from Claude/Cowork plugins are optional: their skills work immediately, and get_skill lists each optional connection with how to connect it.",
@@ -47,6 +48,23 @@ function agentMcpDetailedInstructions(appServers: boolean, toolView: Instruction
     "Successful postMarketplacesPlugins, postPluginsAccess, and postMarketplacesAccess calls return the ordinary operation response; report the verified outcome in text.",
   ].join("\n")
 }
+
+/**
+ * How saving and finding Workflows sounds to a person who is not technical:
+ * one offer with a name, one confirmation with a link, and no system words.
+ * The short rule rides on execute_capability_script, where a procedure is
+ * tested, because the instructions every client sees have no room left
+ * (AGENT_MCP_INSTRUCTIONS_MAX_CHARS and the 2 KB Claude Code limit).
+ */
+export const WORKFLOW_SAVE_INSTRUCTIONS = "When a repeatable task works, offer to save it as a Workflow under a short name; once the person agrees, save and reply \"Saved as <name>\" with its libraryUrl. Talk about workflows in plain words: never receipts, schemas, Plugins or modes."
+
+/** The fuller version in the guidance resource. */
+const WORKFLOW_CONVERSATION_GUIDANCE = [
+  "Saving a Workflow is the person's choice, made once, in plain words. After a procedure succeeds and looks reusable (a brief, a report, a check they will want again), ask one short question such as \"Want me to save this as Morning brief so you can run it again or schedule it?\" Suggest a 2-4 word name in sentence case. Do not save before they agree, and do not ask about the name, Plugin, inputs or schemas separately.",
+  "When they agree, call saveWorkflow (omit pluginId unless they named a Plugin) and reply in one line: \"Saved as <name>.\" then the libraryUrl it returns, and that they can run, schedule or share it from there. Saving again under the same name updates that workflow; say \"Updated <name>.\" in that case.",
+  "If saving fails with a recovery field, follow it without asking and tell the person only its userMessage. Never mention receipts, receiptId, retention, schemas, digests, live or adhoc mode, Plugins, capability names, code or JSON when talking about workflows; say workflow, run, schedule, share, Library.",
+  "When the person asks for their workflows (\"what workflows do I have\", \"run my morning brief\"), search for workflows with their words plus the word workflow, list them by name with one line each, and run the one they name. If a run fails, say what failed in one plain sentence and the next step (for example: Gmail needs you to sign in again).",
+].join(" ")
 
 export const AGENT_MCP_GUIDANCE_URI = "openwork://agent/guidance.md"
 
@@ -87,7 +105,7 @@ function agentMcpInstructions(appServers: boolean, toolView: InstructionView = "
     ]),
     "Use list_skills/get_skill for authorized skills and follow the matching skill before creating or sharing one. update_skill publishes an immutable version.",
     appServers
-      ? "For Apps read build-an-app with get_skill, then use prepare_app/create_app/read_app/update_app; never substitute local HTML or legacy views. Open Apps via their discovered capability."
+      ? "For Apps and artifacts read build-an-app with get_skill, then use prepare_app/create_app/read_app/update_app; never substitute local HTML or legacy views. Open Apps via their discovered capability."
       : "For Workflow result views use save_artifact_view and follow its prerequisites; never substitute local HTML.",
     "Honor requests to work remotely by delegating the whole request with remote-session:create/send, then reading its receipt; do not perform that work here. Only schedule an Automation when asked.",
   ].join("\n")
@@ -112,6 +130,12 @@ function slackSendAsBotInstructions(toolView: InstructionView = "search"): strin
 export const MY_AGENT_INSTRUCTIONS = "To change what Your agent tells the user, use putMeAgent; to explain why it was quiet, read the user's agent checks."
 
 /**
+ * The same rule with Your agent's brief (`workbotAgentBrief`): what it tells them is lines in their words, and how often
+ * it checks is theirs to slow down.
+ */
+export const MY_AGENT_BRIEF_INSTRUCTIONS = "To change what Your agent tells the user (\"also watch our Render bill\", \"never tell me about newsletters\": lines added to their brief), what it reads (\"also use Linear\", \"use my Granola for meeting context\": any connector they can use, by name in `sources`) or how often it checks, use putMeAgent; to explain why it was quiet or when it checks next, read the user's agent and its checks."
+
+/**
  * A full-view tools/list is the member's own, so clients may reuse it only for
  * the same authorization, and briefly: tools/list_changed reaches streams on
  * this replica only, so other replicas' clients refetch after this.
@@ -125,6 +149,8 @@ export function createAgentMcpServer(options: {
   canSendSlackMessages?: boolean
   /** My agent is on for this member and they may change it (`workbotProactive`, a member, and the write scope). */
   myAgent?: boolean
+  /** With `myAgent`: Your agent's brief and rhythm (`workbotAgentBrief`) are on for them. */
+  myAgentBrief?: boolean
   /** Which tools/list this request gets; see connect-tool-view.ts. */
   toolView?: ConnectToolView
   /** Describe search matches as MCP tools (part of `connectStandardTools`). */
@@ -142,7 +168,7 @@ export function createAgentMcpServer(options: {
   const rules = [agentMcpInstructions(options.appServers !== false, view, options.toolShapes),
     ...(options.remoteSessionStatus ? [REMOTE_SESSION_STATUS_INSTRUCTIONS] : []),
     ...(options.canSendSlackMessages ? [slackSendAsBotInstructions(view)] : []),
-    ...(options.myAgent ? [MY_AGENT_INSTRUCTIONS] : [])].join("\n")
+    ...(options.myAgent ? [options.myAgentBrief ? MY_AGENT_BRIEF_INSTRUCTIONS : MY_AGENT_INSTRUCTIONS] : [])].join("\n")
   const directory = view === "engine" && options.services
     ? serviceDirectoryInstructions(options.services, AGENT_MCP_INSTRUCTIONS_MAX_CHARS - rules.length - 1)
     : ""

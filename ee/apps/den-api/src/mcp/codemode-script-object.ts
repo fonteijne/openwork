@@ -3,8 +3,32 @@ import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation"
 
 export type JsonSchemaObject = JsonSchemaType
 
+/**
+ * The language a Workflow was written in: `codemode-js` is the restricted dialect
+ * of OpenWork's original interpreter, `ecmascript` is standard JavaScript.
+ */
+export type CodemodeLanguage = "codemode-js" | "ecmascript"
+
+const CODEMODE_LANGUAGES: readonly string[] = ["codemode-js", "ecmascript"] satisfies CodemodeLanguage[]
+
+function isCodemodeLanguage(value: unknown): value is CodemodeLanguage {
+  return typeof value === "string" && CODEMODE_LANGUAGES.includes(value)
+}
+
+/**
+ * How to write the code execute_capability_script tests, in the language the
+ * organization tests and saves new Workflows in (newWorkflowLanguage). Each rule
+ * is said once, here; the build-an-app skill only names the forms that run one
+ * item at a time.
+ */
+export function workflowCodeRules(language: CodemodeLanguage): string {
+  return language === "ecmascript"
+    ? "Test a confined function body in standard JavaScript (ECMAScript); TypeScript annotations are rejected because they are not JavaScript. End with return of JSON-safe data. No imports, fetch, process or host access; use tools for external work and Promise.all for independent calls. Await every call, including writes: calls nothing awaits are cancelled when the program returns, and rejections nothing awaits appear only as warning: log lines."
+    : "Test a confined JavaScript function body; end with return of JSON-safe data. No imports, fetch, process or host access; use tools for external work and Promise.all for independent calls."
+}
+
 export type CodemodeScriptPayload = {
-  language: "codemode-js"
+  language: CodemodeLanguage
   inputSchema?: JsonSchemaObject
   outputSchema?: JsonSchemaObject
   exampleInput?: unknown
@@ -74,8 +98,9 @@ export function parseCodemodeScriptPayload(normalizedPayloadJson: unknown):
   if (!isRecord(normalizedPayloadJson) || !hasOnlyKeys(normalizedPayloadJson, ["language", "inputSchema", "outputSchema", "exampleInput", "requiredCapabilities", "limits"])) {
     return { ok: false, message: "The Workflow payload must contain only language, inputSchema, outputSchema, exampleInput, requiredCapabilities, and limits." }
   }
-  if (normalizedPayloadJson.language !== "codemode-js") {
-    return { ok: false, message: "The Workflow language must be codemode-js." }
+  const language = normalizedPayloadJson.language
+  if (!isCodemodeLanguage(language)) {
+    return { ok: false, message: "The Workflow language must be codemode-js or ecmascript." }
   }
   if (normalizedPayloadJson.inputSchema !== undefined && !isJsonSchemaObject(normalizedPayloadJson.inputSchema)) {
     return { ok: false, message: "The Workflow inputSchema must be a JSON Schema object." }
@@ -128,7 +153,7 @@ export function parseCodemodeScriptPayload(normalizedPayloadJson: unknown):
   return {
     ok: true,
     payload: {
-      language: "codemode-js",
+      language,
       ...(normalizedPayloadJson.inputSchema === undefined ? {} : { inputSchema: normalizedPayloadJson.inputSchema }),
       ...(normalizedPayloadJson.outputSchema === undefined ? {} : { outputSchema: normalizedPayloadJson.outputSchema }),
       ...(normalizedPayloadJson.exampleInput === undefined ? {} : { exampleInput: normalizedPayloadJson.exampleInput }),

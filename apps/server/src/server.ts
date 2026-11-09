@@ -2,9 +2,11 @@ import { cloudComputerCall, cloudComputerFor, cloudComputerJson, startCloudCompu
 import { createV2SessionHomes, nativeSession, nativeSessionDirectory } from "./opencode-v2-session-home.js";
 import { createNativeCloudMcpResolver, createRoutedCloudMcpRegistrar } from "./cloud-mcp-v2.js";
 import { managedDesktopPolicy } from "./managed-desktop-policy.js";
+import { readHostResponse } from "./host-response.js";
 import { createTaskRecovery, setTaskRecovery } from "./task-recovery.js";
 import { managedPolicyActionSchema } from "./managed-policy-rules.js";
-import { enterEngineMutation } from "./engine-switch-fence.js";
+import { enterEngineMutation, withEngineSwitchFence } from "./engine-switch-fence.js";
+import { originalHistoryUsesV2 } from "./opencode-history.js";
 import { beginOpencodeStop, opencodeSessionIsStopping } from "./opencode-stop-fence.js";
 import { readFile, realpath, writeFile, rm, stat } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
@@ -14,6 +16,7 @@ import { resolveGlobalOpencodeConfigPath } from "@openwork/paths";
 import type { ApprovalRequest, Capabilities, ServerConfig, WorkspaceInfo, Actor, ReloadReason, ReloadTrigger, TokenScope } from "./types.js";
 import { agentContextDiagnosticsRequestSchema } from "./agent-context-diagnostics-schema.js";
 import { ApprovalService } from "./approvals.js";
+import { attachApprovedDriveUpload, createDriveUploadPreflight, type PreparedDriveUploadFile } from "./extensions/approved-drive-upload.js";
 import {
   BoundedSseFrameBuffer,
   EnginePool,
@@ -169,7 +172,7 @@ import {
   writeOpenworkWorkspaceConfig,
 } from "./openwork-workspace-config-store.js";
 import { buildOpenworkRuntimeConfigObject, openworkRuntimeConfigFilePath, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
-import { findManagedEngineWorkspace, managedEngineRootWorkspace } from "./workspaces.js";
+import { findManagedEngineWorkspace, hasExternalOpencode, managedEngineRootWorkspace } from "./workspaces.js";
 import { startThreadApprovalReplayer, type ThreadApprovalReplayer } from "./thread-approvals.js";
 import { CloudProviderSync, parseCloudProviderDenSession } from "./cloud-provider-sync.js";
 import { createEngineV2Preview, shouldSyncLiveProviderOwnerTransition, type EngineV2Preview } from "./engine-v2-preview.js";
@@ -832,23 +835,22 @@ export async function startServer(
     logger,
   });
   setEngineInstanceReaperForConfig(config, engineInstanceReaper);
+  const hostReadRequest = async (path: string, init?: RequestInit, approvedDriveFile?: PreparedDriveUploadFile) => {
+    // Internal dispatch retains credentials and exact-file capabilities in this
+    // process. Neither is serialized to the native plugin or accepted over HTTP.
+    const request = new Request(`http://127.0.0.1${path}`, {
+      ...init, headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+    });
+    if (approvedDriveFile) attachApprovedDriveUpload(request, approvedDriveFile);
+    const response = await serverOptions.fetch(request);
+    return readHostResponse(response);
+  };
   const engineV2Preview: EngineV2Preview = createEngineV2Preview({ config, env, deferStart: true,
     autoUpgradeIdle: async () => (await describeV1EngineActivity(config)).verdict === "idle",
     autoUpgradeError: (error) => logger.log("warn", "Automatic engine upgrade failed; keeping v1", { error }),
     providerSession: () => cloudProviderSync.providerBridgeSession(),
-    hostReadRequest: async (path, init) => {
-      // Internal dispatch retains the host credential in this process. The
-      // native plugin receives only the context bridge's restricted token.
-      const response = await serverOptions.fetch(new Request(`http://127.0.0.1${path}`, {
-        ...init, headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-      }));
-      const payload: unknown = await response.json();
-      if (!response.ok) {
-        const message = payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string" ? `: ${payload.message}` : "";
-        throw new Error(`OpenWork request failed (${response.status})${message}`);
-      }
-      return payload;
-    },
+    hostReadRequest,
+    prepareDriveUpload: createDriveUploadPreflight(config, hostReadRequest),
   });
   const cloudProviderSync = new CloudProviderSync({
     config,
@@ -1051,7 +1053,6 @@ export async function startServer(
             workspace,
             proxyPath: mount.restPath,
             connection,
-            describeUncopiedChat: (sessionId) => engineV2Preview.describeUncopiedChat(sessionId),
             logWarning: (message, attributes) => logger.log("warn", message, attributes),
             // A turn uses the connections that are ready; MCP upkeep runs in
             // the background and the engine adds tools as connections finish.
@@ -1437,7 +1438,6 @@ async function forwardOpencodeV2Request(input: {
   /** Restart one connection that is not healthy (v1's `POST /mcp/:name/connect`). */
   reconnectMcp?: (directory: string, name: string) => Promise<void>;
   /** Why v2 has no such chat when it is a v1 chat not copied yet. */
-  describeUncopiedChat?: (sessionId: string) => Promise<string | null>;
   recoverySignal?: AbortSignal;
   /** Reports a chat left out of a list because the engine could not read it. */
   logWarning?: (message: string, attributes: Record<string, string | null>) => void;
@@ -1515,11 +1515,7 @@ async function forwardOpencodeV2Request(input: {
   // Authorization follows the persistent home, not the agent's mutable CWD.
   // The actual native location still controls execution and tool discovery.
   if (sessionId?.startsWith("ses_")) {
-    const session = await readNative(`/api/session/${encodeURIComponent(sessionId)}`).catch(async (error: unknown) => {
-      // A v1 chat v2 has not copied yet: say so instead of a bare "could not be read".
-      const reason = error instanceof ApiError && error.status === 404 ? await input.describeUncopiedChat?.(sessionId) : null;
-      throw reason ? new ApiError(404, "engine_chat_not_copied", reason) : error;
-    });
+    const session = await readNative(`/api/session/${encodeURIComponent(sessionId)}`);
     if (await homes.resolve(session) !== expectedHome) {
       throw new ApiError(404, "session_not_found", "Session not found");
     }
@@ -1966,8 +1962,15 @@ export async function proxyOpencodeRequest(input: Parameters<typeof forwardOpenc
   await managedDesktopPolicy(input.config).assertLegacyExecutionRequest(input.request, input.proxyPath ?? input.url.pathname);
   if (["GET", "HEAD"].includes(input.request.method.toUpperCase())) return forwardOpencodeRequest(input);
   const release = await enterEngineMutation(input.config, "v1", input.request.signal);
-  try { return await forwardOpencodeRequest(input); }
-  finally { await release(); }
+  try {
+    const path = decodeURIComponent(input.proxyPath ?? input.url.pathname);
+    const chatMutation = /\/(?:session|experimental\/session)(?:\/|$)/.test(path)
+      && !/\/session\/[^/]+\/abort\/?$/.test(path);
+    if (chatMutation && !hasExternalOpencode(input.config) && await originalHistoryUsesV2(input.config)) {
+      throw new ApiError(409, "engine_v1_history_adopted", "This history is owned by OpenCode v2. Continue the chat on v2 so new messages stay readable.");
+    }
+    return await forwardOpencodeRequest(input);
+  } finally { await release(); }
 }
 
 async function forwardOpencodeRequest(input: {
@@ -3528,27 +3531,6 @@ function createRoutes(
     return jsonResponse(engineV2Preview.setForcePolicy({ upgrade: body.upgrade }));
   });
 
-  addRoute(routes, "POST", "/experimental/engine-v2-preview/migrate", "host-token", async (ctx) => {
-    ensureWritable(config);
-    const body = await readJsonBody(ctx.request);
-    if (!isRecord(body) || body.confirm !== true) throw new ApiError(400, "invalid_payload", "Confirm history migration first");
-    if (body.allowActiveSessions !== undefined && typeof body.allowActiveSessions !== "boolean") {
-      throw new ApiError(400, "invalid_payload", "allowActiveSessions must be a boolean");
-    }
-    // A chat copied while its turn is still running lands in v2 half-finished
-    // while v1 keeps running it. Make that an explicit choice.
-    if (body.allowActiveSessions !== true && engineV2Preview.status().migration.state !== "running") {
-      const v1 = await describeV1EngineActivity(config);
-      if (v1.verdict === "busy") {
-        throw new ApiError(409, "engine_migration_active_sessions", "Wait for running tasks to finish before migrating chats.", {
-          busySessions: v1.busySessions,
-          waitingRequests: v1.waitingRequests,
-        });
-      }
-    }
-    return jsonResponse(engineV2Preview.migrateHistory());
-  });
-
   addRoute(routes, "PUT", "/experimental/engine-v2-preview", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -3562,14 +3544,24 @@ function createRoutes(
     if (body.chatRouting !== undefined && typeof body.chatRouting !== "boolean") {
       throw new ApiError(400, "invalid_payload", "chatRouting must be a boolean");
     }
-    // Check before starting the v2 process, so a refused switch changes nothing.
-    if (body.chatRouting === true) await engineV2Preview.requireV1HistoryCopied();
     let status = engineV2Preview.status();
     const previouslyLiveProviderSync = status.liveProviderSync;
-    // Stop routing before stopping the v2 process; enable the process before routing to it.
-    if (body.chatRouting === false) status = await engineV2Preview.setChatRouting(false);
-    if (typeof body.enabled === "boolean") status = await engineV2Preview.setEnabled(body.enabled);
-    if (body.chatRouting === true) status = await engineV2Preview.setChatRouting(true);
+    const apply = async () => {
+      if (body.chatRouting === false) status = await engineV2Preview.setChatRouting(false);
+      // Commit v2 routing before starting a process that can migrate the shared
+      // database. No request may continue writing v1 during that handoff.
+      if (body.chatRouting === true) status = await engineV2Preview.setChatRouting(true);
+      if (typeof body.enabled === "boolean") status = await engineV2Preview.setEnabled(body.enabled);
+    };
+    if (!status.chatRouting && (body.chatRouting === true || body.enabled === true)) {
+      await withEngineSwitchFence(config, { from: "v1", to: "v2", operation: async () => {
+        const activity = await describeV1EngineActivity(config);
+        if (activity.verdict !== "idle") {
+          throw new ApiError(409, "engine_active_sessions", "Wait for OpenCode v1 tasks and requests to finish before starting v2.");
+        }
+        await apply();
+      } });
+    } else await apply();
     if (shouldSyncLiveProviderOwnerTransition(previouslyLiveProviderSync, status.liveProviderSync)) {
       void cloudProviderSync.run("engine_routing_changed");
     }

@@ -268,10 +268,11 @@ export async function createLiveBackend(): Promise<Backend> {
 
   /**
    * Chats run on the OpenCode v2 engine. On a profile that still has OpenWork
-   * v1 history, the server may keep v2 off, or copy that history first; until
-   * then every engine request answers 503. BonzaiWork only uses v2, so it
-   * switches the v2 process on (nothing else: no chat routing, no migration)
-   * and waits until it serves. A migration in progress is waited out.
+   * v1 history, the server may keep v2 off; until it serves, every engine
+   * request answers 503. BonzaiWork only uses v2, so it switches the v2 process
+   * on (nothing else: no chat routing) and waits until it serves. Since upstream
+   * v0.18.65 the engine converts older history itself while it starts; the
+   * status has no migration state and there is no migrate route to call.
    */
   let engineState: EngineState = "ready";
   const engineListeners = new Set<() => void>();
@@ -299,35 +300,22 @@ export async function createLiveBackend(): Promise<Backend> {
     const direct: Connection = { ...connection, whenStarting: undefined };
     const begun = Date.now();
     let switchedOn = false;
-    let resumed = false;
     try {
       for (;;) {
         const status = await request(direct, "/experimental/engine-v2-preview/status", { timeoutMs: 10_000 });
-        const migration = str(field(status, "migration"), "state");
-        const running = field(status, "running") === true;
-        if (running && migration !== "running") {
+        if (field(status, "running") === true) {
           setEngineState("ready");
           return;
         }
-        if (migration === "error" && field(field(status, "migration"), "resumed") === true && !running) {
-          // A saved copy of older chats that stopped halfway keeps v2 locked until it finishes.
-          // The server resumes it on request, as it does after a restart; nothing is trimmed.
-          if (resumed) throw new BackendError("engine_migration_failed", "Je eerdere gesprekken konden niet worden overgezet, en tot dat lukt start de AI-engine niet. Sluit BonzaiWork en open de app opnieuw.", 503, str(field(status, "migration"), "error"));
-          resumed = true;
-          setEngineState("migrating");
-          await request(direct, "/experimental/engine-v2-preview/migrate", { method: "POST", body: { confirm: true }, host: true, timeoutMs: 15_000 });
-          await wait(1_500);
-          continue;
-        }
-        setEngineState(migration === "running" ? "migrating" : "starting");
-        if (migration !== "running" && field(status, "enabled") !== true && !switchedOn) {
+        setEngineState("starting");
+        if (field(status, "enabled") !== true && !switchedOn) {
           switchedOn = true;
           await request(direct, "/experimental/engine-v2-preview", { method: "PUT", body: { enabled: true }, timeoutMs: 10_000 }).catch(() => null);
         }
         const lastError = str(status, "lastError");
         // Starting can install the engine binary first; give it time before calling it failed.
-        if (migration !== "running" && lastError && Date.now() - begun > 20_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, lastError);
-        if (migration !== "running" && Date.now() - begun > 120_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, "Not running after two minutes.");
+        if (lastError && Date.now() - begun > 20_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, lastError);
+        if (Date.now() - begun > 120_000) throw new BackendError("engine_failed", "De AI-engine start niet. Sluit BonzaiWork en open de app opnieuw.", 503, "Not running after two minutes.");
         await wait(1_500);
       }
     } catch (failure) {

@@ -45,7 +45,7 @@ function EngineBanner() {
   return (
     <div role="status" className="flex shrink-0 items-center justify-center gap-2 border-b border-border bg-electric-3 px-4 py-2 text-xs font-semibold text-electric-11">
       <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-      {state === "migrating" ? copy.boot.engineMigrating : copy.boot.engineStarting}
+      {copy.boot.engineStarting}
     </div>
   );
 }

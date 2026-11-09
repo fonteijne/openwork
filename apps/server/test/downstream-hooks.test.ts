@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import {
   addDownstreamRoutes,
+  downstreamEngineHistoryEnvironment,
   downstreamEnginePermissions,
   downstreamEnginePolicies,
   engineConfigDirectory,
@@ -16,6 +17,7 @@ import {
   loadDownstreamServerHooks,
   setDownstreamServerHooks,
 } from "../src/downstream-hooks.js";
+import { resolveOpencodeHistoryDatabase } from "../src/opencode-history.js";
 import { organizationProviderGate } from "../src/organization-provider-gate.js";
 import { matchRoute, type Route } from "../src/routes/registry.js";
 import { readGlobalRuntimeOpencodeConfig, runtimeStorageDir } from "../src/runtime-opencode-config-store.js";
@@ -27,6 +29,38 @@ test("without hooks nothing changes", () => {
   assert.equal(downstreamProviderGate(), null);
   assert.deepEqual(downstreamEnginePolicies(), []);
   assert.equal(organizationProviderGate(undefined), null);
+});
+
+test("engine v2 history: the hook replaces the shared OpenCode database, not OpenWork's own chats", async () => {
+  const root = await mkdtemp(join(tmpdir(), "downstream-history-"));
+  try {
+    const environment = { HOME: join(root, "home"), XDG_DATA_HOME: join(root, "xdg") };
+    const shared = join(root, "xdg", "opencode", "opencode.db");
+    const own = join(root, "bonzaiwork", "opencode", "opencode.db");
+    const legacyRoot = join(root, "opencode-v2", "state");
+    await mkdir(legacyRoot, { recursive: true });
+    // Without hooks: upstream's choice, the database every OpenCode install shares.
+    assert.equal(downstreamEngineHistoryEnvironment(environment), environment);
+    assert.equal(await resolveOpencodeHistoryDatabase(legacyRoot, downstreamEngineHistoryEnvironment(environment)), shared);
+
+    setDownstreamServerHooks({ engineHistoryDatabase: () => own });
+    assert.equal(await resolveOpencodeHistoryDatabase(legacyRoot, downstreamEngineHistoryEnvironment(environment)), own);
+    // An explicit OPENCODE_DB still wins.
+    const explicit = join(root, "explicit.db");
+    assert.equal(await resolveOpencodeHistoryDatabase(legacyRoot, downstreamEngineHistoryEnvironment({ ...environment, OPENCODE_DB: explicit })), explicit);
+    // OpenWork's own v2 database keeps its chats.
+    const { Database } = await import("bun:sqlite");
+    const legacy = new Database(join(legacyRoot, "opencode.db"));
+    legacy.run("CREATE TABLE session_v2 (id TEXT PRIMARY KEY)");
+    legacy.run("INSERT INTO session_v2 (id) VALUES ('ses_1')");
+    legacy.close();
+    assert.equal(await resolveOpencodeHistoryDatabase(legacyRoot, downstreamEngineHistoryEnvironment(environment)), join(legacyRoot, "opencode.db"));
+
+    setDownstreamServerHooks({ engineHistoryDatabase: () => "relative/opencode.db" });
+    assert.throws(() => downstreamEngineHistoryEnvironment(environment), /absolute path/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("an allowlist gates providers even without an organization policy", () => {

@@ -18,7 +18,6 @@ const NO_ENGINE: NonNullable<Backend["engine"]> = { current: () => "ready", subs
 const ENGINE_LABEL: Record<EngineState, string> = {
   ready: copy.shell.engine.ready,
   starting: copy.shell.engine.starting,
-  migrating: copy.shell.engine.migrating,
   failed: copy.shell.engine.failed,
 };
 

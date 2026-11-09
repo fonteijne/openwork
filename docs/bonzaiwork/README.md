@@ -4,7 +4,7 @@ Eigen desktop-app op basis van OpenWork, met een eigen UI en LiteLLM als enige p
 De opdracht staat in [`referentie.md`](./referentie.md). Dit document beschrijft wat er gebouwd is,
 hoe het geverifieerd is, waar we van de referentie afwijken en wat er nog openstaat.
 
-Stand: upstream-release `v0.18.64` (`44c7074`), gemerged in `nightly` via fonteijne/openwork#31. Getest op Linux (CI, stand-in LiteLLM). De test op macOS arm64 met echte LiteLLM is voor deze release nog niet gedaan; de vorige stand (`2aa4481`, `v0.18.63`) is daar wel op getest.
+Stand: upstream-release `v0.18.65` (`abb0def`), gemerged in `nightly` via fonteijne/openwork#34. Getest op Linux (CI, stand-in LiteLLM). De test op macOS arm64 met echte LiteLLM is voor deze release (en voor `v0.18.64`) nog niet gedaan; de laatste stand die daar wel op getest is, is `2aa4481` (`v0.18.63`).
 
 ## Genomen beslissingen
 
@@ -59,6 +59,7 @@ Electron main (BonzaiWork-entry)
              ├─ allowedProviderIds = ["litellm"]
              │    ├─ organizationProviderGate()  → mirror duwt alleen litellm naar de engine
              │    └─ engine-config experimental.policies: provider.use * deny, litellm allow
+             ├─ engineHistoryDatabase → v2-geschiedenis in userData/bonzaiwork/opencode/opencode.db
              ├─ provider "litellm" in de globale runtime-config:
              │    baseURL http://127.0.0.1:<poort>/bonzaiwork/litellm/v1, apiKey = lokaal token
              └─ routes
@@ -88,7 +89,7 @@ Electron main (BonzaiWork-entry)
 | Typecheck | `openwork-server`, `@openwork/app`, `@bonzaiwork/*` | 0 fouten |
 | **B "klaar als"** | `pnpm --filter @bonzaiwork/litellm e2e`: echte server + v2-engine + stand-in LiteLLM, met `ANTHROPIC_API_KEY` gezet, een project-`opencode.json` met een eigen provider (die zichzelf via `experimental.policies` probeert toe te staan) en een lokale `auth.json` | engine toont alleen `litellm`; chat via de projectprovider faalt; chat via LiteLLM slaagt; twee workspaces bereiken LiteLLM met hun eigen key; geen key in logs, engine-config, `runtime.sqlite` of workspaces |
 | UI (headless Chrome) | Vite-dev + headless server; onboarding → afgewezen key → geldige key → chat → instellingen | zie `screenshots/`; key niet in de DOM |
-| **A "klaar als"** | `package.mjs --dir --linux` + `xvfb-run node smoke-packaged.mjs` | verpakte app toont BonzaiWork-onboarding met de ingebakken URL, koppelt een key, beantwoordt een chatbeurt via LiteLLM |
+| **A "klaar als"** | `package.mjs --dir --linux` + `xvfb-run node smoke-packaged.mjs` | verpakte app toont BonzaiWork-onboarding met de ingebakken URL, koppelt een key, beantwoordt een chatbeurt via LiteLLM; de chat staat in de eigen geschiedenis, niet in de gedeelde OpenCode-database |
 | **C (deel)** | dezelfde smoketest; al het uitgaande verkeer via een registrerende proxy die niets doorstuurt | 0 verzoeken naar `*.openworklabs.com`; enige uitgaande bestemming: `redirector.gvt1.com` (Chromium component updater) |
 
 Een eerder handmatig experiment liet zien waarom de engine-policy nodig is: zonder die policy leest de
@@ -167,6 +168,33 @@ leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI impor
 - **Smoketest ziet engineverkeer niet**: de v2-engine krijgt geen proxyvariabelen, dus wat die zelf
   ophaalt gaat buiten de opnemende proxy om. De smoketest bewijst E6 voor Electron, de server en v1.
   Chromium haalt verder `redirector.gvt1.com` op (component updater van Google, geen OpenWork).
+- **Eigen chatgeschiedenis** (sinds `v0.18.65`, fonteijne/openwork#34): upstream #6979 kopieert oude
+  geschiedenis niet meer naar de eigen v2-database van de server (`<runtime>/opencode-v2/state/opencode.db`).
+  Zolang die nog geen chats heeft, krijgt de engine `OPENCODE_DB`, en anders de database die elke
+  OpenCode-installatie deelt (`$XDG_DATA_HOME/opencode/opencode.db`); die zet upstream ter plekke om naar
+  v2 (`apps/server/src/opencode-history.ts`). Zonder maatregel zou BonzaiWork dus chats uit een losse
+  OpenCode-CLI of -app tonen en die database omzetten. De server-hook `engineHistoryDatabase`
+  (`packages/bonzaiwork-server-hooks/src/engine-history.ts`) geeft v2 daarom
+  `userData/bonzaiwork/opencode/opencode.db`; de patch is één regel in `engine-v2-preview.ts` (zie
+  `PATCHES.md`). Een expliciete `OPENCODE_DB` (dev, tests, blank-slate-profiel) gaat voor. Bewust
+  alleen voor v2: een procesbrede `OPENCODE_DB` bereikt ook de v1-engine, die het door v2 aangemaakte
+  bestand dan niet kan openen ("Database is not empty and has no session table"), en upstream's
+  uitwijkroute voor v1 naar een eigen database staat uit zodra `OPENCODE_DB` gezet is. De verpakte
+  smoketest startte daardoor niet; zo is het gevonden. v1 houdt dus het gedrag van upstream (zie
+  "v1-engine draait mee").
+  Bestaande BonzaiWork-chats blijven waar ze zijn: de server houdt zijn eigen v2-database aan zodra die
+  chats heeft. Gevolg: chats die alleen in de gedeelde database staan (v1-engine, nooit naar de eigen
+  v2-database gekopieerd) toont BonzaiWork niet meer; ze blijven daar onaangeroerd staan. Getest met een
+  test in `downstream-hooks.test.ts` (zonder de hook kiest upstream de gedeelde database), een
+  unit-test in `@bonzaiwork/server-hooks` en in de smoketest (de chat staat als v2-chat in de eigen
+  database; de gedeelde database heeft geen v2-tabellen). De v1-engine opent de gedeelde database nog
+  wel, zoals voorheen, en auth- en andere bestanden van de engine onder `$XDG_DATA_HOME/opencode`
+  blijven gedeeld.
+- **Computer use** (upstream, via `main.mjs`): app-vensters bedienen, kopiëren tussen apps, bestanden
+  opslaan in `Downloads`. Staat in `packages/computer-use` standaard uit (`featureEnabled = false`);
+  alleen de upstream-UI zet het aan (`computerSetFeatureEnabled`). De BonzaiWork-UI roept dat niet aan,
+  dus de functies zijn in onze build niet bereikbaar. Zet een toekomstige upstream-release het
+  standaard aan, dan moet dat hier opnieuw bekeken worden.
 - Nog niet gecontroleerd: `DEFAULT_DEN_BASE_URL`/`DOCS_PAGE_URL` in `main.mjs` en
   `workspace-store.mjs` worden in de smoketest niet aangeroepen, maar zijn niet omgeleid.
 

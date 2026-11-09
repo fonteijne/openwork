@@ -1,12 +1,15 @@
 import { env } from "../env.js"
 import { SLACK_ASSISTANT_INSTRUCTIONS } from "../slack-assistant/protocol.js"
-import { BUILD_AN_APP_SKILL_SOURCE, BUILTIN_BUILD_AN_APP_CAPABILITY } from "./build-an-app-skill.js"
+import { buildAnAppSkillSource, BUILTIN_BUILD_AN_APP_CAPABILITY } from "./build-an-app-skill.js"
+import type { CodemodeLanguage } from "./codemode-script-object.js"
 import type { RemoteSkillDescriptor } from "./marketplace-capabilities.js"
 import { scoreText, tokenize, type CapabilityMatch } from "./search.js"
+import { newWorkflowLanguage } from "./workflow-service.js"
 
 export type BuiltinSkillDefinition = {
   descriptor: RemoteSkillDescriptor
-  source: string
+  /** A function when the text depends on the organization's Workflow language. */
+  source: string | ((language: CodemodeLanguage) => string)
   searchExtraTokens: string
   /** Listed only while the tools it teaches exist on this deployment. */
   available?: () => boolean
@@ -329,11 +332,11 @@ export const BUILTIN_SKILLS: BuiltinSkillDefinition[] = [
     descriptor: {
       name: "build-an-app",
       title: "Build an App",
-      description: "Build or change an App, such as a dashboard, tracker, lookup, form, or calculator, that opens beside the chat.",
+      description: "Build or change an App (an artifact), such as a dashboard, tracker, lookup, form, or calculator, that opens beside the chat.",
       capability: BUILTIN_BUILD_AN_APP_CAPABILITY,
       location: "skill://build-an-app/SKILL.md",
     },
-    source: BUILD_AN_APP_SKILL_SOURCE,
+    source: buildAnAppSkillSource,
     searchExtraTokens: "app apps build make create edit update dashboard tracker calculator form lookup interactive view mcp artifact",
     available: () => env.appMcpServersEnabled,
   },
@@ -405,7 +408,8 @@ export function searchBuiltinSkillCapabilities(query: string, limit = 5): Builti
     .slice(0, Math.max(1, Math.min(20, Math.trunc(limit) || 5)))
 }
 
-export function executeBuiltinSkillCapability(name: string): BuiltinSkillExecutePayload | null {
+/** The organization's Workflow language is read only for a skill whose text depends on it. */
+export async function executeBuiltinSkillCapability(name: string, organizationId: string): Promise<BuiltinSkillExecutePayload | null> {
   const skill = findBuiltinSkill(name)
   if (!skill) return null
   return {
@@ -413,6 +417,6 @@ export function executeBuiltinSkillCapability(name: string): BuiltinSkillExecute
     name: skill.descriptor.title,
     description: skill.descriptor.description,
     provenance: "Built into OpenWork Cloud.",
-    content: skill.source,
+    content: typeof skill.source === "string" ? skill.source : skill.source(await newWorkflowLanguage(organizationId)),
   }
 }

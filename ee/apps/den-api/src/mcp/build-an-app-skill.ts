@@ -1,27 +1,41 @@
 import { appStarterResourceUri } from "./app-authoring-starter.js"
+import type { CodemodeLanguage } from "./codemode-script-object.js"
 
 export const BUILTIN_BUILD_AN_APP_CAPABILITY = "skill:build-an-app"
+
+/**
+ * Which forms run one item at a time. OpenWork's dialect awaits an async
+ * callback in forEach, filter or reduce; standard JavaScript never does. The
+ * language rules themselves are stated once, in execute_capability_script's
+ * description (workflowCodeRules).
+ */
+const SERIAL_FORMS: Record<CodemodeLanguage, string> = {
+  "codemode-js": "A for...of loop that awaits each item, or an async forEach, filter, or reduce callback, runs one item at a time.",
+  ecmascript: "A for...of loop that awaits each item runs one item at a time, and forEach, filter, and reduce never await an async callback, so pass async callbacks only to map.",
+}
 
 /**
  * The one place agents learn how OpenWork builds Apps: when to build one, the
  * order of calls, source and tool-call rules, and what a good App looks like.
  * Server instructions and the concise builder tool descriptions route here
- * for the detailed rules the compiler and host enforce.
+ * for the detailed rules the compiler and host enforce. Only the Workflow code
+ * forms depend on the organization's Workflow language.
  */
-export const BUILD_AN_APP_SKILL_SOURCE = `---
+export function buildAnAppSkillSource(language: CodemodeLanguage): string {
+  return `---
 name: build-an-app
 description: |
-  Build or change an App: a small interactive view, such as a dashboard, tracker, lookup, form, or calculator, that opens beside the chat and in any MCP Apps host.
+  Build or change an App, which OpenWork also calls an artifact: a small interactive view, such as a dashboard, tracker, lookup, form, or calculator, that opens beside the chat and in any MCP Apps host.
 
   Triggers when the user asks to:
-  - build, make, or create an app, dashboard, tracker, calculator, form, or interactive view
+  - build, make, or create an artifact, live artifact, app, dashboard, tracker, calculator, form, or interactive view
   - turn connected data or a Workflow into something they can open again, filter, or click
   - change, fix, or restyle an App they already have
 ---
 
 # Build an App
 
-An App is a small React view that OpenWork compiles and publishes as its own MCP server. It runs as the person using it, with their own access and connections, and opens again with live data in chat, the side panel, and dashboards.
+An artifact in OpenWork is an App, never a local HTML file. An App is a small React view that OpenWork compiles and publishes as its own MCP server. It runs as the person using it, with their own access and connections, and opens again with live data in chat, the side panel, and dashboards.
 
 ## Decide first
 
@@ -35,7 +49,7 @@ An App is a small React view that OpenWork compiles and publishes as its own MCP
 2. Call prepare_app with a title that names the outcome ("Open Linear issues", not "Dashboard"), one sentence on what the person sees and does, and those exact tools. It verifies them and returns their input schemas and a starter already wired to them.
 3. Write the App from that starter. Keep its theme, state handling, and tool calls. Replace the general result view with the focal view, rename buttons to their outcome, and keep only the inputs the person needs.
 4. Call create_app with the preparationId, the same tools, the complete React and CSS, and a textFallback of one or two sentences on what the App shows. If it fails, fix exactly what the error names and call create_app again with the same preparationId. Never fall back to a local HTML file, save_artifact_view, or config-object writes.
-5. Reply in one or two sentences: what the App shows and one thing to try in it. OpenWork shows the build as it happens and opens the App, so do not narrate the steps, claim stages in prose, or paste the source.
+5. Reply in one or two sentences: what the App shows and one thing to try in it. OpenWork shows the build as it happens and opens the App, so do not narrate the steps, claim stages in prose, or paste the source. After create_app or update_app the App is already open and reloaded beside the chat: never ask the person to reopen it or say you have not seen it.
 
 To change an App, keep its purpose and tools unless the person asks otherwise. Call read_app first: it returns app (the latest summary), reactSource, and cssSource, not tool input schemas. Copy app.revisionId into update_app's expectedRevisionId. Supply complete replacement React source, title, and textFallback; omit cssSource, description, or tools to keep them, or pass complete replacements.
 
@@ -45,6 +59,7 @@ To change an App, keep its purpose and tools unless the person asks otherwise. C
 - reactSource default-exports a component receiving { app, input, result, hostContext }: input is the launch input, and result is the launch CallToolResult (read result?.structuredContent), undefined until delivered. hostContext carries theme ("light" or "dark"), styles.variables (CSS variables such as --color-text-primary, --color-background-primary, --color-border-primary and --font-sans), and containerDimensions { maxHeight, width }. The component re-renders when the host sends them again after a change.
 - React is injected: use React.useState and other React APIs without imports. Do not use fetch, browser or host globals, timers, dynamic code, external resources, URL-bearing elements, or <form>, <svg>, <style>, or <math> elements; use labeled inputs and type=button controls.
 - When prepare_app's nextSteps lists built-in libraries, import only those, by name, and follow its note on drawing; otherwise use no imports. OpenWork bundles its own pinned copy, so never install packages or load scripts.
+- A saved Workflow answers with its run receipt, { kind: "workflow", status, value, ... }: the data is its value. The starter's valueOf unwraps it; keep it, or read structuredContent.value yourself, or every section renders empty.
 - Call only declared tools, with app.callServerTool({ name, arguments }): a Workflow or connection tool takes the capability's arguments, an OpenWork action { path, query, body }, and a live Workflow only an optional { timeZone }. Show a blocked state if app.getHostCapabilities()?.serverTools is absent.
 - Once the launch result arrives (result is no longer undefined), call the read-only tools the focal view needs with the launch input, with no click, and show the data. OpenWork runs a call without a click only for a tool that needs no approval, once per open and once the App is on screen.
 - An App opened without launch input often arrives with its data: result._meta["openwork/initialResults"] lists { name, arguments, loadedAt, result } for read-only tools that need no input. Show the entry whose name and arguments match the call the App would make instead of making it; call as usual when none matches. An entry marked kept matches this person's earlier snapshot, confirmed by this open's checked read. Show it and, if an older launch producer supplies a loadedAt over a minute old, load again behind it. The starter's loadWith does this; keep it.
@@ -73,7 +88,7 @@ The first load comes before everything else in this guide. Design the read so th
 
 - Time the read before you build the view: run it with execute_capability_script and compare executedAt with fetchedAt. Keep it under 3 seconds. An open waits up to 4 seconds to bring read-only data with the App; a slower read is discarded and run again, so the App opens late and its data arrives later still.
 - Load what the focal view needs in one call: one tool, or one live Workflow that combines the sources, rather than several calls or a call that waits on another.
-- Start independent reads together, never one after another. In Workflow code pass the calls straight to Promise.all, as in Promise.all(ids.map((id) => tools.x.y({ id }))), or Promise.allSettled when one failure should not sink the rest. A helper that awaits inside, such as an async map callback, holds up the whole script, so its calls run one at a time even inside Promise.all. To page several lists, fetch one page of each per round.
+- Start independent reads together, never one after another. In Workflow code collect them in one Promise.all, or Promise.allSettled when one failure should not sink the rest: Promise.all(ids.map((id) => tools.x.y({ id }))). Async helpers run side by side too, so give each source its own, such as one that pages through a list, and start them together: Promise.all([listOrders(), listRefunds()]). ${SERIAL_FORMS[language]} When the App itself calls several tools, start those calls together the same way.
 - Ask the source for less: a date window, a summary or report endpoint, and no expanded records the view does not show. Each page of records can add a second or more, so never page through history for a number the source can give you directly.
 - When the whole picture cannot be fast, split it: a quick read for the focal view, and a slower tool for the detail that fills in behind it.
 - Load on open. Opening the App is enough intent, from the chat, a dashboard, or the catalog, so its read-only data loads with no click; never leave an empty "click to load" state for data it can read. Clicks are for changes (send, create, update, delete) and anything that needs approval.
@@ -93,3 +108,4 @@ The first load comes before everything else in this guide. Design the read so th
 - Colors and fonts come from the host theme the starter applies, such as var(--color-text-primary) and var(--color-border-primary), with system colors (CanvasText, Canvas) as fallbacks, so it follows light and dark by itself. No hard-coded colors, gradients, emoji, or decorative badges.
 - The launch input fills the App's inputs, so the chat can open it on a specific record.
 `
+}

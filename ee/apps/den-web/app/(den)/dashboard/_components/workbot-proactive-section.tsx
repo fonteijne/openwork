@@ -23,6 +23,9 @@ import { DenTextarea } from "../../_components/ui/textarea";
 import { useSaveWorkbotProactive, useWorkbotProactive } from "./workbot-proactive-data";
 import { PROACTIVE_PREVIEW_KINDS, WorkbotProactivePreview } from "./workbot-proactive-preview";
 import { WorkbotProactiveSources } from "./workbot-proactive-sources";
+import { WorkbotAgentBriefPanel } from "./workbot-agent-brief-panel";
+import { getLibraryConnectorRoute } from "../../_lib/den-org";
+import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 
 /**
  * Manage › Workbot › Your agent: every member gets a background agent that reads their calendar, email, team chat and
@@ -97,6 +100,8 @@ export function WorkbotProactivePanel({
 }) {
   const ids = { destination: useId(), days: useId(), cap: useId(), members: useId() };
   const [preview, setPreview] = useState<AgentResponsibility>(initialPreview);
+  // With Your agent's brief on (the server sends `brief`), one rhythm and a text replace the message types.
+  if (view.brief) return <WorkbotAgentBriefPanel view={view} brief={view.brief} canManage={canManage} saving={saving} onChange={onChange} connectorsHref={connectorsHref} />;
   const { settings, template, slackReady, runnerReady } = view;
   const locked = !canManage || saving;
   const switchNote = !runnerReady
@@ -254,6 +259,7 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export function WorkbotProactiveSection({ orgId, canManage, connectorsHref }: { orgId: string; canManage: boolean; connectorsHref: string }) {
   const query = useWorkbotProactive(orgId, Boolean(orgId));
+  const { orgSlug } = useOrgDashboard();
   const save = useSaveWorkbotProactive(orgId);
   const headingId = useId();
 
@@ -279,7 +285,8 @@ export function WorkbotProactiveSection({ orgId, canManage, connectorsHref }: { 
             connectorsHref={connectorsHref}
             onChange={(change) => save.mutate(change)}
           />
-          <WorkbotProactiveSources view={query.data} canManage={canManage} saving={save.isPending} onChange={(change) => save.mutate(change)} />
+          <WorkbotProactiveSources view={query.data} canManage={canManage} saving={save.isPending} onChange={(change) => save.mutate(change)}
+            tools={{ orgId, connectorHref: (connectionId) => getLibraryConnectorRoute(orgSlug, connectionId) }} />
         </div>
       ) : (
         <PanelSkeleton />

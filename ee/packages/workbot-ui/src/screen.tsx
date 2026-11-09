@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Check, CircleAlert, Copy, FileText, Globe, Lock, Monitor, Pencil } from "lucide-react";
+import { ArrowUp, Check, CircleAlert, Copy, FileText, Globe, Lock, Monitor, Pencil, Presentation } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
 import { computerViews, setWorkbotHost, workbotHost, type WorkbotHost } from "./host";
 import { OpenWorkMark } from "./mark";
@@ -32,7 +32,7 @@ import {
 import { AppMark, AttachButton, FileBadge, FilesButton, FilesPanel, ImageThumb, isImage, kindLabel, SentAttachments, UploadTray, useFileDrop, type Upload } from "./files";
 import { createComposerState, type ComposerState, type Pending } from "./composer-state";
 import { computerWork, type ComputerSurface } from "./computer-work";
-import { initials } from "./format";
+import { AccountAvatar } from "./account-menu";
 import { documentLinks, WorkbotMarkdown } from "./markdown";
 import { OpenFileContext } from "./open-file";
 import { PreviewPanel } from "./preview";
@@ -783,13 +783,7 @@ function WorkbotHeader(props: {
             <span className="hidden max-w-[220px] truncate pl-0.5 text-[12px] leading-4 text-[var(--wb-muted)] sm:inline">{names.join(", ")}</span>
           </span>
         ) : null}
-        <a
-          href={workbotHost().homeHref}
-          aria-label="Your dashboard"
-          className="grid size-8 shrink-0 place-items-center rounded-full bg-[var(--wb-ink)] text-[11px] font-semibold tracking-[0.02em] text-[var(--wb-on-ink)] transition-opacity duration-150 hover:opacity-85 focus-visible:outline-none focus-visible:shadow-[var(--wb-focus)]"
-        >
-          {initials(userName)}
-        </a>
+        <AccountAvatar userName={userName} />
       </div>
     </header>
   );
@@ -2079,20 +2073,25 @@ export function WorkbotComposer(props: {
   // While an answer is in progress, a typed message is still sent (it is answered next); an empty box offers Stop.
   const showStop = props.busy && !canSend;
   const multiline = hasFiles || text.includes("\n") || text.length > 70;
+  // Teaching status and uploads sit inside the box, so whatever is stacked above it keeps its place.
+  const stacked = hasFiles || props.teaching !== undefined;
+  const teachingPhase = props.teaching?.phase === "recording" ? `Teaching ${props.name}` : props.teaching?.phase === "paused" ? "Recording paused · Still teaching" : "Reviewing the skill";
 
   return <>
-    {props.teaching && <div role="status" className="mb-2 flex flex-col gap-0.5 px-3 text-[12px] text-[var(--wb-muted)]" data-workbot-teaching-context>
-      <span>{props.teaching.phase === "recording" ? `Teaching ${props.name}` : props.teaching.phase === "paused" ? "Recording paused · Still teaching" : "Reviewing the skill"}</span>
-      <span className="truncate">{props.teaching.label}</span>
-    </div>}
     <div
       data-workbot-composer
       className={`flex bg-[var(--wb-surface)] shadow-[var(--wb-composer-shadow)] transition-[border-radius] duration-150 ${
-        hasFiles ? "flex-col gap-2 rounded-[24px] pb-2 pl-2.5 pr-2 pt-2.5" : `items-end gap-1 pl-[7px] pr-[7px] sm:pr-2 ${multiline ? "rounded-[24px] py-2" : "rounded-full py-[7px] sm:py-2"}`
+        stacked ? "flex-col gap-2 rounded-[24px] pb-2 pl-2.5 pr-2 pt-2.5" : `items-end gap-1 pl-[7px] pr-[7px] sm:pr-2 ${multiline ? "rounded-[24px] py-2" : "rounded-full py-[7px] sm:py-2"}`
       }`}
     >
+      {props.teaching && <div role="status" title={`${teachingPhase} · ${props.teaching.label}`} className="flex min-w-0 items-center gap-1.5 px-1.5 text-[12px] text-[var(--wb-muted)]" data-workbot-teaching-context>
+        {props.teaching.phase === "recording" ? <span aria-hidden className="mx-[3.5px] size-1.5 shrink-0 rounded-full bg-[var(--wb-danger)]" /> : <Presentation size={13} strokeWidth={1.5} aria-hidden className="shrink-0" />}
+        <span className="shrink-0 font-medium text-[var(--wb-text)]">{teachingPhase}</span>
+        <span aria-hidden className="shrink-0">·</span>
+        <span className="min-w-0 truncate">{props.teaching.label}</span>
+      </div>}
       {hasFiles ? <UploadTray uploads={props.uploads} onRemove={props.onRemoveUpload} onRetry={props.onRetryUpload} /> : null}
-      <div className={hasFiles ? "flex w-full min-w-0 flex-1 items-end gap-1" : "contents"}>
+      <div className={stacked ? "flex w-full min-w-0 flex-1 items-end gap-1" : "contents"}>
         <AttachButton enabled={props.filesEnabled} onFiles={props.onFiles} />
         <textarea
           ref={input}

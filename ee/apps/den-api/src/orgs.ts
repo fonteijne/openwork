@@ -62,17 +62,19 @@ import {
   ASSIGNABLE_ORGANIZATION_ROLES,
   ORGANIZATION_ADMIN_ROLE,
   ORGANIZATION_MEMBER_ROLE,
+  ORGANIZATION_SUPER_ADMIN_ROLE,
   assignableOrganizationRole,
   organizationRoleValueIncludes,
   shouldRevokeSessionsForRoleChange,
 } from "./organization-role-hierarchy.js"
 import { resolvePermissionsForMember } from "./permissions/resolve.js"
-import { decideMemberRemoval, decideRequiredPermission, type RoleAssignmentDenial } from "./permissions/role-assignment.js"
+import { decideActorlessSuperAdminRemoval, decideMemberRemoval, decideRequiredPermission, type RoleAssignmentDenial } from "./permissions/role-assignment.js"
 import { permissionDeniedMessage } from "./permissions/effective.js"
 import type { PermissionDatabase } from "@openwork-ee/den-db/permissions"
 import type { PermissionKey } from "@openwork/types/den/permissions"
 import { appLogger } from "./observability/logger.js"
 import { isSingleOrgOwnerEmailEligible, resolveSingleOrgMembershipRole } from "./single-org-policy.js"
+import type { SsoSessionMaxAgeHours } from "./sso-routing.js"
 
 const logger = appLogger.child({ component: "organizations" })
 
@@ -1314,6 +1316,8 @@ export async function updateOrganizationSettings(input: {
   allowedEmailDomains?: readonly string[] | null
   allowedDesktopVersions?: readonly string[] | null
   requireSso?: boolean
+  restrictDomainToSso?: boolean
+  ssoSessionMaxAgeHours?: SsoSessionMaxAgeHours | null
   brandAppName?: string | null
   brandLogoUrl?: string | null
   brandIconUrl?: string | null
@@ -1334,7 +1338,7 @@ export async function updateOrganizationSettings(input: {
     if (input.allowedEmailDomains !== undefined) {
       updates.allowedEmailDomains = normalizeAllowedEmailDomains(input.allowedEmailDomains).domains
     }
-    if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined || input.brandAppName !== undefined || input.brandLogoUrl !== undefined || input.brandIconUrl !== undefined || input.brandLogoAsset !== undefined || input.brandIconAsset !== undefined || input.brandAccentColor !== undefined) {
+    if (input.allowedDesktopVersions !== undefined || input.requireSso !== undefined || input.restrictDomainToSso !== undefined || input.ssoSessionMaxAgeHours !== undefined || input.brandAppName !== undefined || input.brandLogoUrl !== undefined || input.brandIconUrl !== undefined || input.brandLogoAsset !== undefined || input.brandIconAsset !== undefined || input.brandAccentColor !== undefined) {
       const rows = await tx
         .select({ metadata: OrganizationTable.metadata })
         .from(OrganizationTable)
@@ -1361,6 +1365,18 @@ export async function updateOrganizationSettings(input: {
 
       if (input.requireSso !== undefined) {
         nextMetadata.requireSso = input.requireSso
+      }
+
+      if (input.restrictDomainToSso !== undefined) {
+        nextMetadata.restrictDomainToSso = input.restrictDomainToSso
+      }
+
+      if (input.ssoSessionMaxAgeHours !== undefined) {
+        if (input.ssoSessionMaxAgeHours === null) {
+          delete nextMetadata.ssoSessionMaxAgeHours
+        } else {
+          nextMetadata.ssoSessionMaxAgeHours = input.ssoSessionMaxAgeHours
+        }
       }
 
       if (input.brandAppName !== undefined) {
@@ -2032,6 +2048,12 @@ export async function removeOrganizationMember(input: {
    * Invitation cancellation and SCIM deprovisioning authorize separately and omit it.
    */
   requiredPermission?: PermissionKey
+  /**
+   * SCIM deprovisioning (no `removedByOrgMemberId`): the user who set up the SCIM connection.
+   * Removing a super-admin without an actor needs this person to be the owner or a super-admin
+   * now (decideActorlessSuperAdminRemoval); without it, a super-admin is never removed.
+   */
+  actorlessAuthorityUserId?: typeof AuthUserTable.$inferSelect["id"] | null
 }): Promise<MemberMutationResult> {
   let gatewayCredentials: Awaited<ReturnType<typeof revokeInferenceCredentialsForMembers>> = []
   // Every removal path (members DELETE, invitation cancel, SCIM deprovisioning)
@@ -2084,16 +2106,36 @@ export async function removeOrganizationMember(input: {
 
     if (actorPermissions) {
       const targetIsDirectAdmin = organizationRoleValueIncludes(member.role, ORGANIZATION_ADMIN_ROLE)
+      const targetIsDirectSuperAdmin = organizationRoleValueIncludes(member.role, ORGANIZATION_SUPER_ADMIN_ROLE)
       const targetIsAdminViaTeam = !targetIsDirectAdmin && !actorPermissions.isOwner && !actorPermissions.isAdmin
         && (await listAuthoritativeTeamMemberships(tx, { organizationId: input.organizationId, memberId: member.id, adminTeamsOnly: true, lock: "share" })).length > 0
       const adminRemovalDenial = decideMemberRemoval({
         actor: actorPermissions,
+        targetIsDirectSuperAdmin,
         targetIsDirectAdmin,
         targetIsAdminViaTeam,
         targetIsPendingInvitation: member.userId === null,
       })
       if (adminRemovalDenial) {
         return { ok: false, error: "forbidden", message: adminRemovalDenial.message }
+      }
+    } else if (organizationRoleValueIncludes(member.role, ORGANIZATION_SUPER_ADMIN_ROLE)) {
+      // Read through this transaction with share locks, like the actor above.
+      const [authorityMember] = input.actorlessAuthorityUserId
+        ? await tx.select({ id: MemberTable.id }).from(MemberTable)
+          .where(and(eq(MemberTable.organizationId, input.organizationId), eq(MemberTable.userId, input.actorlessAuthorityUserId), isNull(MemberTable.removedAt)))
+          .limit(1).for("share")
+        : []
+      const authority = authorityMember
+        ? await resolvePermissionsForMember({ organizationId: input.organizationId, memberId: authorityMember.id, database: tx })
+        : null
+      const superAdminRemovalDenial = decideActorlessSuperAdminRemoval({
+        targetIsDirectSuperAdmin: true,
+        targetIsPendingInvitation: member.userId === null,
+        authority,
+      })
+      if (superAdminRemovalDenial) {
+        return { ok: false, error: "forbidden", message: superAdminRemovalDenial.message }
       }
     }
 
