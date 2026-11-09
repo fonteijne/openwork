@@ -7,10 +7,12 @@
  *   3. creates the first project with its key on the welcome screen, adds a workspace, and runs one chat turn;
  *   4. opens Feedback sturen and saves a report (window capture, redacted logs);
  *   5. fails when any request went to *.openworklabs.com (workstream C);
- *   6. checks the git for brains is in the app and runs (brains plan §3.1).
+ *   6. checks the git for brains is in the app and runs (brains plan §3.1);
+ *   7. checks the chat landed in BonzaiWork's own history, not in OpenCode's shared database
+ *      (desktop-main/engine-history.ts, fonteijne/openwork#34).
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -185,6 +187,15 @@ try {
   check("one chat turn via LiteLLM in the packaged app", answered);
   await page.screenshot({ path: resolve(appRoot, "dist-electron/smoke-chat.png") });
   check("LiteLLM received the linked key", litellmCalls.some((call) => call.url === "/v1/chat/completions" && call.authorization === `Bearer ${KEY}`));
+  // Engine history (#34): without BonzaiWork's own OPENCODE_DB, upstream picks the database every
+  // OpenCode install shares and converts it in place. The chat must be in BonzaiWork's own file.
+  const sharedHistory = join(profile, ".local/share/opencode/opencode.db");
+  check("OpenCode's shared history database is left alone", !existsSync(sharedHistory), sharedHistory);
+  const histories = readdirSync(profile, { recursive: true, encoding: "utf8" })
+    .filter((path) => path.endsWith("opencode.db"))
+    .map((path) => join(profile, path));
+  const ownHistory = histories.filter((path) => path.endsWith(join("bonzaiwork", "opencode", "opencode.db")));
+  check("the chat is stored in BonzaiWork's own history", ownHistory.length === 1, histories.join(", ") || "no opencode.db");
 
   // Feedback (#9): the dialog shows Electron's capture of this window, and saving writes it with redacted logs.
   // Feedback lives in the help menu in the sidebar foot (brief §4): open it, then pick the item.

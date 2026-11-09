@@ -533,7 +533,7 @@ export type FeedbackReport = {
 export type Page<T> = { items: T[]; nextCursor: string | null };
 
 /** The live engine behind chats: up, still starting, or copying older chats over first. */
-export type EngineState = "ready" | "starting" | "migrating" | "failed";
+export type EngineState = "ready" | "starting" | "failed";
 
 export interface Backend {
   readonly mode: "demo" | "live";

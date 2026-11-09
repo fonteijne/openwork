@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -10,6 +10,7 @@ import { SERVER_ENVIRONMENT_DEFAULTS } from "@bonzaiwork/policy";
 import { registerKeyStore } from "@bonzaiwork/litellm/keys";
 
 import { ElectronDiagnosticsSource } from "./diagnostics-source";
+import { engineHistoryEnvironment } from "./engine-history";
 import { ElectronPresenceSource } from "./presence-source";
 import { SafeStorageKeyStore } from "./safe-storage-key-store";
 
@@ -22,7 +23,8 @@ import { SafeStorageKeyStore } from "./safe-storage-key-store";
  *  - OpenWork's hosted and free models off;
  *  - the openwork-server hooks module: the LiteLLM-only policy, brains, routines and feedback;
  *  - the OS-keychain key store, registered before the in-process server starts;
- *  - the window, logs and Downloads folder for feedback reports.
+ *  - the window, logs and Downloads folder for feedback reports;
+ *  - its own engine chat history, apart from any other OpenCode install (engine-history.ts).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -61,12 +63,18 @@ for (const [name, value] of Object.entries(environment)) {
   process.env[name] = process.env[name]?.trim() || value;
 }
 
-// Brains: registry, known_hosts and git state (never in a repository). userData is only final once
+// Brains (registry, known_hosts, git state) and engine chat history, never in a repository. userData is only final once
 // upstream's main.mjs has set it (dev profiles, OPENWORK_ELECTRON_USERDATA, blank-slate launches),
 // which it does while it loads; the server and its hooks start after "ready", and this listener
 // runs before upstream's whenReady continuation (review #5).
 app.once("ready", () => {
-  process.env.BONZAIWORK_STATE_DIR = process.env.BONZAIWORK_STATE_DIR?.trim() || join(app.getPath("userData"), "bonzaiwork");
+  const stateDir = process.env.BONZAIWORK_STATE_DIR?.trim() || join(app.getPath("userData"), "bonzaiwork");
+  process.env.BONZAIWORK_STATE_DIR = stateDir;
+  // The engine's chat history, set before the server selects it (fonteijne/openwork#34). An
+  // explicit OPENCODE_DB is left as it is; for our own file the folder must exist first.
+  const { OPENCODE_DB } = engineHistoryEnvironment(process.env, stateDir);
+  if (!process.env.OPENCODE_DB?.trim()) mkdirSync(dirname(OPENCODE_DB), { recursive: true, mode: 0o700 });
+  process.env.OPENCODE_DB = OPENCODE_DB;
 });
 
 registerKeyStore(new SafeStorageKeyStore());

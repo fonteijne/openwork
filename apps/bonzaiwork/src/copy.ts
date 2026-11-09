@@ -22,7 +22,6 @@ export const copy = {
     demoBadge: "Demo",
     demoHint: "Voorbeeldgegevens in deze browser. Er gaat niets naar een server.",
     engineStarting: "De AI-engine start op. De eerste keer duurt dat even.",
-    engineMigrating: "Je eerdere gesprekken worden overgezet naar de nieuwe engine. Daarna kun je verder.",
   },
 
   nav: {
@@ -110,7 +109,6 @@ export const copy = {
     engine: {
       ready: "Engine klaar",
       starting: "Engine start op",
-      migrating: "Chats worden overgezet",
       failed: "Engine gestopt",
     },
     notInApp: "Niet in BonzaiWork",
