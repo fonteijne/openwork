@@ -8,7 +8,7 @@ import { createGit, type Git } from "./git.ts";
 import { handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
 import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
 import { answerBrainReads } from "./answers.ts";
-import { applyTemplate } from "./template.ts";
+import { addInstructions, applyBoilerplate, applyTemplate, boilerplateEnabled, isNewFolder } from "./template.ts";
 import { listWorkflows, modelCheckPrompt, newRun, recordCheck, startStage } from "./workflows.ts";
 import { remoteProblemMessage } from "./messages.ts";
 import { BrainRegistry } from "./registry.ts";
@@ -165,6 +165,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   // The two BONZAIWORK_TEST_* variables exist for e2e/brains.e2e.ts; a packaged build never sets them.
   const quietMs = options.quietMs ?? (Number(environment.BONZAIWORK_TEST_QUIET_MS) || 15_000);
   const allowFileProtocol = options.allowFileProtocol ?? environment.BONZAIWORK_TEST_FILE_REMOTES === "1";
+  // The project boilerplate for new projects and project brains (template.ts); off with BONZAIWORK_PROJECT_BOILERPLATE=uit.
+  const boilerplate = boilerplateEnabled(environment);
   const prepareTimeoutMs = options.prepareTimeoutMs ?? 5_000;
   const sshOptions: SshOptions = { knownHostsFile: join(stateDirectory, "known_hosts"), platform, environment, ...options.ssh };
   const registry = new BrainRegistry(join(stateDirectory, "brains.json"));
@@ -265,7 +267,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   function syncFor(record: BrainRecord): BrainSync {
     if (!git) throw new Error("brains not started");
-    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService, busy: async () => chatsWriteIn(record) });
+    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService, busy: async () => chatsWriteIn(record), boilerplate });
   }
 
   /** A chat runs that may write in this brain: its own project, or for the personal brain any project. */
@@ -675,6 +677,25 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     return json({ repository: { remote, branch, ssh: remote !== null && /^(git@|ssh:\/\/)/.test(remote) } });
   }
 
+  /**
+   * "Nieuw project" (template.ts): the boilerplate in a folder that holds nothing of the person's
+   * own yet, then a starter's instructions below its AGENTS.md. Off or a folder with content:
+   * nothing is written and the app writes the instructions itself, as before.
+   */
+  async function newProjectBoilerplate(request: Request, workspaceId: string): Promise<Response> {
+    if (!host) return failure(503, "starting", "BonzaiWork is still starting.");
+    if (host.readOnly) return failure(403, "read_only", "This device is read-only.");
+    const workspace = host.workspaces().find((entry) => entry.id === workspaceId);
+    if (!workspace) return failure(404, "workspace_not_found", "Workspace not found.");
+    const body = (await readBody(request)) ?? {};
+    if (!boilerplate) return json({ applied: false, reason: "off", written: [] });
+    if (!await isNewFolder(workspace.path)) return json({ applied: false, reason: "not_empty", written: [] });
+    const written = await applyBoilerplate(workspace.path, { name: text(body, "name") ?? "", description: text(body, "description") ?? "" });
+    await addInstructions(workspace.path, text(body, "instructions") ?? "");
+    log("info", "Project boilerplate written", { workspaceId, files: written.length });
+    return json({ applied: true, written });
+  }
+
   /** "Als brein synchroniseren" and "Deel als nieuw brein" (plan §4.1, fase 2). */
   async function become(request: Request, workspaceId: string, how: "adopt" | "publish"): Promise<Response> {
     if (host?.readOnly) return failure(403, "read_only", "This device is read-only.");
@@ -683,7 +704,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     if (known(workspaceId)) return failure(409, "already_brain", "This project is a brain already.");
     if (!git) return failure(503, "starting", "BonzaiWork is still starting.");
     const body = (await readBody(request)) ?? {};
-    const options = { git, id: workspaceId, path: workspace.path, author, save: (next: BrainRecord) => registry.upsert(next), log, platform };
+    const options = { git, id: workspaceId, path: workspace.path, author, save: (next: BrainRecord) => registry.upsert(next), log, platform, boilerplate };
     let made: BrainSync;
     try {
       if (how === "adopt") {
@@ -970,6 +991,14 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       },
     },
   ] satisfies BrainsRoute[]).map((route) => ({ ...route, handle: whenStarted(writable(route)) }));
+  // A new project's starter: needs the workspace, not git.
+  routes.push({
+    method: "POST", path: "/bonzaiwork/boilerplate/:workspaceId", auth: "host-token",
+    handle: async (request, params) => {
+      await Promise.race([started, new Promise((resolve) => setTimeout(resolve, 30_000))]);
+      return newProjectBoilerplate(request, params.workspaceId);
+    },
+  });
   // The MCP routes first: `/bonzaiwork/brains/mcp` must never match `/bonzaiwork/brains/:workspaceId`.
   routes.unshift(...mcpRoutes.map((route) => ({ ...route, handle: whenStarted(route.handle) })));
 

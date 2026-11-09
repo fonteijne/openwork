@@ -104,6 +104,8 @@ export type BrainSyncOptions = {
   proposals?: ProposalService;
   /** True while a chat may write in this folder: background work waits (plan §4.2). */
   busy?: () => Promise<boolean>;
+  /** A project brain's template starts with the project boilerplate (template.ts). */
+  boilerplate?: boolean;
 };
 
 type ErrorCause = RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" | "local";
@@ -1083,7 +1085,7 @@ export class BrainSync {
   setUp(input: { name: string; description: string }): Promise<{ written: string[]; status: BrainStatus }> {
     return this.lock(async () => {
       if (!await this.guard()) return { written: [], status: await this.statusNow() };
-      const result = await applyTemplate(this.record.path, { kind: this.record.kind, name: input.name, description: input.description, now: new Date(this.now()) });
+      const result = await applyTemplate(this.record.path, { kind: this.record.kind, name: input.name, description: input.description, now: new Date(this.now()), boilerplate: this.options.boilerplate });
       await this.commit("Brein ingericht\n\nVia BonzaiWork\n", "own", "brein ingericht");
       if (this.sharesByItself) await this.push();
       return { written: result.written, status: await this.statusNow() };
@@ -1261,7 +1263,7 @@ export class BrainSync {
   /** After publish: the first commit, trust for what was there, and the first push. */
   firstShare(input: { name: string; description: string }): Promise<BrainStatus> {
     return this.lock(async () => {
-      await applyTemplate(this.record.path, { kind: "project", name: input.name, description: input.description, now: new Date(this.now()) });
+      await applyTemplate(this.record.path, { kind: "project", name: input.name, description: input.description, now: new Date(this.now()), boilerplate: this.options.boilerplate });
       await this.commit("Brein gedeeld\n\nVia BonzaiWork\n", "own", "brein gedeeld");
       await this.trustWhatIsThere();
       await this.push();

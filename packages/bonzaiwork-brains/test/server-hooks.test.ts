@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type SessionActivity } from "../src/server-hooks.ts";
@@ -254,6 +254,9 @@ test("een bestaand project wordt een brein: een eigen repo, of delen in een lege
   expect(published.body.status).toMatchObject({ state: "synced", remote: `file://${empty}` });
   expect(await world.git.ok(["show", "main:campagne.md"], { cwd: empty })).toBe("# Campagne\n");
   expect((await world.git.ok(["show", "main:AGENTS.md"], { cwd: empty }))).toContain("# Marketing");
+  // Shared as a brain: the project boilerplate came along, with the brain basis.
+  expect(await world.git.ok(["show", "main:CLAUDE.md"], { cwd: empty })).toContain("Brain Compiler");
+  expect(await world.git.ok(["show", "main:knowledge/index.md"], { cwd: empty })).toBeTruthy();
   // The user's own plugin stays in the folder and is not shared by itself.
   expect(existsSync(join(plain, ".opencode", "plugins", "mijn.js"))).toBe(true);
   expect((await world.git.run(["show", "main:.opencode/plugins/mijn.js"], { cwd: empty })).exitCode).not.toBe(0);
@@ -298,4 +301,41 @@ test("werkwijzen via de routes: lijst, invoer ontbreekt, controle door een perso
   const checked = await call("/bonzaiwork/brains/ws/workflows/offerte/stages/01_intake/check", { method: "POST", body: { verdict: "pass" } });
   expect(checked.body.stage).toMatchObject({ state: "done" });
   expect((await call("/bonzaiwork/brains/ws/workflows/offerte/stages/01_intake/check", { method: "POST", body: { model: true } })).body.prompt).toContain("check.md");
+});
+
+test("nieuw project: de boilerplate alleen in een nieuwe map, met de instructies van de starter", async () => {
+  world = await createWorld();
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+  const host = fakeHost();
+  await hooks.start(host);
+  const fresh = join(world.root, "Offertes");
+  const own = join(world.root, "Eigen");
+  await mkdir(own, { recursive: true });
+  await writeFile(join(own, "notities.md"), "# Notities\n");
+  host.workspaceList = [{ id: "ws_new", path: fresh }, { id: "ws_own", path: own }];
+
+  const made = await call("/bonzaiwork/boilerplate/ws_new", { method: "POST", body: { name: "Offertes", instructions: "Schrijf in de u-vorm." } });
+  expect(made.body).toMatchObject({ applied: true });
+  expect(made.body.written).toContain(".obsidian/app.json");
+  const agents = await readFile(join(fresh, "AGENTS.md"), "utf8");
+  expect(agents).toStartWith("# Offertes\n");
+  expect(agents).toContain("## Projectinstructies\n\nSchrijf in de u-vorm.");
+  expect(existsSync(join(fresh, "knowledge"))).toBe(false);
+
+  expect((await call("/bonzaiwork/boilerplate/ws_own", { method: "POST", body: { name: "Eigen" } })).body).toEqual({ applied: false, reason: "not_empty", written: [] });
+  expect(existsSync(join(own, "CLAUDE.md"))).toBe(false);
+  expect((await call("/bonzaiwork/boilerplate/ws_nope", { method: "POST", body: {} })).status).toBe(404);
+  host.readOnly = true;
+  expect((await call("/bonzaiwork/boilerplate/ws_new", { method: "POST", body: {} })).status).toBe(403);
+});
+
+test("nieuw project met BONZAIWORK_PROJECT_BOILERPLATE=uit: niets geschreven", async () => {
+  world = await createWorld();
+  hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), environment: { PATH: process.env.PATH ?? "", HOME: world.root, BONZAIWORK_PROJECT_BOILERPLATE: "uit" } });
+  const host = fakeHost();
+  await hooks.start(host);
+  const fresh = join(world.root, "Offertes");
+  host.workspaceList = [{ id: "ws_new", path: fresh }];
+  expect((await call("/bonzaiwork/boilerplate/ws_new", { method: "POST", body: { name: "Offertes", instructions: "x" } })).body).toEqual({ applied: false, reason: "off", written: [] });
+  expect(existsSync(join(fresh, "AGENTS.md"))).toBe(false);
 });

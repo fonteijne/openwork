@@ -14,6 +14,7 @@ Stand: upstream-release `v0.18.65` (`abb0def`), gemerged in `nightly` via fontei
 | O4 | App-naam **BonzaiWork**, mapnaam/prefix `bonzaiwork` (zoals `openwork`). `appId` voorlopig `nl.bonzaiwork.desktop`; signing en updater-host staan nog open. | gebruiker / voorlopig |
 | O3 | De LiteLLM-URL wordt **in de build ingebakken** (`BONZAIWORK_LITELLM_BASE_URL` bij het bouwen). Onboarding vraagt alleen de key. | gebruiker |
 | O2 | Transcriptie loopt **via een Whisper-model in LiteLLM** (`/v1/audio/transcriptions`). Whisper doet geen diarization: de splitsing "ik versus de anderen" komt uit de aparte sporen (mic en systeemaudio). Echte sprekerherkenning vraagt een model met diarization achter LiteLLM of een aparte stap. De proxyroute stuurt `audio/transcriptions` al door. | gebruiker |
+| M2 | **Projectboilerplate** in de build: `packages/bonzaiwork-brains/templates/project/` komt in elk nieuw project (lege map) en, met de breinbasis, in elk projectbrein. Uit met `BONZAIWORK_PROJECT_BOILERPLATE=uit`. Zie [`packages/bonzaiwork-brains/README.md`](../../packages/bonzaiwork-brains/README.md#projectboilerplate). | gebruiker |
 | O1 | Nog open. Beide `KeyResolver`s zijn gebouwd. De build kiest met `BONZAIWORK_KEY_MODE=user\|workspace`; de standaard is `user`. | – |
 
 ## Wat er staat
@@ -29,6 +30,7 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
+  templates/project/             de boilerplate van elk nieuw project (onderhoud: packages/bonzaiwork-brains/README.md)
 docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest is, en regels daarvoor
 docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
 docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per kwartier je werkdag bijhoudt

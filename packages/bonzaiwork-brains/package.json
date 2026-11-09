@@ -15,6 +15,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",
+    "templates": "node scripts/template-files.mjs",
     "e2e": "bun e2e/brains.e2e.ts"
   },
   "dependencies": {

@@ -4,7 +4,6 @@ Compiled knowledge goes here. Add entries as pages are created and keep this ind
 
 ## Topics
 
-- [Knowledge compilation](knowledge-compilation.md) — source-grounded synthesis, provenance, review, and output flow.
 - [Project glossary](glossary.md) — preferred terminology, definitions, aliases, and terms to avoid.
 - [People](people/index.md) — project-relevant profiles; individual pages use `wiki/people/first-last.md`.
 

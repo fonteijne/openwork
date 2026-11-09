@@ -21,4 +21,4 @@ export {
   type ConceptView, type TrustTier,
 } from "./okf.ts";
 export { checkContract, contentWarnings, isStageContract } from "./icm.ts";
-export { applyTemplate, templateTargets, type TemplateKind } from "./template.ts";
+export { addInstructions, applyBoilerplate, applyTemplate, boilerplateEnabled, boilerplateTargets, isNewFolder, templateTargets, type TemplateKind } from "./template.ts";

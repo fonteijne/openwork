@@ -5,7 +5,7 @@ import { join, relative } from "node:path";
 
 import { checkContract, contentWarnings, referencePaths } from "../src/icm.ts";
 import { appendLog, describeConcept, mergeLogs, parseConcept, renderIndex, withGenerated, withVerified } from "../src/okf.ts";
-import { TEMPLATE_FILES } from "../src/template-files.ts";
+import { TEMPLATE_FILES } from "../src/template-files.js";
 import { applyTemplate, templateTargets } from "../src/template.ts";
 import { createWorld, type World } from "./world.ts";
 

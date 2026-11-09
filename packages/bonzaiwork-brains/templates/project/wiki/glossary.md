@@ -6,14 +6,7 @@ Only add a definition when it is supported by a cited source or explicitly confi
 
 ## Terms
 
-### Bonzai
-
-- **Meaning:** The iO LLM Provider used in this project-brain compiler setup.
-- **Use:** Refer to Bonzai as the project's iO LLM Provider when describing the environment or provider role.
-- **Aliases / variants:** None specified.
-- **Avoid:** Do not infer additional product capabilities or technical details from this label alone.
-- **Basis:** Project convention explicitly supplied by the project owner in conversation on 2026-11-09.
-- **Status:** Confirmed.
+_(No terms yet.)_
 
 ## Suggested entry format
 

@@ -11,7 +11,7 @@ A small, source-grounded compiler for one shared project: preserve incoming mate
 
 ## Set up a new project
 
-1. Copy this starter into a new, project-specific folder and open that folder in BonzaiWork.
+1. Start a new project in BonzaiWork: it places this starter in the new, empty project folder. (Outside BonzaiWork, copy this starter into a new, project-specific folder.)
 2. Initialize or connect the folder to that project's Git repository. Each contributor should use their own local checkout.
 3. Run `/project-onboard`. It guides you through defining the project's purpose, scope, outcomes, boundaries, and key terminology; initializes the project glossary; checks which starter examples need replacing; and updates the shared project guide only from confirmed answers. It will not silently delete starter material.
 4. Run `/setup-project-profile` to create your checkout-local `.local/profile.md`. Review any proposed shared wiki person page separately; it is optional and needs your explicit approval.
