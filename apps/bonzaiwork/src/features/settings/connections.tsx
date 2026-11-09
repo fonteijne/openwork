@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ellipsis, Info, LogIn, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Ellipsis, Info, LogIn, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { keys } from "~/backend/queries";
-import type { Connection, ConnectionStatus, NewConnectionInput } from "~/backend/types";
+import type { Connection, ConnectionStatus, ConnectionTarget } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { Chip, StatusChip, type ChipStatus } from "~/components/ui/chip";
 import { Field, Input } from "~/components/ui/field";
@@ -72,13 +72,15 @@ export function connectionsSummary(connections: readonly Connection[]): string {
 /**
  * Connections (brief §6; assessment P-5): mark + label, status as icon + word (C5), and the one
  * action the status asks for: sign in again, retry, or the on/off switch. Address and command live
- * in the overflow under "Technische details" (P3, C3).
+ * in the overflow under "Technische details" (P3, C3); "Aanpassen" there changes them. A connection
+ * set for all projects is not changed from one project.
  */
 export function ConnectionsSection(props: { projectId: string }) {
   const backend = useBackend();
   const client = useQueryClient();
   const connections = useQuery({ queryKey: keys.connections(props.projectId), queryFn: () => backend.config.connections(props.projectId) });
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Connection | null>(null);
   const [removing, setRemoving] = useState<Connection | null>(null);
   const [details, setDetails] = useState<Connection | null>(null);
   const refresh = () => client.invalidateQueries({ queryKey: keys.connections(props.projectId) });
@@ -175,6 +177,11 @@ export function ConnectionsSection(props: { projectId: string }) {
                       </Button>
                     }
                   >
+                    {connection.scope === "project" ? (
+                      <MenuItem icon={<Pencil />} onClick={() => setEditing(connection)}>
+                        {copy.settings.connections.edit}
+                      </MenuItem>
+                    ) : null}
                     <MenuItem icon={<Info />} onClick={() => setDetails(connection)}>
                       {copy.settings.connections.technical}
                     </MenuItem>
@@ -192,6 +199,7 @@ export function ConnectionsSection(props: { projectId: string }) {
         )}
       </Section>
       <ConnectionDialog open={adding} onOpenChange={setAdding} projectId={props.projectId} />
+      <ConnectionDialog open={editing !== null} onOpenChange={(open) => !open && setEditing(null)} projectId={props.projectId} editing={editing} />
       <Dialog open={details !== null} onOpenChange={(open) => !open && setDetails(null)} title={details ? connectionLabel(details.name) : ""}>
         {details ? (
           <div className="flex flex-col">
@@ -221,8 +229,11 @@ export function ConnectionsSection(props: { projectId: string }) {
   );
 }
 
-/** Catalog first: a tile adds a known service in one go; "Andere dienst" opens the form. */
-function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) => void; projectId: string }) {
+/**
+ * Catalog first: a tile adds a known service in one go; "Andere dienst" opens the form. With
+ * `editing`, the form opens straight away with what is saved; the name stays, it is the key.
+ */
+function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) => void; projectId: string; editing?: Connection | null }) {
   const backend = useBackend();
   const client = useQueryClient();
   const [custom, setCustom] = useState(false);
@@ -231,23 +242,25 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
   const [target, setTarget] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const editing = props.editing ?? null;
   useEffect(() => {
     if (props.open) {
-      setCustom(false);
-      setName("");
-      setKind("remote");
-      setTarget("");
+      setCustom(editing !== null);
+      setName(editing?.name ?? "");
+      setKind(editing?.kind ?? "remote");
+      setTarget(editing?.target ?? "");
       setError(null);
     }
-  }, [props.open]);
+  }, [props.open, editing]);
 
-  const add = async (input: NewConnectionInput) => {
+  const submit = async (connectionName: string, input: ConnectionTarget) => {
     setBusy(true);
     setError(null);
     try {
-      await backend.config.addConnection(props.projectId, input);
+      if (editing) await backend.config.updateConnection(props.projectId, editing.name, input);
+      else await backend.config.addConnection(props.projectId, { ...input, name: connectionName });
       await client.invalidateQueries({ queryKey: keys.connections(props.projectId) });
-      toast(copy.settings.connections.added);
+      toast(editing ? copy.settings.connections.updated : copy.settings.connections.added);
       props.onOpenChange(false);
     } catch (failure) {
       setError(errorText(failure));
@@ -256,16 +269,16 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
     }
   };
   const save = () => {
-    if (!NAME_PATTERN.test(name)) return setError(copy.settings.connections.nameHint);
+    if (!editing && !NAME_PATTERN.test(name)) return setError(copy.settings.connections.nameHint);
     if (!target.trim()) return setError(kind === "remote" ? copy.settings.connections.url : copy.settings.connections.command);
-    void add(kind === "remote" ? { name, kind, url: target.trim() } : { name, kind, command: target.trim() });
+    void submit(name, kind === "remote" ? { kind, url: target.trim() } : { kind, command: target.trim() });
   };
 
   return (
     <Dialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      title={copy.settings.connections.add}
+      title={editing ? copy.settings.connections.editTitle(connectionLabel(editing.name)) : copy.settings.connections.add}
       footer={
         custom ? (
           <>
@@ -273,7 +286,7 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
               {copy.common.cancel}
             </Button>
             <Button variant="primary" onClick={save} disabled={busy}>
-              {copy.settings.add}
+              {editing ? copy.settings.save : copy.settings.add}
             </Button>
           </>
         ) : undefined
@@ -287,7 +300,7 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
                 key={entry.name}
                 type="button"
                 disabled={busy}
-                onClick={() => void add({ name: entry.name, kind: "remote", url: entry.url })}
+                onClick={() => void submit(entry.name, { kind: "remote", url: entry.url })}
                 className="flex min-h-11 items-center gap-3 border-b border-border py-2 text-start text-sm outline-none hover:bg-hover/60 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-45 pointer-coarse:min-h-12"
               >
                 <ServiceMark name={entry.name} />
@@ -304,8 +317,8 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
           </div>
         ) : (
           <>
-            <Field label={copy.settings.connections.name} hint={copy.settings.connections.nameHint}>
-              {(id, describedBy) => <Input id={id} aria-describedby={describedBy} value={name} onChange={(event) => setName(event.target.value.toLowerCase())} autoFocus />}
+            <Field label={copy.settings.connections.name} hint={editing ? copy.settings.connections.nameFixed : copy.settings.connections.nameHint}>
+              {(id, describedBy) => <Input id={id} aria-describedby={describedBy} value={name} onChange={(event) => setName(event.target.value.toLowerCase())} disabled={editing !== null} autoFocus={editing === null} />}
             </Field>
             <Field label={copy.settings.connections.kind}>
               {(id) => (
@@ -324,7 +337,7 @@ function ConnectionDialog(props: { open: boolean; onOpenChange: (open: boolean) 
               )}
             </Field>
             <Field label={kind === "remote" ? copy.settings.connections.url : copy.settings.connections.command}>
-              {(id) => <Input id={id} value={target} onChange={(event) => setTarget(event.target.value)} className="font-mono" placeholder={kind === "remote" ? "https://…" : "npx -y …"} />}
+              {(id) => <Input id={id} value={target} onChange={(event) => setTarget(event.target.value)} className="font-mono" placeholder={kind === "remote" ? "https://…" : "npx -y …"} autoFocus={editing !== null} />}
             </Field>
           </>
         )}

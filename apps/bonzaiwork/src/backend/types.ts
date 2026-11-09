@@ -356,9 +356,9 @@ export type Connection = {
   error: string | null;
   scope: "project" | "global";
 };
-export type NewConnectionInput =
-  | { name: string; kind: "remote"; url: string }
-  | { name: string; kind: "local"; command: string };
+/** Where a connection points: an address for an online service, a command line for a local program. */
+export type ConnectionTarget = { kind: "remote"; url: string } | { kind: "local"; command: string };
+export type NewConnectionInput = ConnectionTarget & { name: string };
 
 export type RunMode = "default" | "approve" | "run-everything";
 export type RunModeState = { mode: RunMode | null; supported: boolean; reason: string | null };
@@ -633,6 +633,8 @@ export interface Backend {
     removeCommand(projectId: string, name: string): Promise<void>;
     connections(projectId: string): Promise<Connection[]>;
     addConnection(projectId: string, input: NewConnectionInput): Promise<void>;
+    /** Points an existing project connection elsewhere; its name, on/off state and other settings stay. */
+    updateConnection(projectId: string, name: string, input: ConnectionTarget): Promise<void>;
     setConnectionEnabled(projectId: string, name: string, enabled: boolean): Promise<void>;
     removeConnection(projectId: string, name: string): Promise<void>;
     signOutConnection(projectId: string, name: string): Promise<void>;
