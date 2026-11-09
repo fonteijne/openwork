@@ -472,3 +472,44 @@ Niet te doen in een Linux-container; hoort bij de start van fase 1, met een buil
       host-sleutel (vingerafdruk-stap).
 - [ ] De eigen foutteksten van GitHub/GitLab voor "repo bestaat niet", "geen schrijfrechten" en
       "beschermde branch" (plan §4.3), voor de tabel in §2.1.
+
+## 9. Harnas en persoonlijk brein (fase 0 van `brein-harnas-plan.md`)
+
+Bij: [`brein-harnas-plan.md`](./brein-harnas-plan.md), fase 0 (E1–E7). Stand 2026-11-09, gemeten in een
+Linux-container met de gepinde engine **OpenCode v2.2.0** (`constants.json`). Herhaalbaar:
+
+- `bun scripts/bonzaiwork/spikes/brains/harness-probe.mjs`: 23 controles op de echte engine, zelfde opzet als
+  `engine-probe.mjs` (eigen `OPENCODE_CONFIG_DIR`, nep-model). Een veranderd antwoord geeft `UNEXPECTED` en
+  exitcode 1. Uitkomst nu: 23 × `ok`.
+- `cd packages/bonzaiwork-brains && bun test ../../scripts/bonzaiwork/spikes/brains/e6-gitdir.test.ts`: E6 met
+  de echte `BrainSync` op een tijdelijke map.
+
+| # | Vraag | Antwoord | Gevolg voor het plan |
+|---|---|---|---|
+| E1 | Laadt de engine `command/*.md` en `agent/*.md` uit `OPENCODE_CONFIG_DIR`? | **Ja**, enkelvoud én meervoud (`commands/`, `agents/`), in elk project; een commando draait als commando-beurt met zijn sjabloon; de agent staat in `/api/agent` als `primary`, niet verborgen | §1.1: commando's en de agent Brein uit het harnas gaan via de config-map; de terugvaloptie (agent via de globale runtime-config) vervalt |
+| E2 | Werkt `skills/` als echte map met per skill een junction, live? | **Ja**: skills uit drie bronnen staan in elk project; een junction toevoegen of weghalen terwijl de engine draait werkt zonder herstart | §1.2 zoals gepland. De inhoud van een skill veranderen **achter** een bestaande junction is niet gemeten (zie E4); `refreshGlobalContext` maakt bij een wijziging de junction opnieuw (weghalen + aanmaken), wat gemeten wel werkt |
+| E3 | Wie wint bij dezelfde skillnaam in project en config-map? | **Het project.** `/api/skill` noemt hem één keer, met het pad van het project; in de chat staat alleen de projectbeschrijving. In een project zonder eigen kopie telt de versie uit de config-map | H3 houdt: een (oude of aangepaste) kopie in een projectbrein blijft gelden; "Uit het project halen" laat het harnas overnemen |
+| E4 | Kan een chat op de agent uit het harnas, en gelden zijn regels? | **Ja**: `POST /api/session/:id/agent {agent}` werkt (leeg antwoord), de agent-prompt staat in de beurt, `tools: write: false` haalt `write` uit de toollijst, de globale `AGENTS.md` blijft erbij en een sub-taak ziet de harnas-skills. **Maar**: een agentbestand dat via een **symlink** in `agent/` staat en bij het doel wordt gewijzigd, ziet de engine niet, ook niet in een nieuwe chat; een rechtstreeks geschreven bestand wel | §1.2: agent- en commandobestanden als **kopie** in de config-map schrijven (zoals `AGENTS.md`), niet als link. Skills blijven junctions (E2); per harnasversie een nieuwe map `<state>/harness/<versie>/`, dus een update is altijd een nieuwe junction |
+| E5 | Chats van vandaag ophalen via de engine, en wat kost dat? | `GET /api/session` per map geeft `id`, `title`, `time.{created,updated,idle}`, `location`, `model`, `outcome`; `GET /api/session/:id/message` geeft berichten met `type: "user"` (`text`), `type: "assistant"` (`content[]`, `agent`, `model`) en `type: "idle"`. **54 sessies met 182 berichten in ~100 ms** | §2.2: `gesprekken_lezen` filtert op `time.updated >= sinds`, neemt `user.text` en `assistant.content[].text`, slaat berichten van de verwerkingsroutine over via `agent === "brein"` of de routine-chat-id |
+| E6 | Werkt `BrainSync` voor `kind: "project"` met `gitDir` buiten de map en zonder remote? | **Ja, ongewijzigd**: hetzelfde record met `kind: "project"` opent, houdt de geschiedenis, legt nieuwe beurten lokaal vast, status `local_only`, geen `.git` in de map | H5 kan zonder wijziging in `sync.ts`: de migratie schrijft alleen `kind` en de naam om |
+| E7 | Blijft een skill met een `workflow/`-submap (ICM-stappen) een skill? | **Ja** voor de engine. In onze code niet: `icm.ts` (`STAGE_CONTRACT`, `WORKFLOWS = "workflows"`) en `workflows.ts` (`listWorkflows`, `readWorkflow`, `startStage`, `newRun`) nemen `workflows/<naam>/` aan | §1.1 en H7: werkwijzen uit het harnas als skill-pakket verpakken kan; `workflows.ts` moet dan ook `.opencode/skills/<naam>/workflow/` vinden en `icm.ts` de structuurcontrole op dat pad doen. Inventaris hieronder |
+
+### 9.1 ICM-werkwijzen en skills: wat overlapt (E7, H7)
+
+| | Skill (`SKILL.md`) | Werkwijze (ICM, `workflows/<naam>/`) |
+|---|---|---|
+| Wie kiest hem | de engine, op `description`, in elke beurt | de gebruiker (projectpagina) of een routine; BonzaiWork start elke stap als nieuwe chat |
+| Vorm | één Markdown-bestand plus losse bronnen | `CONTEXT.md` (overzicht) + per stap een contract met Inputs/Process/Outputs/Check |
+| Staat/voortgang | geen | van schijf: `output/`, `check.md`, `_runs/` |
+| Afdwingen door de app | nee | ja: invoer controleren, controle-kaart, "volgende stap" pas na `pass` |
+| Deelbaar via harnas/repo/hub | ja, dat is het formaat van elke hub | nu alleen als map in een brein |
+| Werkt zonder BonzaiWork (Claude Code, Codex) | ja | als leesbare Markdown wel, de afdwinging niet |
+
+Overlap: beide zijn "hoe doe je X" in Markdown, en een werkwijze-stap verwijst vaak naar dezelfde kennis als
+een skill. Verschil: een skill is kennis-bij-de-hand voor de agent, een werkwijze is een door de app bewaakte
+pipeline. Richting voor fase 1: **een werkwijze als skill-pakket**: `.opencode/skills/<naam>/SKILL.md` beschrijft
+wanneer de werkwijze past (zodat de agent hem ook zelf kan voorstellen), en `workflow/` eronder bevat de
+ICM-structuur die BonzaiWork draait. `/werkwijze` en `icm-architect` maken dan zo'n pakket; bestaande
+`workflows/<naam>/` blijven werken. Dat vraagt in fase 1: `listWorkflows` leest beide plekken, `icm.ts`
+controleert beide paden, `trust.ts` ziet scripts in `workflow/` als trust-item zoals nu.
+
