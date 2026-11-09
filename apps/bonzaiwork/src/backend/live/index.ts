@@ -44,6 +44,8 @@ import { readLocal, readLocalJson, writeLocalJson } from "~/lib/storage";
  */
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** MCP config fields that belong to one kind only: an online service's address and sign-in, a program's command and environment. */
+const KIND_FIELDS = new Set(["url", "headers", "oauth", "command", "environment"]);
 
 async function resolveConnection(): Promise<Connection> {
   if (hasDesktopBridge()) {
@@ -333,6 +335,11 @@ export async function createLiveBackend(): Promise<Backend> {
       setEngineState("failed");
       throw engineFailure;
     }
+  }
+
+  /** "npx -y \"my server\"" → ["npx", "-y", "my server"]: spaces split, quotes keep a part whole. */
+  function commandParts(command: string): string[] {
+    return command.match(/"[^"]*"|\S+/g)?.map((part) => part.replace(/^"|"$/g, "")) ?? [];
   }
 
   /**
@@ -1006,7 +1013,7 @@ export async function createLiveBackend(): Promise<Backend> {
           return [{
             name,
             kind: remote ? "remote" : "local",
-            target: remote ? str(config, "url") ?? "" : strings(field(config, "command")).join(" "),
+            target: remote ? str(config, "url") ?? "" : strings(field(config, "command")).map((part) => (/\s/.test(part) ? `"${part}"` : part)).join(" "),
             enabled,
             status,
             error: status === "failed" ? live?.error ?? null : null,
@@ -1015,8 +1022,20 @@ export async function createLiveBackend(): Promise<Backend> {
         });
       },
       async addConnection(projectId, input) {
-        const config = input.kind === "remote" ? { type: "remote", url: input.url, enabled: true } : { type: "local", command: input.command.match(/"[^"]*"|\S+/g)?.map((part) => part.replace(/^"|"$/g, "")) ?? [], enabled: true };
+        const config = input.kind === "remote" ? { type: "remote", url: input.url, enabled: true } : { type: "local", command: commandParts(input.command), enabled: true };
         await connectionChange(req(`/workspace/${enc(projectId)}/mcp`, { method: "POST", body: { name: input.name, config } }));
+      },
+      async updateConnection(projectId, name, input) {
+        // The server replaces the whole entry, so start from what is saved: headers, environment,
+        // sign-in settings and on/off survive. Fields of the other kind go when the kind changes.
+        const entry = items(await req(`/workspace/${enc(projectId)}/mcp`)).find((item) => str(item, "name") === name);
+        if (!entry) throw new BackendError("not_found", `Connectie ${name} bestaat niet meer.`, 404);
+        const current = rec(field(entry, "config")) ?? {};
+        const wasRemote = str(current, "type") === "remote" || Boolean(str(current, "url"));
+        const sameKind = wasRemote === (input.kind === "remote");
+        const kept = Object.fromEntries(Object.entries(current).filter(([key]) => sameKind || !KIND_FIELDS.has(key)));
+        const config = input.kind === "remote" ? { ...kept, type: "remote", url: input.url } : { ...kept, type: "local", command: commandParts(input.command) };
+        await connectionChange(req(`/workspace/${enc(projectId)}/mcp`, { method: "POST", body: { name, config } }));
       },
       setConnectionEnabled: (projectId, name, enabled) => connectionChange(req(`/workspace/${enc(projectId)}/mcp/${enc(name)}/enabled`, { method: "POST", body: { enabled } })),
       removeConnection: (projectId, name) => connectionChange(req(`/workspace/${enc(projectId)}/mcp/${enc(name)}`, { method: "DELETE" })),

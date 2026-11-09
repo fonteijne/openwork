@@ -1152,6 +1152,20 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
         audit(projectId, "mcp.add", `Connectie ${input.name} toegevoegd`);
         save();
       },
+      async updateConnection(projectId, name, input) {
+        await wait(600);
+        const connection = (state.connections[projectId] ?? []).find((entry) => entry.name === name);
+        if (!connection) throw new BackendError("not_found", `Connectie ${name} bestaat niet meer.`, 404);
+        const target = input.kind === "remote" ? input.url : input.command;
+        if (connection.kind !== input.kind || connection.target !== target) {
+          connection.kind = input.kind;
+          connection.target = target;
+          connection.error = null;
+          if (connection.enabled) connection.status = input.kind === "remote" ? "needs_auth" : "connected";
+        }
+        audit(projectId, "mcp.update", `Connectie ${name} aangepast`);
+        save();
+      },
       async setConnectionEnabled(projectId, name, enabled) {
         await latency("write");
         const connection = (state.connections[projectId] ?? []).find((entry) => entry.name === name);
