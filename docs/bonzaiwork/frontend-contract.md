@@ -527,8 +527,14 @@ de server; dan `404 harness_off`). Server: `packages/bonzaiwork-harness` (de ond
 
 ```ts
 type HarnessItemKind = "skill" | "command" | "agent";
-type HarnessItem = { kind: HarnessItemKind; name: string; source: "bundled" | "personal"; version: string | null; description: string };
-type HarnessInfo = { version: string; items: HarnessItem[]; personal: string | null; previous: { workspaceId: string; at: number | null } | null };
+type HarnessItem = { kind: HarnessItemKind; name: string; source: "bundled" | "repo" | "personal"; version: string | null; description: string };
+type TeamRepo = { remote: string | null; version: string | null; status: BrainStatus };   // de teamrepo met skills (§2.1), alleen lezen
+type HarnessInfo = {
+  version: string; items: HarnessItem[]; personal: string | null;
+  previous: { workspaceId: string; at: number | null } | null;
+  repo: TeamRepo | null;
+  prompts: { daily: string | null };   // de opdracht van de routine "Dagelijkse verwerking" (§2.2)
+};
 // BrainStatus krijgt erbij:
 type OutdatedItem = { kind: HarnessItemKind; name: string; from: string | null; to: string; modified: boolean };
 // outdated: OutdatedItem[]   alleen bij kind "project": kopieën van harnas-onderdelen die ouder zijn dan de app
@@ -543,6 +549,18 @@ type OutdatedItem = { kind: HarnessItemKind; name: string; from: string | null; 
 | `POST /bonzaiwork/brains/:workspaceId/harness/dismiss` | host | `{ items }`: "Zo laten", per gebruiker, tot een nieuwere harnasversie |
 | `POST /bonzaiwork/brains/:workspaceId/skills/adopt` | host | persoonlijk brein; `{ fromWorkspaceId, name, move }`: "Overal gebruiken" (tekstbestanden mee; `move` haalt hem uit het project) |
 | `PUT` / `DELETE /bonzaiwork/brains/:workspaceId/skills/:name` | host | persoonlijk brein; `{ description, content }`: eigen skill schrijven of verwijderen; telt meteen in elk project |
+| `PUT /bonzaiwork/harness/repo` | host | `{ url }`: "Skills van je team" koppelen (clone in de app-gegevens, alleen lezen; `409 repo_exists`); antwoord `{ repo }` |
+| `DELETE /bonzaiwork/harness/repo` | host | loskoppelen; de map gaat weg, kopieën in projectbreinen blijven |
+| `POST /bonzaiwork/harness/repo/trust` | host | `{ paths }`: onderdelen uit de teamrepo die iets kunnen uitvoeren toestaan |
+| `POST /bonzaiwork/harness/repo/update` | host | nu ophalen (gebeurt ook elke 10 minuten) |
+
+De breinen-MCP krijgt `gesprekken_lezen({ sinds, tot?, project? })` (§2.2): de eigen gesprekken van de gebruiker in alle
+lokale projecten als tekst. De engine vraagt eerst (`breinen_gesprekken_lezen: ask`); de server beantwoordt die vraag
+zelf: toestaan in de workspace van het persoonlijke brein, weigeren elders. De UI toont voor deze actie geen kaart.
+
+Schermen (fase 2): Instellingen → Breinen → "Skills van je team" (koppelen, versie, status, Toestaan, Nu bijwerken,
+Loskoppelen), de chip "Van je team <versie>", en op Jouw brein de rij "Dagelijkse verwerking" (Inplannen / Ingepland).
+Schermafbeeldingen: `screenshots/harnas-9-*.png` en verder.
 
 Schermen: Jouw brein → "Werkwijzen en skills" (Van BonzaiWork <versie> / Van jou), de kaart "Onderdelen van
 BonzaiWork zijn verouderd" op het Brein-tab en als aandachtsitem op Vandaag, "Overal gebruiken" in

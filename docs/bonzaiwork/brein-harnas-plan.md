@@ -1,6 +1,6 @@
 # BonzaiWork Brein: harnas + persoonlijk brein (volgende iteratie)
 
-Status: **voorstel, beslissingen H1–H7 genomen (09-11-2026); fase 0 gedaan**, uitkomsten in [`project-breinen-fase0.md`](./project-breinen-fase0.md) §9 en hieronder verwerkt. Bouwt voort op
+Status: **beslissingen H1–H7 genomen (09-11-2026); fase 0, 1 en 2 gebouwd**, uitkomsten in [`project-breinen-fase0.md`](./project-breinen-fase0.md) §9 en hieronder verwerkt. Bouwt voort op
 [`project-breinen-plan.md`](./project-breinen-plan.md); metingen komen in [`project-breinen-fase0.md`](./project-breinen-fase0.md) §9.
 
 ## Context
@@ -231,20 +231,49 @@ leeg (H5). `/onthoud` werkt in elke chat. Agent "Brein" staat in de kiezer en an
 
 ## Fase 2: harnas-repo (H1) en de dagelijkse verwerking (H2)
 
-### 2.1 Harnas-repo
+Stand na fase 1 (verkend 09-11): de breinen-MCP weet **niet** wie hem aanroept (`handleMcpRequest` controleert alleen het
+token); elk brein in `syncs` moet een workspace hebben (`reconcile()` gooit een brein zonder workspace weg); `okf.ts`
+controleert `type` alleen op niet-leeg; `teamBrains()` filtert op `kind === "project"` en voedt `breinen_lijst` én
+`answerBrainReads`. Dat bepaalt de keuzes hieronder.
 
-- Een **brein van soort `harness`** (`BrainKind` + `"harness"`; `registry.ts` `KINDS`, `sync.ts`, contract §7.5):
-  altijd `mode: read_only`, geen project in de zijbalk, één per installatie. Instellen onder App-instellingen →
-  Breinen → "Harnas van je team": link plakken, "Verbinding testen", vertrouwensstap (bestaand: `trust.ts`, sparse-checkout
-  voor agents/commando's met shell). Bijwerken met de bestaande periodieke fetch (10 min) + fast-forward als het rustig is.
-- Inhoud: `harness.json`, `skills/`, `commands/`, `agents/`, `schema/` (zelfde indeling als de bundel; H6: geen eigen
-  formaat, zodat een latere hub dezelfde mappen kan serveren). `harness.ts` neemt hem als bron `repo` mee; verandert
-  hij, dan `refreshGlobalContext()`. Onderdelen uit de repo komen ook in de kaart van H3 als een projectbrein er een
-  oudere kopie van heeft.
-- Wat alleen de app kan afdwingen blijft in de bundel (`APP_RULES`, de breinen-MCP-policies). De repo levert geen
-  `opencode.json`; staat hij er wel, dan negeren met melding.
-- Beheerdoc: hoofdstuk in `docs/bonzaiwork/brein-beheer.md` ("Een harnas-repo beheren": structuur, versienummer, hoe
-  een skill testen vóór je pusht, branch-bescherming).
+### 2.1 Harnas-repo ("Skills van je team")
+
+- **Geen nieuwe `BrainKind`.** De repo is een `BrainSync` met `kind: "project"`, `mode: "read_only"`, geclonet in
+  `<state>/harness-repo/` (geen workspace, geen project in de zijbalk) en bewaard als `registry.harness.repo:
+  BrainRecord | null`. Hij staat **niet** in `syncs` (dus `reconcile()`, `teamBrains()`, `breinen_lijst` en de
+  Stop-hook raken hem niet) maar in een eigen variabele `harnessRepo` in `server-hooks.ts`. Zijn map komt in
+  `closedFolders()` (gewone tools blijven eruit) en in de periodieke fetch: elke 10 min `prepareTurn()` (fetch +
+  fast-forward; alleen-lezen, dus nooit een commit) en bij verschil `refreshGlobalContext()` (de junctions worden
+  opnieuw gezet, fase 0 E2).
+- **Vertrouwen**: bestaand mechanisme ongewijzigd. `BrainSync.clone` zet agents, commando's met shell, plugins en
+  `opencode.json` op de sparse-checkout-lijst; `status.pendingTrust` toont ze; `sync.trust(paths)` haalt ze binnen.
+  `opencode.json`/plugins uit de repo worden **nooit** gebruikt (niet in `composeHarness`), ook niet na vertrouwen:
+  de repo levert alleen `skills/`, `commands/`, `agents/`, `harness.json`.
+- **Bron `repo` in `harness.ts`**: `composeHarness({ …, repoRoot })` leest `<repo>/skills/*/SKILL.md`,
+  `<repo>/commands/*.md`, `<repo>/agents/*.md` (alleen wat uitgecheckt is, dus vertrouwd) en `<repo>/harness.json`
+  (zelfde vorm als de bundel: `version`, `items[].versions`). Voorrang eigen > repo > meegeleverd. `HarnessView.source`
+  krijgt `"repo"`; `HarnessInfo.repo = { remote, version, status: BrainStatus } | null`.
+- **H3 voor repo-onderdelen**: `shippedVersion`/`knownItem` krijgen een manifest-parameter; `outdatedItems(root,
+  dismissed, manifests)` kijkt in de bundel én de repo-manifest, `to` is de versie van de bron die het onderdeel nu
+  levert. Een kopie van een repo-skill in een projectbrein wordt dus ook "verouderd" als de repo een nieuwere versie
+  heeft. `updateItems` schrijft dan de repo-versie, gestempeld `harness: <naam>@<repo-versie>`.
+- **Routes** (`server-hooks.ts`): `PUT /bonzaiwork/harness/repo { url }` (host; `parseRemote`, `checkConnection`,
+  `BrainSync.clone` naar `<state>/harness-repo/`, weigert als er al een is), `DELETE /bonzaiwork/harness/repo` (host;
+  map weg, record weg, context opnieuw), `POST /bonzaiwork/harness/repo/trust { paths }` (host), `POST
+  /bonzaiwork/harness/repo/update` (host; nu ophalen), `GET /bonzaiwork/harness` krijgt `repo`. De bestaande
+  `POST /bonzaiwork/brains/check-remote` dient als "Verbinding testen".
+- **UI**: Instellingen → Breinen (`personal-setup.tsx`, `BrainsAppSection`) krijgt een rij **"Skills van je team"**
+  tussen het persoonlijke brein en de naam-in-de-geschiedenis: zonder repo een `BrainLinkField` + "Koppelen"; met repo
+  de link, een `StatusChip` (bijgewerkt / nieuwe versie / actie nodig), "Nu bijwerken", "Loskoppelen" (ConfirmDialog)
+  en, als er onderdelen op akkoord wachten, een trust-kaart (nieuwe kleine variant van de trust-`Callout` in
+  `cards.tsx`, met `HarnessInfo.repo.status.pendingTrust`). Jouw brein → Werkwijzen en skills en Instellingen → Voor
+  alle projecten tonen de chip **"Van je team <versie>"** (bestaande `OriginChip`/`harnessKindChip` uitbreiden). Woord
+  "harnas" blijft uit beeld (C3).
+- **Demo**: `?brein=teamskills` geeft een gekoppelde repo met twee skills en één onderdeel dat op akkoord wacht.
+- **Beheerdoc**: hoofdstuk "Skills voor je team in één repo" in `docs/bonzaiwork/brein-beheer.md`: indeling
+  (`harness.json`, `skills/`, `commands/`, `agents/`), versie ophogen en vingerafdruk (het script
+  `packages/bonzaiwork-harness/scripts/manifest.mjs` werkt ook op een repo-map met `--root`), wat collega's zien,
+  branch-bescherming zoals bij een brein.
 
 ### 2.2 Dagelijkse verwerking
 
@@ -256,31 +285,93 @@ met de tools die hij al heeft: een `Person`-concept in `knowledge/mensen/` (draf
 vast in de geschiedenis. De volgende ochtend staat die chat onder Jouw brein met drie regels wat er veranderde; de
 gebruiker vraagt door of corrigeert in dezelfde chat.
 
-- **Geen nieuwe verbinding en geen nieuwe server.** `gesprekken_lezen({ sinds, tot?, project? })` is één extra tool op
-  de bestaande lokale MCP-server `breinen` (`mcp.ts`), die al in de globale engine-config staat en via de
-  loopback-route met lokaal token bereikbaar is. De server haalt de chats op zoals de Stop-hook de engine nu al
-  bevraagt (`host.engineRequest`: `GET /api/session` per lokale map, daarna de berichten). Antwoord per chat: titel,
-  project, tijd, de gebruikersberichten en de eindantwoorden als tekst; geen tool-aanroepen of tussenstappen.
-- **Grenzen.** Alleen lokale chats van deze gebruiker. Verwerkingschats zelf (herkenbaar aan de routine) worden
-  overgeslagen, anders leest hij zijn eigen samenvattingen. De tool werkt alleen in Jouw brein en in die routine:
-  vanuit elke andere map weigert hij (zelfde controle als `persoonlijk_brein_schrijven` nu: de aanroepende map moet
-  het persoonlijke brein zijn), zodat een chat in een teambrein nooit andere projecten kan uitlezen. Policy allow,
-  want het is eigen data en de map is al de grens.
-- **Routine "Dagelijkse verwerking"** (bestaande planner, `packages/bonzaiwork-routines`): in Jouw brein, standaard
-  17:30, prompt uit het harnas (`harness/commands/dagverwerking.md`, zodat release management hem bijstelt). Opdracht:
-  lees de chats sinds de vorige run (`knowledge/log.md` als bron van "vorige run"), werk `knowledge/mensen/`,
-  `knowledge/projecten/<project>.md` en besluiten bij als `draft`-concepten met de chat als `sources`-verwijzing
-  (`resource: bonzaiwork://chat/<id>`), stel voorkeuren voor met `voorkeur_voorstellen`, eindig met drie regels wat er
-  veranderde. Op Jouw brein een rij "Dagelijkse verwerking" (Inplannen / Gepland, zelfde patroon als `copy.brain.news`),
-  en in de geschiedenis staan die commits onder de routinechat (bestaande `BonzaiWork-Chat`-trailer).
-- Gemiste runs (app dicht) niet inhalen (bestaand gedrag); de volgende run leest gewoon sinds de laatste log-regel.
-- OKF: de harnas-`schema/` levert `Person`/`Project`/`Decision`; `okf.ts` accepteert typen uit harnas én `_meta/schema.md`.
+- **Geen nieuwe verbinding en geen nieuwe server.** `gesprekken_lezen({ sinds, tot?, project? })` is één extra tool
+  in `BRAIN_TOOLS` (`mcp.ts`); `PersonalAccess` krijgt `conversations(input)`, in `server-hooks.ts` gebouwd op
+  `host.engineRequest(ws, "GET", "/api/session")` en `…/api/session/:id/message?limit=200` per lokale workspace
+  (zelfde pad als `answers.ts`). Filter: `time.updated >= sinds` (en `< tot`), optioneel één project (naam of id).
+  Antwoord per chat: `{ project, titel, tijd, berichten: [{ rol, tekst }] }` met `type: "user"` → `text` en
+  `type: "assistant"` → `content[].text` (fase 0 E5), zonder tool-aanroepen; afgekapt op ~4 000 tekens per chat en
+  ~40 chats, met `meer: true` als er meer was.
+- **Niet zijn eigen samenvattingen lezen**: chats van routines worden overgeslagen. De breinen-hooks kennen de
+  routines niet (de routines hangen aan de breinen, niet andersom), dus `createCombinedHooks` geeft na het aanmaken
+  `routines.isRoutineChat` door met `brains.setRoutineCheck(...)`.
+- **Alleen in Jouw brein.** De MCP weet niet wie hem aanroept, dus de grens loopt via de engine-toestemming, zoals bij
+  `brein_lezen`: `ENGINE_PERMISSIONS` krijgt `breinen_gesprekken_lezen: ask`. De server beantwoordt die vraag zelf
+  (bestaande 1,5 s-lus `answerProjectReads`/`answerBrainReads`): **toestaan** voor een chat in de workspace van het
+  persoonlijke brein (ook de routinechat, die daar draait), **weigeren** (`reject`) voor elke andere workspace, zodat
+  een teambrein nooit andere projecten uitleest. `answers.ts` krijgt daarvoor een tweede actie naast
+  `breinen_brein_(lezen|zoeken)` en een `personalId`. De UI toont de kaart niet voor deze actie
+  (`isBrainRead`-achtige filter in `attention`): de server is er binnen 1,5 s. e2e bewijst allebei.
+- **Prompt uit het harnas**: `packages/bonzaiwork-harness/harness/prompts/dagverwerking.md` (nieuwe map; geen
+  onderdeel met vingerafdruk, wel in `HARNESS_FILES`), via `harnessPrompt("dagverwerking")` en in `GET
+  /bonzaiwork/harness` als `prompts.daily`, zodat release management hem bijstelt zonder UI-wijziging. Opdracht: roep
+  `gesprekken_lezen` aan voor de laatste 24 uur (of sinds de laatste regel "Dagelijkse verwerking" in
+  `knowledge/log.md`), werk per persoon `knowledge/mensen/<naam>.md` (`type: Person`), per project
+  `knowledge/projecten/<project>.md` (`type: Project`) en besluiten (`type: Decision`) bij als `status: draft` met de
+  chat als bron (`resource: bonzaiwork://chat/<id>`), stel voorkeuren voor met `voorkeur_voorstellen`, en sluit af
+  met drie regels: nieuw, bijgewerkt, voorstellen.
+- **Routine "Dagelijkse verwerking"**: rij op Jouw brein onder Voorkeuren (zelfde patroon als "Wat is er nieuw":
+  bestaande routine op naam, anders `RoutineEditor` met `template = { name, prompt: harness.prompts.daily, brains: [],
+  schedule: daily 17:30 }`). De run is een gewone routinechat in de workspace van Jouw brein; de Stop-hook legt de
+  wijzigingen vast onder die chat. Gemiste runs worden niet ingehaald (bestaand gedrag).
+- **OKF-typen**: `okf.ts` controleert alleen niet-leeg, dus geen code nodig. `templates/common/_meta/schema.md` krijgt
+  `Person`, `Project` en `Decision` in de typelijst met één regel schrijfafspraak elk; `copy.brain.knowledge.types`
+  krijgt `person: "Mensen"` en `project: "Projecten"` zodat de kennis-sectie ze groepeert.
 
-### 2.3 Klaar als
+### 2.3 Stand fase 2 (gebouwd, 10-11)
 
-Twee gebruikers met dezelfde harnas-repo zien een nieuwe skill binnen 10 minuten in elk project, zonder app-update. Na
-een dag werken in twee projecten bevat Jouw brein een `Person`-concept voor iemand die in beide voorkwam, met bron, en
-een voorkeursvoorstel staat als kaart op Vandaag. Verwerking leest nooit chats vanuit een projectbrein.
+- Harnas: `harness/prompts/dagverwerking.md`, `harnessPrompt()`, `readManifest()`, `shippedVersion`/`knownItem` met
+  manifest-parameter, `manifest.mjs --root` voor een teamrepo.
+- Breinen: `harness.ts` met bron `repo` (`TeamHarness`, `readTeamHarness`, `repoItems`, `providedItem`), `outdatedItems`/
+  `updateItems`/`removeItems`/`itemVersions` kennen de teamversie; `server-hooks.ts` beheert de teamrepo als
+  read-only `BrainSync` in `<state>/harness-repo/` (routes `PUT`/`DELETE /bonzaiwork/harness/repo`, `…/trust`,
+  `…/update`, `repo` en `prompts.daily` in `GET /bonzaiwork/harness`, bijwerken in de 10-minutenlus, map dicht
+  voor de gewone tools), `conversations()` achter de MCP-tool `gesprekken_lezen` (`mcp.ts`), `setRoutineCheck`
+  vanuit de gecombineerde hooks, `breinen_gesprekken_lezen: ask` met het antwoord van de server
+  (`answerConversationReads`: toestaan in Jouw brein, weigeren elders). `trust.ts` kent de indeling van een
+  teamrepo (`TrustLayout`). `_meta/schema.md` heeft `Person` en `Project`.
+- UI: Instellingen → Breinen → "Skills van je team" (`team-repo.tsx`), chips "Van je team", rij "Dagelijkse
+  verwerking" op Jouw brein (werkdagen 17:30, prompt uit het harnas), geen kaart voor `breinen_gesprekken_lezen`;
+  demo `?brein=teamskills`.
+- Niet gebouwd: de e2e-stap met een echte teamrepo in de engine (de unit-test dekt clone, trust, update en
+  voorrang; `/api/skill` met een repo-skill volgt uit fase 0 E2), en de kaart H3 voor repo-onderdelen in de demo.
+
+### 2.4 Klaar als
+
+Twee gebruikers met dezelfde harnas-repo zien een nieuwe skill binnen 10 minuten in elk project, zonder app-update;
+een agent uit die repo laadt pas na "Toestaan". Na een dag werken in twee projecten bevat Jouw brein een
+`Person`-concept voor iemand die in beide voorkwam, met bron, en een voorkeursvoorstel staat als kaart op Vandaag.
+`gesprekken_lezen` werkt in Jouw brein en in de routinechat en wordt vanuit een projectbrein geweigerd zonder kaart.
+
+### 2.5 Bestanden en verificatie (fase 2)
+
+| Bestand | Wijziging |
+|---|---|
+| `packages/bonzaiwork-harness/harness/prompts/dagverwerking.md`, `src/index.ts`, `scripts/manifest.mjs`, test | prompt-bestanden; `harnessPrompt()`; `shippedVersion`/`knownItem` met manifest-parameter; `--root` voor een repo-map |
+| `packages/bonzaiwork-brains/src/harness.ts` | bron `repo` (`repoRoot`, repo-manifest), `outdatedItems(..., manifests)`, `source: "repo"` |
+| `packages/bonzaiwork-brains/src/server-hooks.ts` | `harnessRepo` (clone in `<state>/harness-repo/`, fetch-lus, closedFolders), routes `/bonzaiwork/harness/repo*`, `conversations()` voor de MCP, `setRoutineCheck`, antwoord op `breinen_gesprekken_lezen` |
+| `packages/bonzaiwork-brains/src/mcp.ts`, `answers.ts`, `registry.ts`, `personal.ts` | tool `gesprekken_lezen`; tweede actie + `personalId`; `harness.repo`; app-regel over de dagverwerking |
+| `packages/bonzaiwork-server-hooks/src/server-hooks.ts` | `brains.setRoutineCheck(routines.isRoutineChat)` |
+| `packages/bonzaiwork-brains/templates/common/_meta/schema.md` | typen `Person`, `Project`, `Decision` |
+| `apps/bonzaiwork/src/backend/{types,live/brains,demo/brains}.ts`, `queries.ts` | `HarnessInfo.repo`, `prompts.daily`, `source: "repo"`, repo-routes, demo `?brein=teamskills` |
+| `apps/bonzaiwork/src/features/brain/personal-setup.tsx` (`BrainsAppSection`), `cards.tsx`, `skills-section.tsx`, `personal-page.tsx` | rij "Skills van je team" met trust-kaart; chip "Van je team"; rij "Dagelijkse verwerking" |
+| `apps/bonzaiwork/src/features/settings/werkwijzen.tsx`, `home/attention-cards.tsx` of `attention`-filter, `copy.ts` | `OriginChip` repo; kaart voor `breinen_gesprekken_lezen` verbergen; teksten |
+| `docs/bonzaiwork/brein-beheer.md`, `frontend-contract.md` §7.5, `brein-harnas-plan.md` (stand fase 2), `README.md` | beheer, contract, stand |
+
+Verificatie:
+- Unit (`packages/bonzaiwork-brains/test/harness.test.ts`): een bare repo als harnas-repo met `harness.json`, een
+  skill en een agent → `composeHarness` levert de skill met `source: "repo"`, de agent pas na `trust`; een repo-skill
+  met dezelfde naam als een meegeleverde wint, een eigen skill wint van beide; een nieuwe versie op de bare repo
+  staat na `update` in de context; een projectbrein met een oude kopie van de repo-skill staat in `outdated` met
+  `to` = repo-versie; `DELETE` haalt alles weg. `mcp`-test: `gesprekken_lezen` met een nep-`conversations()`
+  (filters op tijd en project, routinechats weg, afkappen). `answers.test.ts`: toestaan in de persoonlijke workspace,
+  weigeren elders.
+- e2e (`e2e/brains.e2e.ts`): een chat in Jouw brein leest zijn eigen gesprekken van die dag via de tool; dezelfde
+  vraag in het Sales-brein krijgt een weigering zonder openstaande toestemmingsvraag; een skill uit een gekoppelde
+  harnas-repo staat in `/api/skill` van een gewoon project.
+- UI headless met demo: Instellingen → Breinen met en zonder repo (plus trust-kaart), Jouw brein met "Van je team"
+  en de rij Dagelijkse verwerking; `pnpm --filter @bonzaiwork/app typecheck && test`.
+- `check-patches.mjs` groen (0 nieuwe patches); typecheck en tests van harness, brains, server-hooks, server.
 
 ## Fase 3 (later, niet in dit plan uitgewerkt)
 

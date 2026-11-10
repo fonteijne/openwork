@@ -10,7 +10,7 @@ import type { ProposalService } from "./proposals.ts";
 import { scanForSecrets, type SecretHit } from "./secrets.ts";
 import { classifyGitError, type RemoteProblem } from "./ssh.ts";
 import { isTextFile, type OutdatedItem } from "./harness.ts";
-import { findTrustItems, isPersonalHarnessPath, personalExcludes, sparsePatterns, unsafePath, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
+import { findTrustItems, isPersonalHarnessPath, personalExcludes, sparsePatterns, unsafePath, untrusted, withLocalExcludes, type TreeEntry, type TrustItem, type TrustLayout } from "./trust.ts";
 
 /**
  * One brain's synchronisation (plan §2, §4): fetch and update before a turn,
@@ -109,6 +109,8 @@ export type BrainSyncOptions = {
   busy?: () => Promise<boolean>;
   /** Project brain: which harness copies in the folder are outdated (brein-harnas-plan H3). */
   inspect?: (record: BrainRecord) => Promise<OutdatedItem[]>;
+  /** Where risky parts live in this repository: a brain (`.opencode/`), or a team repository of skills (root). */
+  trustLayout?: TrustLayout;
 };
 
 type ErrorCause = RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" | "local";
@@ -311,7 +313,7 @@ export class BrainSync {
         this.log("warn", "brain has a file name sparse-checkout cannot exclude", { ref: source });
         return false;
       }
-      const found = await findTrustItems(entries, (blob) => this.ok(["cat-file", "-p", blob]));
+      const found = await findTrustItems(entries, (blob) => this.ok(["cat-file", "-p", blob]), this.options.trustLayout);
       for (const item of found) if (!items.has(item.path) || source === ref) items.set(item.path, item);
     }
     this.pending = untrusted([...items.values()], this.record.trusted);
@@ -1222,7 +1224,7 @@ export class BrainSync {
   /** What is in the folder now is the user's own: it counts as trusted (it ran before BonzaiWork anyway). */
   private async trustWhatIsThere(): Promise<void> {
     if (!await this.hasCommit("HEAD")) return;
-    const items = await findTrustItems(await this.treeEntries("HEAD"), (blob) => this.ok(["cat-file", "-p", blob]));
+    const items = await findTrustItems(await this.treeEntries("HEAD"), (blob) => this.ok(["cat-file", "-p", blob]), this.options.trustLayout);
     await this.persist({ trusted: { ...this.record.trusted, ...Object.fromEntries(items.map((item) => [item.path, item.blob])) } });
   }
 

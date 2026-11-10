@@ -5,30 +5,31 @@ import t2 from "../harness/commands/onthoud.md" with { type: "text" };
 import t3 from "../harness/commands/vastleggen.md" with { type: "text" };
 import t4 from "../harness/commands/verwerk.md" with { type: "text" };
 import t5 from "../harness/commands/werkwijze.md" with { type: "text" };
-import t6 from "../harness/skills/brein-mensen/SKILL.md" with { type: "text" };
-import t7 from "../harness/skills/icm-architect/assets/templates/bundle-schema.md" with { type: "text" };
-import t8 from "../harness/skills/icm-architect/assets/templates/claim.md" with { type: "text" };
-import t9 from "../harness/skills/icm-architect/assets/templates/concept.md" with { type: "text" };
-import t10 from "../harness/skills/icm-architect/assets/templates/context-map-node.md" with { type: "text" };
-import t11 from "../harness/skills/icm-architect/assets/templates/context-map-schema.md" with { type: "text" };
-import t12 from "../harness/skills/icm-architect/assets/templates/CONTEXT.md" with { type: "text" };
-import t13 from "../harness/skills/icm-architect/assets/templates/entry.md" with { type: "text" };
-import t14 from "../harness/skills/icm-architect/assets/templates/keep-out.txt" with { type: "text" };
-import t15 from "../harness/skills/icm-architect/assets/templates/object.md" with { type: "text" };
-import t16 from "../harness/skills/icm-architect/assets/templates/plan.md" with { type: "text" };
-import t17 from "../harness/skills/icm-architect/assets/templates/process.md" with { type: "text" };
-import t18 from "../harness/skills/icm-architect/assets/templates/questionnaire.md" with { type: "text" };
-import t19 from "../harness/skills/icm-architect/assets/templates/source.md" with { type: "text" };
-import t20 from "../harness/skills/icm-architect/assets/templates/stage-CONTEXT.md" with { type: "text" };
-import t21 from "../harness/skills/icm-architect/LICENSE" with { type: "text" };
-import t22 from "../harness/skills/icm-architect/references/bundle-from-sources.md" with { type: "text" };
-import t23 from "../harness/skills/icm-architect/references/core.md" with { type: "text" };
-import t24 from "../harness/skills/icm-architect/references/forms.md" with { type: "text" };
-import t25 from "../harness/skills/icm-architect/references/system-map.md" with { type: "text" };
-import t26 from "../harness/skills/icm-architect/SKILL.md" with { type: "text" };
-import t27 from "../harness/skills/okf-ingest/SKILL.md" with { type: "text" };
-import t28 from "../harness/skills/okf-lint/SKILL.md" with { type: "text" };
-import t29 from "../harness/skills/okf-query/SKILL.md" with { type: "text" };
+import t6 from "../harness/prompts/dagverwerking.md" with { type: "text" };
+import t7 from "../harness/skills/brein-mensen/SKILL.md" with { type: "text" };
+import t8 from "../harness/skills/icm-architect/assets/templates/bundle-schema.md" with { type: "text" };
+import t9 from "../harness/skills/icm-architect/assets/templates/claim.md" with { type: "text" };
+import t10 from "../harness/skills/icm-architect/assets/templates/concept.md" with { type: "text" };
+import t11 from "../harness/skills/icm-architect/assets/templates/context-map-node.md" with { type: "text" };
+import t12 from "../harness/skills/icm-architect/assets/templates/context-map-schema.md" with { type: "text" };
+import t13 from "../harness/skills/icm-architect/assets/templates/CONTEXT.md" with { type: "text" };
+import t14 from "../harness/skills/icm-architect/assets/templates/entry.md" with { type: "text" };
+import t15 from "../harness/skills/icm-architect/assets/templates/keep-out.txt" with { type: "text" };
+import t16 from "../harness/skills/icm-architect/assets/templates/object.md" with { type: "text" };
+import t17 from "../harness/skills/icm-architect/assets/templates/plan.md" with { type: "text" };
+import t18 from "../harness/skills/icm-architect/assets/templates/process.md" with { type: "text" };
+import t19 from "../harness/skills/icm-architect/assets/templates/questionnaire.md" with { type: "text" };
+import t20 from "../harness/skills/icm-architect/assets/templates/source.md" with { type: "text" };
+import t21 from "../harness/skills/icm-architect/assets/templates/stage-CONTEXT.md" with { type: "text" };
+import t22 from "../harness/skills/icm-architect/LICENSE" with { type: "text" };
+import t23 from "../harness/skills/icm-architect/references/bundle-from-sources.md" with { type: "text" };
+import t24 from "../harness/skills/icm-architect/references/core.md" with { type: "text" };
+import t25 from "../harness/skills/icm-architect/references/forms.md" with { type: "text" };
+import t26 from "../harness/skills/icm-architect/references/system-map.md" with { type: "text" };
+import t27 from "../harness/skills/icm-architect/SKILL.md" with { type: "text" };
+import t28 from "../harness/skills/okf-ingest/SKILL.md" with { type: "text" };
+import t29 from "../harness/skills/okf-lint/SKILL.md" with { type: "text" };
+import t30 from "../harness/skills/okf-query/SKILL.md" with { type: "text" };
 
 /** Harness file (path under harness/) → content. */
 export const HARNESS_FILES: ReadonlyMap<string, string> = new Map([
@@ -38,28 +39,29 @@ export const HARNESS_FILES: ReadonlyMap<string, string> = new Map([
   ["commands/vastleggen.md", t3],
   ["commands/verwerk.md", t4],
   ["commands/werkwijze.md", t5],
-  ["skills/brein-mensen/SKILL.md", t6],
-  ["skills/icm-architect/assets/templates/bundle-schema.md", t7],
-  ["skills/icm-architect/assets/templates/claim.md", t8],
-  ["skills/icm-architect/assets/templates/concept.md", t9],
-  ["skills/icm-architect/assets/templates/context-map-node.md", t10],
-  ["skills/icm-architect/assets/templates/context-map-schema.md", t11],
-  ["skills/icm-architect/assets/templates/CONTEXT.md", t12],
-  ["skills/icm-architect/assets/templates/entry.md", t13],
-  ["skills/icm-architect/assets/templates/keep-out.txt", t14],
-  ["skills/icm-architect/assets/templates/object.md", t15],
-  ["skills/icm-architect/assets/templates/plan.md", t16],
-  ["skills/icm-architect/assets/templates/process.md", t17],
-  ["skills/icm-architect/assets/templates/questionnaire.md", t18],
-  ["skills/icm-architect/assets/templates/source.md", t19],
-  ["skills/icm-architect/assets/templates/stage-CONTEXT.md", t20],
-  ["skills/icm-architect/LICENSE", t21],
-  ["skills/icm-architect/references/bundle-from-sources.md", t22],
-  ["skills/icm-architect/references/core.md", t23],
-  ["skills/icm-architect/references/forms.md", t24],
-  ["skills/icm-architect/references/system-map.md", t25],
-  ["skills/icm-architect/SKILL.md", t26],
-  ["skills/okf-ingest/SKILL.md", t27],
-  ["skills/okf-lint/SKILL.md", t28],
-  ["skills/okf-query/SKILL.md", t29],
+  ["prompts/dagverwerking.md", t6],
+  ["skills/brein-mensen/SKILL.md", t7],
+  ["skills/icm-architect/assets/templates/bundle-schema.md", t8],
+  ["skills/icm-architect/assets/templates/claim.md", t9],
+  ["skills/icm-architect/assets/templates/concept.md", t10],
+  ["skills/icm-architect/assets/templates/context-map-node.md", t11],
+  ["skills/icm-architect/assets/templates/context-map-schema.md", t12],
+  ["skills/icm-architect/assets/templates/CONTEXT.md", t13],
+  ["skills/icm-architect/assets/templates/entry.md", t14],
+  ["skills/icm-architect/assets/templates/keep-out.txt", t15],
+  ["skills/icm-architect/assets/templates/object.md", t16],
+  ["skills/icm-architect/assets/templates/plan.md", t17],
+  ["skills/icm-architect/assets/templates/process.md", t18],
+  ["skills/icm-architect/assets/templates/questionnaire.md", t19],
+  ["skills/icm-architect/assets/templates/source.md", t20],
+  ["skills/icm-architect/assets/templates/stage-CONTEXT.md", t21],
+  ["skills/icm-architect/LICENSE", t22],
+  ["skills/icm-architect/references/bundle-from-sources.md", t23],
+  ["skills/icm-architect/references/core.md", t24],
+  ["skills/icm-architect/references/forms.md", t25],
+  ["skills/icm-architect/references/system-map.md", t26],
+  ["skills/icm-architect/SKILL.md", t27],
+  ["skills/okf-ingest/SKILL.md", t28],
+  ["skills/okf-lint/SKILL.md", t29],
+  ["skills/okf-query/SKILL.md", t30],
 ]);

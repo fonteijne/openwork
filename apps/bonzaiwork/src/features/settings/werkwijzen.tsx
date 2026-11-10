@@ -20,7 +20,7 @@ import { attempt, humanize, NAME_PATTERN, slugify } from "./shared";
 export type MethodScope = "project" | "global";
 
 /** Where a method for every project comes from (brein-harnas-plan): BonzaiWork itself, or the user's own brain. */
-type Origin = { source: "bundled" | "personal"; version: string | null } | null;
+type Origin = { source: "bundled" | "repo" | "personal"; version: string | null } | null;
 
 /** A skill or a command as one list item: a title people read, when it applies, how it starts. */
 type Method =
@@ -61,7 +61,8 @@ export function useMethods(projectId: string | null, scope: MethodScope) {
 /** The origin chip for a method that counts in every project. */
 function OriginChip(props: { origin: Origin }) {
   if (!props.origin) return null;
-  return props.origin.source === "personal" ? <Chip tone="accent">{copy.brain.harness.fromYou}</Chip> : <Chip>{copy.brain.harness.fromBonzai(props.origin.version)}</Chip>;
+  if (props.origin.source === "personal") return <Chip tone="accent">{copy.brain.harness.fromYou}</Chip>;
+  return <Chip>{props.origin.source === "repo" ? copy.brain.harness.fromTeam(props.origin.version) : copy.brain.harness.fromBonzai(props.origin.version)}</Chip>;
 }
 
 /**

@@ -4,9 +4,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { HARNESS_VERSION, harnessItems, readStamp, stampedFiles } from "@bonzaiwork/harness";
+import { HARNESS_VERSION, harnessItems, itemFingerprint, readStamp, stampedFiles } from "@bonzaiwork/harness";
 
-import { composeHarness, outdatedItems, personalItems, unifiedDiff } from "../src/harness.ts";
+import { composeHarness, outdatedItems, personalItems, readTeamHarness, unifiedDiff, updateItems } from "../src/harness.ts";
+import { BRAIN_TOOLS, callBrainTool, type Conversation, type ConversationQuery, type PersonalAccess } from "../src/mcp.ts";
 import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type EngineGlobalContext, type SessionActivity } from "../src/server-hooks.ts";
 import { createGit } from "../src/git.ts";
 import { createWorld, type World } from "./world.ts";
@@ -250,7 +251,8 @@ describe("eigen skills en de migratie van het oude brein", () => {
     await writeFile(join(personal, "knowledge/notitie.md"), "---\ntype: Analysis\ntitle: Notitie\n---\n# Notitie\n");
     for (const listener of host.listeners) listener({ workspaceId: "ws_oud", sessionId: "ses_1", state: "running" });
     for (const listener of host.listeners) listener({ workspaceId: "ws_oud", sessionId: "ses_1", state: "idle", outcome: "succeeded" });
-    for (let attempt = 0; attempt < 100 && !(await before.routes.find((route) => route.path === "/bonzaiwork/brains/:workspaceId/history")?.handle(new Request("http://x"), { workspaceId: "ws_oud" }).then((response) => response.json()).then((body: { entries: unknown[] }) => body.entries.length > 1)); attempt += 1) await Bun.sleep(20);
+    // The quiet moment records the turn and then refreshes the global instructions: wait for the latter.
+    for (let attempt = 0; attempt < 150 && !host.context?.instructions?.includes("Drie punten"); attempt += 1) await Bun.sleep(20);
     expect(host.context?.instructions).toContain("Drie punten");
     before.stop();
 
@@ -279,5 +281,102 @@ describe("eigen skills en de migratie van het oude brein", () => {
     const brains = (await caller(again)("GET", "/bonzaiwork/brains")).body.brains as Array<{ workspaceId: string; status: { kind: string } }>;
     expect(brains.find((brain) => brain.workspaceId === "ws_nieuw")?.status.kind).toBe("personal");
     expect(brains.find((brain) => brain.workspaceId === "ws_oud")?.status.kind).toBe("project");
+  });
+});
+
+describe("skills van je team (fase 2) en de dagelijkse verwerking", () => {
+  test("een teamrepo levert skills in elk project, een agent pas na Toestaan, een nieuwe versie na bijwerken, en verouderde kopieën kennen de teamversie", async () => {
+    world = await createWorld({ empty: true });
+    const skill = (name: string, description: string) => `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}\n`;
+    const manifest = (version: string, items: Record<string, Map<string, string>>) => JSON.stringify({ version, items: Object.fromEntries(Object.entries(items).map(([key, files]) => [key, { versions: { [version]: itemFingerprint(files) } }])) });
+    const offerteCheck = new Map([["SKILL.md", skill("offerte-check", "Een offerte controleren op ons beleid")]]);
+    const okfOwn = new Map([["SKILL.md", skill("okf-query", "Onze eigen manier van vragen beantwoorden")]]);
+    await world.seed({
+      "harness.json": manifest("2.0.0", { "skill:offerte-check": offerteCheck, "skill:okf-query": okfOwn }),
+      "skills/offerte-check/SKILL.md": offerteCheck.get("SKILL.md") ?? "",
+      "skills/okf-query/SKILL.md": okfOwn.get("SKILL.md") ?? "",
+      "agents/verkoop.md": "---\ndescription: Verkoopagent\nmode: primary\n---\nVERKOOP\n",
+      "commands/offerte.md": "---\ndescription: Offerte\n---\nMaak een offerte. $ARGUMENTS\n",
+    }, "team 2.0.0");
+    const state = join(world.root, "state");
+    hooks = createBrainsServerHooks({ stateDirectory: state, allowFileProtocol: true, quietMs: 50, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
+    const host = fakeHost();
+    const project = join(world.root, "Offertes");
+    await mkdir(join(project, ".opencode/skills/offerte-check"), { recursive: true });
+    host.workspaceList = [{ id: "ws_offertes", path: project }];
+    await hooks.start(host);
+    const call = caller(hooks);
+    expect((await call("GET", "/bonzaiwork/harness")).body.repo).toBeNull();
+
+    // Link: skills and the command count at once; the agent waits for trust.
+    const linked = await call("PUT", "/bonzaiwork/harness/repo", { url: world.url });
+    expect(linked.status).toBe(200);
+    const repo = linked.body.repo as { remote: string; version: string; status: { state: string; pendingTrust: Array<{ path: string; kind: string }> } };
+    expect(repo.version).toBe("2.0.0");
+    expect(repo.status.pendingTrust.map((item) => `${item.kind}:${item.path}`)).toEqual(["agent:agents/verkoop.md"]);
+    expect(host.context?.skills["offerte-check"]).toBe(join(state, "harness-repo", "skills", "offerte-check"));
+    expect(host.context?.skills["okf-query"]).toBe(join(state, "harness-repo", "skills", "okf-query"));
+    expect(host.context?.commands.offerte).toContain("Maak een offerte.");
+    expect(host.context?.agents.verkoop).toBeUndefined();
+    const items = (await call("GET", "/bonzaiwork/harness")).body.items as Array<{ kind: string; name: string; source: string; version: string | null }>;
+    expect(items.find((item) => item.name === "offerte-check")).toMatchObject({ source: "repo", version: "2.0.0" });
+    expect(items.find((item) => item.name === "okf-query")).toMatchObject({ source: "repo" });
+    expect(items.find((item) => item.name === "okf-ingest")).toMatchObject({ source: "bundled" });
+    expect(hooks.enginePolicies().map((policy) => policy.resource)).toContain(`read:${join(state, "harness-repo")}/*`);
+
+    // Trust the agent: it is in the engine's config now.
+    const trusted = await call("POST", "/bonzaiwork/harness/repo/trust", { paths: ["agents/verkoop.md"] });
+    expect((trusted.body.repo as { status: { pendingTrust: unknown[] } }).status.pendingTrust).toEqual([]);
+    expect(host.context?.agents.verkoop).toContain("VERKOOP");
+
+    // The team ships 2.1.0: after an update every project has it; the project's old copy is outdated against the team version.
+    const offerteCheck2 = new Map([["SKILL.md", skill("offerte-check", "Een offerte controleren op ons beleid, ook de korting")]]);
+    await writeFile(join(project, ".opencode/skills/offerte-check/SKILL.md"), stampedFiles({ kind: "skill", name: "offerte-check", files: offerteCheck, description: "" }, "2.0.0").get("SKILL.md") ?? "");
+    // The manifest keeps every version's fingerprint (scripts/manifest.mjs --root does the same), so an old copy is still recognised.
+    const manifest21 = JSON.parse(manifest("2.1.0", { "skill:offerte-check": offerteCheck2, "skill:okf-query": okfOwn })) as { items: Record<string, { versions: Record<string, string> }> };
+    manifest21.items["skill:offerte-check"].versions["2.0.0"] = itemFingerprint(offerteCheck);
+    await world.seed({ "harness.json": JSON.stringify(manifest21), "skills/offerte-check/SKILL.md": offerteCheck2.get("SKILL.md") ?? "" }, "team 2.1.0");
+    const updated = await call("POST", "/bonzaiwork/harness/repo/update");
+    expect((updated.body.repo as { version: string }).version).toBe("2.1.0");
+    expect(await readFile(join(state, "harness-repo", "skills", "offerte-check", "SKILL.md"), "utf8")).toContain("ook de korting");
+    const outdated = await outdatedItems(project, {}, await readTeamHarness(join(state, "harness-repo")));
+    expect(outdated).toEqual([{ kind: "skill", name: "offerte-check", from: "2.0.0", to: "2.1.0", modified: false }]);
+    expect(await updateItems(project, [{ kind: "skill", name: "offerte-check" }], await readTeamHarness(join(state, "harness-repo")))).toEqual([".opencode/skills/offerte-check/SKILL.md"]);
+    expect(readStamp(await readFile(join(project, ".opencode/skills/offerte-check/SKILL.md"), "utf8"))).toEqual({ name: "offerte-check", version: "2.1.0" });
+
+    // Unlink: the bundle's okf-query is back, the folder is gone.
+    expect((await call("DELETE", "/bonzaiwork/harness/repo")).body.repo).toBeNull();
+    expect(host.context?.skills["okf-query"]).toBe(join(state, "harness", HARNESS_VERSION, "skills", "okf-query"));
+    expect(host.context?.skills["offerte-check"]).toBeUndefined();
+    expect(existsSync(join(state, "harness-repo"))).toBe(false);
+  });
+
+  test("gesprekken_lezen: periode, project, routinechats weg, tekst voor het model", async () => {
+    const now = Date.parse("2026-11-10T17:30:00Z");
+    const seen: ConversationQuery[] = [];
+    const chats: Conversation[] = [
+      { id: "ses_a", project: "Offertes", title: "Offerte Van Dijk", updatedAt: now - 3_600_000, messages: [{ role: "user", text: "Wie is Jan de Vries ook alweer?" }, { role: "assistant", text: "Jan de Vries is de inkoper bij Van Dijk." }] },
+      { id: "ses_b", project: "Sales", title: "Prijslijst", updatedAt: now - 7_200_000, messages: [{ role: "user", text: "x".repeat(5_000) }] },
+    ];
+    const access: PersonalAccess = {
+      root: () => "/brein", excluded: () => [], wrote: () => undefined, propose: async () => "p", teamBrains: async () => [], refresh: async () => undefined,
+      conversations: async (query) => { seen.push(query); return chats.filter((chat) => chat.updatedAt >= query.since && (!query.project || chat.project === query.project)); },
+    };
+    const text = (result: { content: Array<{ text: string }> }) => result.content[0]?.text ?? "";
+    expect(text(await callBrainTool(access, "gesprekken_lezen", { sinds: "nonsens" }))).toContain("Geef sinds");
+    const all = text(await callBrainTool(access, "gesprekken_lezen", { sinds: "24h" }));
+    expect(all).toContain("## Offerte Van Dijk · Offertes ·");
+    expect(all).toContain("bonzaiwork://chat/ses_a");
+    expect(all).toContain("Gebruiker: Wie is Jan de Vries ook alweer?");
+    expect(all).toContain("Agent: Jan de Vries is de inkoper");
+    expect(all).toContain("[… ingekort]");
+    expect(seen[0]?.project).toBeNull();
+    expect(Math.abs((seen[0]?.since ?? 0) - (Date.now() - 86_400_000))).toBeLessThan(5_000);
+    const one = text(await callBrainTool(access, "gesprekken_lezen", { sinds: "2026-11-10T16:00:00Z", project: "Offertes" }));
+    expect(one).toContain("Offerte Van Dijk");
+    expect(one).not.toContain("Prijslijst");
+    expect(seen[1]).toMatchObject({ since: Date.parse("2026-11-10T16:00:00Z"), project: "Offertes" });
+    expect(text(await callBrainTool(access, "gesprekken_lezen", { sinds: "2030-01-01T00:00:00Z" }))).toBe("Geen gesprekken in deze periode.");
+    expect(BRAIN_TOOLS.some((tool) => tool.name === "gesprekken_lezen")).toBe(true);
   });
 });

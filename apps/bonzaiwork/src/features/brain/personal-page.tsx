@@ -78,6 +78,48 @@ function SetupCard(props: { readOnly: boolean; previous: Project | null }) {
   );
 }
 
+/** The daily review of Jouw brein (brein-harnas-plan §2.2): a routine the person plans once; the prompt comes from the harness. */
+function DailyRow(props: { brain: Brain; readOnly: boolean }) {
+  const backend = useBackend();
+  const harness = useHarness();
+  const routines = useRoutines(props.brain.projectId);
+  const [planning, setPlanning] = useState(false);
+  const prompt = harness.data?.prompts.daily ?? null;
+  const planned = (routines.data ?? []).find((routine) => routine.name === copy.brain.harness.daily.title && routine.state !== "archived");
+  const template = useMemo(
+    (): Partial<RoutineInput> => ({
+      name: copy.brain.harness.daily.title,
+      prompt: prompt ?? "",
+      brains: [],
+      schedule: { kind: "weekly", timezone: localTimezone(), daysOfWeek: [1, 2, 3, 4, 5], hour: 17, minute: 30 },
+    }),
+    [prompt],
+  );
+  if (!backend.capabilities.harness) return null;
+  return (
+    <>
+      <Row
+        label={copy.brain.harness.daily.title}
+        hint={copy.brain.harness.daily.hint}
+        action={
+          !backend.capabilities.routines || !prompt ? (
+            <Locked>{backend.capabilities.routines ? copy.brain.harness.daily.unavailable : copy.routines.locked}</Locked>
+          ) : planned ? (
+            <a className="text-sm text-muted-foreground underline-offset-2 hover:underline" href={href({ name: "project-routines", projectId: props.brain.projectId, routineId: planned.id })}>
+              {copy.brain.harness.daily.planned}
+            </a>
+          ) : (
+            <Button variant="secondary" size="sm" disabled={props.readOnly} data-testid="brain-daily-plan" onClick={() => setPlanning(true)}>
+              {copy.brain.harness.daily.plan}
+            </Button>
+          )
+        }
+      />
+      <RoutineEditor open={planning} onOpenChange={setPlanning} routine={null} projectId={props.brain.projectId} template={template} onSaved={() => void routines.refetch()} />
+    </>
+  );
+}
+
 /** Preferences the AI follows in every project: the file itself, and the morning digest routine. */
 function PreferencesSection(props: { brain: Brain; readOnly: boolean }) {
   const backend = useBackend();
@@ -127,6 +169,7 @@ function PreferencesSection(props: { brain: Brain; readOnly: boolean }) {
           )
         }
       />
+      <DailyRow brain={props.brain} readOnly={props.readOnly} />
       <RoutineEditor open={planning} onOpenChange={setPlanning} routine={null} projectId={props.brain.projectId} template={template} onSaved={() => void routines.refetch()} />
       <FilePreview projectId={props.brain.projectId} chatId={null} path={preview} onClose={() => setPreview(null)} />
     </Section>

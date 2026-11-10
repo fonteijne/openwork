@@ -526,7 +526,8 @@ export async function createLiveBackend(): Promise<Backend> {
       return session.title || "Nieuwe chat";
     };
     const items: AttentionItem[] = [];
-    const waiting = [...requests.permissions.map((request) => ({ kind: "permission" as const, request })), ...requests.questions.map((request) => ({ kind: "question" as const, request }))];
+    // `breinen_gesprekken_lezen` is the server's to answer (brein-harnas-plan §2.2): never a card for the person.
+    const waiting = [...requests.permissions.filter((request) => request.action !== "breinen_gesprekken_lezen").map((request) => ({ kind: "permission" as const, request })), ...requests.questions.map((request) => ({ kind: "question" as const, request }))];
     await Promise.all(
       waiting.map(async ({ kind, request }) => {
         if (projectMeta.archivedChatIds.includes(request.chatId)) return;

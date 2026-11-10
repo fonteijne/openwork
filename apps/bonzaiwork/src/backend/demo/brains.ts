@@ -8,6 +8,7 @@ import {
   type ConceptView,
   type HarnessInfo,
   type HistoryAuthor,
+  type TeamRepo,
   type PreferenceProposal,
   type TrustItem,
   type Workflow,
@@ -37,6 +38,8 @@ type DemoBrains = {
   reads?: Record<string, string[]>;
   /** The user's own skills in Jouw brein (brein-harnas-plan §1.4). */
   ownSkills?: Array<{ name: string; description: string; content: string }>;
+  /** The team's repository of skills (§2.1): linked, with parts that wait for trust. */
+  teamRepo?: { remote: string; trusted: boolean } | null;
 };
 
 const DEMO_WORKFLOW: Omit<Workflow, "stages"> & { stages: Array<Omit<WorkflowStage, "state" | "failure" | "missing">> } = {
@@ -75,6 +78,13 @@ const SWITCHES: Record<string, Partial<BrainStatus>> = {
 };
 
 const DEMO_HARNESS_VERSION = "1.2.0";
+const DEMO_TEAM_ITEMS: HarnessInfo["items"] = [
+  { kind: "skill", name: "offerte-check", source: "repo", version: "2.1.0", description: "Een offerte controleren op ons kortingsbeleid en de huisstijl." },
+  { kind: "skill", name: "okf-query", source: "repo", version: "2.1.0", description: "Onze manier van vragen beantwoorden: eerst het beleid, dan de voorbeelden." },
+  { kind: "command", name: "offerte", source: "repo", version: "2.1.0", description: "Een offerte volgens ons sjabloon" },
+  { kind: "agent", name: "verkoop", source: "repo", version: "2.1.0", description: "Verkoopagent met onze prijslijst" },
+];
+const DEMO_DAILY_PROMPT = "Dit is de dagelijkse verwerking van mijn brein. Roep gesprekken_lezen aan voor de laatste 24 uur en leg vast wat ook buiten het project telt: mensen (knowledge/mensen/), projecten (knowledge/projecten/), besluiten. Voorkeuren stel je voor met voorkeur_voorstellen. Sluit af met drie regels: nieuw, bijgewerkt, voorstellen.";
 const DEMO_HARNESS: HarnessInfo["items"] = [
   { kind: "skill", name: "okf-query", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Een vraag beantwoorden uit de kennis van dit brein, stap voor stap via de indexen." },
   { kind: "skill", name: "okf-ingest", source: "bundled", version: DEMO_HARNESS_VERSION, description: "Een bron verwerken in de kennis van dit brein." },
@@ -123,6 +133,7 @@ function seed(now: number, home: string, state: string | null): DemoBrains {
     proposals: state === "voorkeur" ? [{ id: "pref-demo", preference: "Samenvattingen altijd in drie punten, conclusie eerst.", reason: "Zo vroeg je het bij de klantmail.", at: now - MIN }] : [],
     verified: {},
     ownSkills: [{ name: "klantmail-schrijven", description: "Een klantmail in mijn toon, kort en zonder jargon", content: "# Klantmail\n\n1. Begin met de kern.\n2. Eén vraag per mail.\n" }],
+    teamRepo: state === "teamskills" ? { remote: "git@gitlab.com:bonzai-demo/skills.git", trusted: false } : null,
   };
 }
 
@@ -150,6 +161,12 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
     Object.assign(brain(projectId), patch);
     save();
     return view(projectId);
+  };
+  const teamRepoView = (): TeamRepo | null => {
+    const repo = state.teamRepo;
+    if (!repo) return null;
+    const status = base(Date.now(), `${input.home}/.bonzaiwork/harness-repo`, "project", repo.remote);
+    return { remote: repo.remote, version: "2.1.0", status: { ...status, mode: "read_only", lastSyncAt: Date.now() - 4 * MIN, state: repo.trusted ? "synced" : "needs_trust", pendingTrust: repo.trusted ? [] : [{ path: "agents/verkoop.md", kind: "agent", mcpServers: [] }] } };
   };
   const settled = (projectId: string): Partial<BrainStatus> => {
     const current = brain(projectId);
@@ -372,8 +389,31 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
       await later(80);
       const personal = Object.entries(state.brains).find(([, entry]) => entry.kind === "personal")?.[0] ?? null;
       const own = (state.ownSkills ?? []).map((skill) => ({ kind: "skill" as const, name: skill.name, source: "personal" as const, version: null, description: skill.description }));
+      const team = state.teamRepo ? DEMO_TEAM_ITEMS.filter((item) => item.kind !== "agent" || state.teamRepo?.trusted) : [];
       const previous = switchState === "vorig-brein" ? { projectId: DEMO_BRAINS.offertes, at: Date.now() - 60 * MIN } : null;
-      return { version: DEMO_HARNESS_VERSION, items: [...DEMO_HARNESS.filter((item) => !own.some((entry) => entry.name === item.name)), ...own], personalId: personal, previous };
+      const items = [...DEMO_HARNESS.filter((item) => !own.some((entry) => entry.name === item.name) && !team.some((entry) => entry.name === item.name)), ...team, ...own];
+      return { version: DEMO_HARNESS_VERSION, items, personalId: personal, previous, repo: teamRepoView(), prompts: { daily: DEMO_DAILY_PROMPT } };
+    },
+    async linkTeamRepo(url) {
+      await later(900);
+      state.teamRepo = { remote: url.replace(/^https:\/\/([^/]+)\/(.+?)(\.git)?\/?$/, "git@$1:$2.git"), trusted: false };
+      save();
+      return teamRepoView();
+    },
+    async unlinkTeamRepo() {
+      await later(300);
+      state.teamRepo = null;
+      save();
+    },
+    async trustTeamRepo() {
+      await later(300);
+      if (state.teamRepo) state.teamRepo = { ...state.teamRepo, trusted: true };
+      save();
+      return teamRepoView();
+    },
+    async updateTeamRepo() {
+      await later(600);
+      return teamRepoView();
     },
     async harnessDiff(_projectId, kind, name) {
       await later(120);

@@ -7,13 +7,18 @@
  *
  *   pnpm --filter @bonzaiwork/harness manifest
  *   node scripts/manifest.mjs --check   (exit 1 when something is stale)
+ *   node scripts/manifest.mjs --root <map>   a team's own repository of skills, commands and agents
+ *                                            (docs/bonzaiwork/brein-beheer.md): only its harness.json is written
  */
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
+const rootFlag = process.argv.indexOf("--root");
+const repoRoot = rootFlag >= 0 ? resolve(process.argv[rootFlag + 1] ?? ".") : null;
 const root = resolve(import.meta.dirname, "..");
-const harnessDir = join(root, "harness");
+// A team repository holds skills/, commands/ and agents/ at its root, next to its harness.json.
+const harnessDir = repoRoot ?? join(root, "harness");
 const check = process.argv.includes("--check");
 
 function walk(dir) {
@@ -39,8 +44,8 @@ const lines = [
 ];
 const filesTs = lines.join("\n");
 
-const manifestPath = join(root, "harness.json");
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+const manifestPath = join(repoRoot ?? root, "harness.json");
+const manifest = (() => { try { return JSON.parse(readFileSync(manifestPath, "utf8")); } catch { return { version: "1.0.0", items: {} }; } })();
 
 /** Same rule as src/index.ts itemFingerprint(): sorted files, `harness:` frontmatter line stripped. */
 function stripStamp(content) {
@@ -71,13 +76,18 @@ for (const [key, paths] of Object.entries(items)) {
 for (const key of Object.keys(next.items)) if (!items[key]) next.items[key] = { ...next.items[key], removed: true };
 const manifestJson = `${JSON.stringify(next, null, 2)}\n`;
 
-const currentFiles = (() => { try { return readFileSync(join(root, "src/files.ts"), "utf8"); } catch { return ""; } })();
-const stale = currentFiles !== filesTs || readFileSync(manifestPath, "utf8") !== manifestJson;
-if (check) {
-  if (stale) { console.error("harness: src/files.ts or harness.json is stale; run pnpm --filter @bonzaiwork/harness manifest"); process.exit(1); }
-  console.log("harness: manifest is current");
-} else {
-  writeFileSync(join(root, "src/files.ts"), filesTs);
+if (repoRoot) {
   writeFileSync(manifestPath, manifestJson);
-  console.log(`harness ${manifest.version}: ${files.length} files, ${Object.keys(items).length} items`);
+  console.log(`team harness ${manifest.version} in ${repoRoot}: ${Object.keys(items).length} items`);
+} else {
+  const currentFiles = (() => { try { return readFileSync(join(root, "src/files.ts"), "utf8"); } catch { return ""; } })();
+  const stale = currentFiles !== filesTs || readFileSync(manifestPath, "utf8") !== manifestJson;
+  if (check) {
+    if (stale) { console.error("harness: src/files.ts or harness.json is stale; run pnpm --filter @bonzaiwork/harness manifest"); process.exit(1); }
+    console.log("harness: manifest is current");
+  } else {
+    writeFileSync(join(root, "src/files.ts"), filesTs);
+    writeFileSync(manifestPath, manifestJson);
+    console.log(`harness ${manifest.version}: ${files.length} files, ${Object.keys(items).length} items`);
+  }
 }

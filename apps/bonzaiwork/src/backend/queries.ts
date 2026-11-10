@@ -145,6 +145,7 @@ export function usePersonalBrain(): Brain | null {
 
 /** The harness: what counts in every project (brein-harnas-plan); refreshed with the brains. */
 export function useHarness() {
+  // Also the team repository's state: the server updates it every ten minutes.
   const backend = useBackend();
   return useQuery({ queryKey: keys.harness, queryFn: () => backend.brains.harness(), enabled: backend.capabilities.harness, staleTime: 10_000, refetchInterval: 30_000 });
 }

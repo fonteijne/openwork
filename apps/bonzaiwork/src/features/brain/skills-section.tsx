@@ -34,7 +34,7 @@ export function SkillsSection(props: { personalId: string; readOnly: boolean }) 
   const [creating, setCreating] = useState(false);
   const [removing, setRemoving] = useState<HarnessItem | null>(null);
   const items = harness.data?.items ?? [];
-  const bundled = items.filter((item) => item.source === "bundled");
+  const bundled = items.filter((item) => item.source !== "personal");
   const own = items.filter((item) => item.source === "personal");
   const refresh = async () => {
     await Promise.all([client.invalidateQueries({ queryKey: keys.harness }), client.invalidateQueries({ queryKey: ["config"] }), client.invalidateQueries({ queryKey: keys.brains })]);
@@ -105,7 +105,7 @@ export function SkillsSection(props: { personalId: string; readOnly: boolean }) 
                   hint={item.description || undefined}
                   value={
                     <span className="flex items-center gap-1.5">
-                      <Chip>{copy.brain.harness.fromBonzai(item.version)}</Chip>
+                      <Chip>{item.source === "repo" ? copy.brain.harness.fromTeam(item.version) : copy.brain.harness.fromBonzai(item.version)}</Chip>
                       {harnessKindChip(item)}
                     </span>
                   }

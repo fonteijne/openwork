@@ -17,13 +17,20 @@ export type TrustItem = {
 
 const CONFIG_FILES = new Set(["opencode.json", "opencode.jsonc", ".opencode/opencode.json", ".opencode/opencode.jsonc"]);
 
+/**
+ * Where risky parts live: in a brain under `.opencode/`; in a team repository of skills
+ * (brein-harnas-plan §2.1) at the root, laid out like the harness (`agents/`, `commands/`).
+ */
+export type TrustLayout = "brain" | "harness";
+
 /** Case does not matter: on macOS and Windows `.OpenCode/Plugins/x.js` is the same file. */
-export function riskKind(path: string): TrustKind | null {
+export function riskKind(path: string, layout: TrustLayout = "brain"): TrustKind | null {
   const lower = path.toLowerCase();
   if (CONFIG_FILES.has(lower)) return "config";
-  if (/^\.opencode\/plugins?\//.test(lower)) return "plugin";
-  if (/^\.opencode\/agents?\//.test(lower)) return "agent";
-  if (/^\.opencode\/commands?\/.+\.md$/.test(lower)) return "command";
+  const base = layout === "harness" ? "(?:\\.opencode\\/)?" : "\\.opencode\\/";
+  if (new RegExp(`^${base}plugins?/`).test(lower)) return "plugin";
+  if (new RegExp(`^${base}agents?/`).test(lower)) return "agent";
+  if (new RegExp(`^${base}commands?/.+\\.md$`).test(lower)) return "command";
   if (/^_tools\//.test(lower)) return "script";
   return null;
 }
@@ -66,11 +73,11 @@ export function mcpServerNames(content: string): string[] {
 export type TreeEntry = { path: string; blob: string; mode?: string };
 
 /** The items in a tree that need the user's decision; commands only when they run shell. */
-export async function findTrustItems(entries: readonly TreeEntry[], read: (blob: string) => Promise<string>): Promise<TrustItem[]> {
+export async function findTrustItems(entries: readonly TreeEntry[], read: (blob: string) => Promise<string>, layout: TrustLayout = "brain"): Promise<TrustItem[]> {
   const items: TrustItem[] = [];
   for (const entry of entries) {
     // Every symlink waits for the user, wherever it is: the paths above only see what the link is called.
-    const kind = entry.mode === "120000" ? "link" : riskKind(entry.path);
+    const kind = entry.mode === "120000" ? "link" : riskKind(entry.path, layout);
     if (!kind) continue;
     if (kind === "command" && !commandRunsShell(await read(entry.blob))) continue;
     const mcpServers = kind === "config" ? mcpServerNames(await read(entry.blob)) : undefined;

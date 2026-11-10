@@ -160,7 +160,34 @@ van je collega's. Daarom ([plan §7.1](./project-breinen-plan.md#71-vertrouwen-p
 Houd ze dus klein en leg in de commit uit waarom ze er zijn. Gewone skills en commando's zonder
 shell-opdrachten hebben geen toestemming nodig.
 
-## 7. Problemen
+## 7. Skills voor je team in één repository
+
+Naast gedeelde breinen kan een team één repository met **skills, commando's en agents** delen die in **elk**
+project van elke collega meetellen, zoals de onderdelen die BonzaiWork zelf meelevert. Een collega koppelt hem
+onder Instellingen → Breinen → "Skills van je team" (link plakken, Verbinding testen, Koppelen). BonzaiWork haalt
+hem alleen op (nooit delen), elke tien minuten en met "Nu bijwerken".
+
+Indeling van de repository:
+
+```
+harness.json              versie en vingerafdrukken (zie hieronder)
+skills/<naam>/SKILL.md    skills, met hun bestanden
+commands/<naam>.md        commando's (/naam)
+agents/<naam>.md          agents (laden pas na Toestaan)
+```
+
+- **Versie**: `harness.json` heeft een `version`. Verhoog hem bij elke wijziging en draai daarna
+  `node packages/bonzaiwork-harness/scripts/manifest.mjs --root <map van de repo>` (uit de BonzaiWork-broncode).
+  Dat legt per onderdeel de vingerafdruk van die versie vast en bewaart de oude. Zo herkent BonzaiWork een
+  ongewijzigde kopie van een oudere versie in een projectbrein en kan de kaart "Onderdelen zijn verouderd" hem
+  bijwerken naar jullie versie.
+- **Voorrang**: een eigen skill van een collega (Jouw brein) wint van die van het team; die van het team wint van die
+  van BonzaiWork. Zo kun je `okf-query` voor je team aanpassen.
+- **Wat iets kan uitvoeren**: agents en commando's met `!`-opdrachten komen pas in de map van een collega na
+  "Toestaan", net als bij een brein. `opencode.json` en plugins in deze repository worden nooit gebruikt.
+- **Beveiliging**: bescherm de standaardbranch zoals bij een brein (§3); alleen wie skills beheert pusht.
+
+## 8. Problemen
 
 | Melding in BonzaiWork | Wat het meestal is | Wat te doen |
 |---|---|---|

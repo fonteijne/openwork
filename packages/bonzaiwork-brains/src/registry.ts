@@ -14,8 +14,8 @@ type RegistryFile = {
   brains: BrainRecord[];
   /** Per project (any project, brain or not): other brains it consults without asking (plan §5.2). */
   reads: Record<string, string[]>;
-  /** The harness (brein-harnas-plan H5): when the old personal brain became a project, and which one. */
-  harness: { migratedAt: number | null; previousPersonal: string | null };
+  /** The harness (brein-harnas-plan H5): when the old personal brain became a project, and which one; the team's repository of skills (§2.1). */
+  harness: { migratedAt: number | null; previousPersonal: string | null; repo: BrainRecord | null };
   /** Per brain: harness items the user chose to leave as they are ("Zo laten"), with the harness version that was declined (H3). */
   dismissed: Record<string, Record<string, string>>;
 };
@@ -63,7 +63,11 @@ function readReads(value: unknown): Record<string, string[]> {
 }
 
 function readHarness(value: unknown): RegistryFile["harness"] {
-  return { migratedAt: isRecord(value) && typeof value.migratedAt === "number" ? value.migratedAt : null, previousPersonal: isRecord(value) ? stringOrNull(value.previousPersonal) : null };
+  return {
+    migratedAt: isRecord(value) && typeof value.migratedAt === "number" ? value.migratedAt : null,
+    previousPersonal: isRecord(value) ? stringOrNull(value.previousPersonal) : null,
+    repo: isRecord(value) ? readRecord(value.repo) : null,
+  };
 }
 
 function readDismissed(value: unknown): Record<string, Record<string, string>> {
@@ -84,7 +88,7 @@ function readAuthor(value: unknown): Author | null {
 }
 
 export class BrainRegistry {
-  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {}, harness: { migratedAt: null, previousPersonal: null }, dismissed: {} };
+  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {}, harness: { migratedAt: null, previousPersonal: null, repo: null }, dismissed: {} };
   private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly file: string) {}

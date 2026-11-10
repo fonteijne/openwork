@@ -472,8 +472,11 @@ export type OutdatedItem = {
   modified: boolean;
 };
 
-/** One part of what counts in every project: from BonzaiWork itself, or the user's own (Jouw brein). */
-export type HarnessItem = { kind: HarnessItemKind; name: string; source: "bundled" | "personal"; version: string | null; description: string };
+/** One part of what counts in every project: from BonzaiWork itself, the team's repository, or the user's own (Jouw brein). */
+export type HarnessItem = { kind: HarnessItemKind; name: string; source: "bundled" | "repo" | "personal"; version: string | null; description: string };
+
+/** The team's repository of skills (brein-harnas-plan §2.1): read-only, no project of its own. */
+export type TeamRepo = { remote: string | null; version: string | null; status: BrainStatus };
 
 export type HarnessInfo = {
   version: string;
@@ -482,6 +485,9 @@ export type HarnessInfo = {
   personalId: string | null;
   /** The personal brain from before the harness, now an ordinary brain project (H5). */
   previous: { projectId: string; at: number | null } | null;
+  repo: TeamRepo | null;
+  /** Prompts the harness ships for routines the app plans (the daily review of Jouw brein). */
+  prompts: { daily: string | null };
 };
 
 export type Brain = { projectId: string; path: string; status: BrainStatus };
@@ -753,6 +759,11 @@ export interface Backend {
     adoptSkill(personalId: string, fromProjectId: string, name: string, move: boolean): Promise<void>;
     savePersonalSkill(personalId: string, input: { name: string; description: string; content: string }): Promise<void>;
     removePersonalSkill(personalId: string, name: string): Promise<void>;
+    /** "Skills van je team": link a read-only repository of skills, commands and agents (brein-harnas-plan §2.1). */
+    linkTeamRepo(url: string): Promise<TeamRepo | null>;
+    unlinkTeamRepo(): Promise<void>;
+    trustTeamRepo(paths: string[]): Promise<TeamRepo | null>;
+    updateTeamRepo(): Promise<TeamRepo | null>;
     decide(proposalId: string, decision: "accept" | "reject", text: string | null): Promise<void>;
   };
 

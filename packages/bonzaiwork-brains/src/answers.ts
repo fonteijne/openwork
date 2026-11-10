@@ -71,3 +71,27 @@ export async function answerBrainReads(input: {
   }
   return answered;
 }
+
+export const CONVERSATION_READ = "breinen_gesprekken_lezen";
+
+/**
+ * `gesprekken_lezen` (brein-harnas-plan §2.2) is for Jouw brein only. The MCP
+ * cannot see who calls it, so the engine asks and the server answers: allowed
+ * in the personal brain's workspace (a chat there, or the daily routine),
+ * refused anywhere else, both without a card.
+ */
+export async function answerConversationReads(input: { request: EngineRequest; workspaceId: string; sessionId: string; allow: boolean; log?: (message: string, fields: Record<string, unknown>) => void }): Promise<number> {
+  const session = encodeURIComponent(input.sessionId);
+  const pending = await input.request(input.workspaceId, "GET", `/api/session/${session}/permission`);
+  const questions = listOf(pending.body).flatMap((item) => {
+    const id = text(item, "id");
+    const action = text(item, "action") ?? text(item, "permission");
+    return id && action === CONVERSATION_READ ? [id] : [];
+  });
+  for (const id of questions) {
+    const reply = input.allow ? "once" : "reject";
+    await input.request(input.workspaceId, "POST", `/api/session/${session}/permission/${encodeURIComponent(id)}/reply`, { decision: reply, reply });
+    input.log?.(input.allow ? "conversation read allowed in the personal brain" : "conversation read refused outside the personal brain", { workspace: input.workspaceId, session: input.sessionId });
+  }
+  return questions.length;
+}

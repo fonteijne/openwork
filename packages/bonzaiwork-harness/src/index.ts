@@ -25,7 +25,32 @@ export const HARNESS_VERSION: string = manifest.version;
 export { HARNESS_FILES };
 
 type ManifestItem = { versions: Record<string, string>; removed?: boolean };
-const ITEMS: Record<string, ManifestItem> = manifest.items;
+/** `harness.json`: the version and, per item, the fingerprint of every version ever shipped. */
+export type HarnessManifest = { version: string; items: Record<string, ManifestItem> };
+export const BUNDLED_MANIFEST: HarnessManifest = { version: manifest.version, items: manifest.items };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A `harness.json` from elsewhere (a team's repository): the same shape, read defensively. */
+export function readManifest(value: unknown): HarnessManifest | null {
+  if (!isRecord(value) || typeof value.version !== "string" || !value.version.trim()) return null;
+  const items: Record<string, ManifestItem> = {};
+  if (isRecord(value.items)) {
+    for (const [key, item] of Object.entries(value.items)) {
+      if (!isRecord(item) || !isRecord(item.versions)) continue;
+      const versions = Object.fromEntries(Object.entries(item.versions).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+      items[key] = { versions, ...(item.removed === true ? { removed: true } : {}) };
+    }
+  }
+  return { version: value.version.trim(), items };
+}
+
+/** A prompt the harness ships (`harness/prompts/<name>.md`), for a routine the app plans. */
+export function harnessPrompt(name: string): string | null {
+  return HARNESS_FILES.get(`prompts/${name}.md`) ?? null;
+}
 
 function frontmatterDescription(content: string): string {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
@@ -78,15 +103,15 @@ export function itemFingerprint(files: ReadonlyMap<string, string>): string {
 }
 
 /** Which shipped version a copy is, byte for byte (stamps aside); null when it was changed or is not ours. */
-export function shippedVersion(kind: HarnessItemKind, name: string, files: ReadonlyMap<string, string>): string | null {
-  const versions = ITEMS[itemKey(kind, name)]?.versions ?? {};
+export function shippedVersion(kind: HarnessItemKind, name: string, files: ReadonlyMap<string, string>, manifest: HarnessManifest = BUNDLED_MANIFEST): string | null {
+  const versions = manifest.items[itemKey(kind, name)]?.versions ?? {};
   const fingerprint = itemFingerprint(files);
   return Object.entries(versions).find(([, hash]) => hash === fingerprint)?.[0] ?? null;
 }
 
-/** True when the harness ever shipped an item of this name (a brain's copy can then be ours). */
-export function knownItem(kind: HarnessItemKind, name: string): boolean {
-  return itemKey(kind, name) in ITEMS;
+/** True when this harness ever shipped an item of this name (a brain's copy can then be ours). */
+export function knownItem(kind: HarnessItemKind, name: string, manifest: HarnessManifest = BUNDLED_MANIFEST): boolean {
+  return itemKey(kind, name) in manifest.items;
 }
 
 /**

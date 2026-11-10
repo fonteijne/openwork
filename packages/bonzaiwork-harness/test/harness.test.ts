@@ -4,7 +4,7 @@ import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import manifest from "../harness.json" with { type: "json" };
-import { brainPaths, compareVersions, HARNESS_FILES, HARNESS_VERSION, harnessItems, itemFingerprint, knownItem, readStamp, shippedVersion, stampedFiles, stripStamp } from "../src/index.ts";
+import { brainPaths, compareVersions, HARNESS_FILES, HARNESS_VERSION, harnessItems, harnessPrompt, itemFingerprint, knownItem, readManifest, readStamp, shippedVersion, stampedFiles, stripStamp } from "../src/index.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -60,6 +60,21 @@ describe("het harnas", () => {
     const command = harnessItems().find((entry) => entry.kind === "command" && entry.name === "verwerk");
     expect(command && brainPaths(command).get("verwerk.md")).toBe(".opencode/commands/verwerk.md");
     expect(command && readStamp(stampedFiles(command).get("verwerk.md") ?? "")).toEqual({ name: "verwerk", version: HARNESS_VERSION });
+  });
+
+  test("prompts en een manifest van een team", () => {
+    expect(harnessPrompt("dagverwerking")).toContain("gesprekken_lezen");
+    expect(harnessPrompt("bestaat-niet")).toBeNull();
+    // A prompt is not an item: no fingerprint, no copy in a brain.
+    expect(harnessItems().some((item) => item.name === "dagverwerking")).toBe(false);
+    const team = readManifest({ version: "2.1.0", items: { "skill:offerte-check": { versions: { "2.0.0": "abc", "2.1.0": "def" } }, broken: 1 } });
+    expect(team).toEqual({ version: "2.1.0", items: { "skill:offerte-check": { versions: { "2.0.0": "abc", "2.1.0": "def" } } } });
+    expect(readManifest({ items: {} })).toBeNull();
+    const files = new Map([["SKILL.md", "---\nname: offerte-check\n---\n"]]);
+    const withFingerprint = readManifest({ version: "2.1.0", items: { "skill:offerte-check": { versions: { "2.1.0": itemFingerprint(files) } } } });
+    expect(withFingerprint && shippedVersion("skill", "offerte-check", files, withFingerprint)).toBe("2.1.0");
+    expect(withFingerprint && knownItem("skill", "offerte-check", withFingerprint)).toBe(true);
+    expect(knownItem("skill", "offerte-check")).toBe(false);
   });
 
   test("versies vergelijken", () => {

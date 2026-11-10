@@ -75,7 +75,7 @@ describe("paden en instructies", () => {
 describe("de breinen-MCP", () => {
   const access = (root: string, wrote: string[] = [], proposed: string[] = [], team: TeamBrain[] = [], refreshed: string[] = []): PersonalAccess => ({
     root: () => root, excluded: () => ["Dagboek"], wrote: (path) => wrote.push(path), propose: async (text) => { proposed.push(text); return "p"; },
-    teamBrains: async () => team, refresh: async (id) => { refreshed.push(id); },
+    teamBrains: async () => team, refresh: async (id) => { refreshed.push(id); }, conversations: async () => [],
   });
   const text = (result: { content: Array<{ text: string }> }) => result.content.map((part) => part.text).join("");
 
