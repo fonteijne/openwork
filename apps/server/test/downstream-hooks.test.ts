@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -229,13 +229,33 @@ test("host: session activity, running sessions, MCP entries and the global conte
     assert.equal(await host.updateEngineMcp({ breinen: null }), true);
     assert.equal((await readGlobalRuntimeOpencodeConfig(config)).mcp, undefined);
 
-    await host.setEngineGlobalContext({ instructions: "# Mijn voorkeuren\n", skillsDirectory: skills });
     const directory = engineConfigDirectory(config);
+    // An older install linked the whole skills folder: that link makes way for one junction per skill.
+    await mkdir(directory, { recursive: true });
+    await symlink(skills, join(directory, "skills"), "junction");
+    await mkdir(join(skills, "okf-query"), { recursive: true });
+    await mkdir(join(skills, "eigen"), { recursive: true });
+    await host.setEngineGlobalContext({
+      instructions: "# Mijn voorkeuren\n",
+      skills: { "okf-query": join(skills, "okf-query"), eigen: join(skills, "eigen") },
+      commands: { onthoud: "---\ndescription: Onthoud\n---\nONTHOUD\n" },
+      agents: { brein: "---\ndescription: Brein\nmode: primary\n---\nBREIN\n" },
+    });
     assert.equal(await readFile(join(directory, "AGENTS.md"), "utf8"), "# Mijn voorkeuren\n");
-    assert.equal(await realpath(join(directory, "skills")), await realpath(skills));
-    await host.setEngineGlobalContext({ instructions: null, skillsDirectory: null });
+    assert.equal((await lstat(join(directory, "skills"))).isDirectory(), true);
+    assert.equal(await realpath(join(directory, "skills", "okf-query")), await realpath(join(skills, "okf-query")));
+    assert.equal(await realpath(join(directory, "skills", "eigen")), await realpath(join(skills, "eigen")));
+    assert.equal(await readFile(join(directory, "command", "onthoud.md"), "utf8"), "---\ndescription: Onthoud\n---\nONTHOUD\n");
+    assert.equal(await readFile(join(directory, "agent", "brein.md"), "utf8"), "---\ndescription: Brein\nmode: primary\n---\nBREIN\n");
+    // A skill, command or agent that is no longer given goes; a stray real folder in skills/ stays.
+    await mkdir(join(directory, "skills", "handmatig"));
+    await host.setEngineGlobalContext({ instructions: null, skills: { eigen: join(skills, "eigen") }, commands: {}, agents: {} });
     assert.equal(existsSync(join(directory, "AGENTS.md")), false);
-    assert.equal(existsSync(join(directory, "skills")), false);
+    assert.equal(existsSync(join(directory, "skills", "okf-query")), false);
+    assert.equal(existsSync(join(directory, "skills", "eigen")), true);
+    assert.equal(existsSync(join(directory, "skills", "handmatig")), true);
+    assert.equal(existsSync(join(directory, "command", "onthoud.md")), false);
+    assert.equal(existsSync(join(directory, "agent", "brein.md")), false);
   } finally {
     sseClient?.end();
     engine.closeAllConnections();

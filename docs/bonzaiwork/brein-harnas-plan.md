@@ -1,0 +1,423 @@
+# BonzaiWork Brein: harnas + persoonlijk brein (volgende iteratie)
+
+Status: **beslissingen H1–H7 genomen (09-11-2026); fase 0, 1 en 2 gebouwd**, uitkomsten in [`project-breinen-fase0.md`](./project-breinen-fase0.md) §9 en hieronder verwerkt. Bouwt voort op
+[`project-breinen-plan.md`](./project-breinen-plan.md); metingen komen in [`project-breinen-fase0.md`](./project-breinen-fase0.md) §9.
+
+## Context
+
+BonzaiWork heeft nu **projectbreinen** (teamrepo's via SSH, OKF/ICM, sync per beurt) en één **persoonlijk brein**
+("Jouw brein", `kind: "personal"`), waarvan `AGENTS.md` + `_meta/voorkeuren.md` en `.opencode/skills/` in elke chat
+meetellen via `<OPENCODE_CONFIG_DIR>/AGENTS.md` en een junction `<OPENCODE_CONFIG_DIR>/skills`
+(`apps/server/src/downstream-hooks.ts:516`, `packages/bonzaiwork-brains/src/server-hooks.ts:322`). Het persoonlijke
+brein heeft al git-geschiedenis zonder origin (`<state>/history/<id>.git`) met een optionele privérepo
+(`BrainSync.initLocal`, `/remote`).
+
+Wat ontbreekt, en wat de gebruiker merkt na een paar projecten:
+
+1. **Geen plek voor skills die in meerdere projecten gelden.** Technisch bestaat die (persoonlijke `.opencode/skills/`),
+   maar de UI toont ze niet, je kunt ze niet aanmaken, en een skill uit een project is niet "over te nemen".
+   `listSkills` (`apps/server/src/skills.ts`) scant die map niet, en `globalConfig` staat in de UI vast op `false`.
+2. **Meegeleverde skills veranderen nooit mee.** `applyTemplate` kopieert `okf-*`, `icm-architect` en de commando's
+   in elk brein bij het inrichten en schrijft daarna alleen wat ontbreekt. Release management kan dus niets aan een
+   bestaand brein toevoegen of verbeteren. Er is geen "harnas" als apart, versiebeheerd ding.
+3. **Het persoonlijke brein is passief.** Het groeit alleen als de AI midden in een beurt iets vastlegt. Niets kijkt
+   projectoverstijgend terug (mensen die in meerdere projecten voorkomen, besluiten, voorkeuren).
+4. **Er is geen eigen agent voor het brein.** De chat op `#/brein` gebruikt de gewone Uitvoeren-agent.
+
+Doel van deze iteratie: **"jouw brein" wordt het BonzaiWork Brein = een meegeleverd en versiebeheerd harnas
+(skills, commando's, agent, app-regels) + het persoonlijke brein van de gebruiker (voorkeuren, mensen, kennis, eigen
+skills), op de achtergrond bijgehouden door een dagelijkse routine, met een eigen agent waarmee je kunt chatten.**
+Projectbreinen krijgen dezelfde harnas-onderdelen zonder kopie, zodat alle breinen op dezelfde manier worden bijgehouden.
+
+Genomen beslissingen (overleg 09-11):
+
+| # | Vraag | Besluit |
+|---|---|---|
+| H1 | Hoe komt het harnas bij gebruikers? | **App-releases én een harnas-repo** (SSH, alleen-lezen) als tweede bron |
+| H2 | Achtergrond | **Dagelijkse verwerkingsroutine in Jouw brein + `/onthoud` op verzoek** |
+| H3 | Harnas-onderdelen in een projectbrein | **Blijven in de repo** (een projectbrein moet ook zonder BonzaiWork werken, bijv. uitgecheckt in Claude Code). Een verouderde kopie geeft een **kaart** op het Brein-tab. **Ongewijzigd**: "Bijwerken naar <versie>" of "Uit het project halen" (dan levert het harnas hem globaal en houdt hem actueel). **Door het team aangepast**: de kaart meldt dat er een nieuwere versie in het harnas is, met "Verschillen bekijken", "Harnasversie overnemen" (de eigen aanpassingen gaan verloren; de oude versie blijft in de geschiedenis) of "Zo laten" (onthouden tot de volgende harnasversie). Nooit stil overschrijven |
+| H4 | Persoonlijke agent | **Eigen agent "Brein" uit het harnas** (definitie meegeleverd, in elke agent-kiezer) |
+| H5 | Bestaand persoonlijk brein | **Wordt een gewoon project** ("<naam> (tot <datum>)", geschiedenis blijft, alleen-lezen te raadplegen); het nieuwe Jouw brein start leeg vanuit het harnas |
+| H6 | Skills-hub en beheerde MCP-hub via Bonzai LiteLLM | **Nu niets**, later een apart ontwerp. Hier alleen: geen keuze maken die dat blokkeert (harnas-repo gebruikt dezelfde mappen als de bundel; bronnen zitten achter één functie in `harness.ts`) |
+| H7 | ICM-werkwijzen en skills overlappen | **Uitzoeken in fase 0** (E7), richting: een werkwijze als skill-pakket, zodat één formaat door harnas, repo en later de hub gaat |
+
+Uitgangspunten die blijven: 0 nieuwe upstream-patches (alles via `downstream-hooks.ts` en de hooks-pakketten; `PATCHES.md`
+groen), synchronisatie is code en geen instructie, alleen SSH, de AI doet geen git, Nederlandse UI volgens `DESIGN.md`.
+
+## Het model in één plaat
+
+```
+<OPENCODE_CONFIG_DIR>/                         door de hooks samengesteld; engine laadt het in elk project
+  AGENTS.md                                    app-regels (harnas) + persoonlijke AGENTS.md + voorkeuren   (bestaat)
+  skills/                                      ECHTE map met per skill een junction                        (nieuw: nu 1 junction)
+    okf-query -> <app>/resources/harness/skills/okf-query          bron 1: meegeleverd (app-versie)
+    offerte-check -> <harnas-repo>/skills/offerte-check            bron 2: harnas-repo (alleen-lezen brein)
+    mijn-samenvatting -> <persoonlijk brein>/.opencode/skills/...  bron 3: eigen skills
+  command/  (KOPIEËN: /verwerk, /vastleggen, /onderhoud, /werkwijze, /onthoud)                      gemeten E1, E4
+  agent/    brein.md                            de agent "Brein", als KOPIE (een link ziet de engine niet live) gemeten E1, E4
+
+Voorrang bij gelijke naam: project > eigen > harnas-repo > meegeleverd (projectskill wint al in de engine, H3).
+
+Projectbrein-repo (zelfstandig bruikbaar, H3):
+  .opencode/skills/okf-query/SKILL.md            kopie uit het harnas, met regel "harness: okf-query@1.4" in de frontmatter
+  .opencode/commands/verwerk.md                  idem
+  AGENTS.md, _meta/, _templates/, knowledge/, workflows/
+```
+
+Een kopie draagt zijn herkomst in de frontmatter (`harness: <naam>@<versie>`), zodat de sync zonder byte-vergelijking
+weet of hij ongewijzigd is: inhoud gelijk aan de meegeleverde versie met dat nummer → ongewijzigd. Bestaande kopieën
+zonder die regel worden vergeleken met alle ooit meegeleverde versies (`harness.json` houdt per onderdeel een
+lijst `sha256` per versie bij).
+
+Harnas-manifest: `harness.json` `{ version, skills[], commands[], agents[], schemaTypes[] }` in de bundel, en hetzelfde
+bestand in de root van een harnas-repo. De UI toont per onderdeel waar het vandaan komt en welke versie.
+
+## Fase 0: meten (1 dag), vóór er code komt
+
+**Gedaan (09-11)**: `scripts/bonzaiwork/spikes/brains/harness-probe.mjs` (23 controles op OpenCode v2.2.0, alle
+`ok`) en `e6-gitdir.test.ts`; uitkomsten en gevolgen in [`project-breinen-fase0.md`](./project-breinen-fase0.md) §9.
+Kort: E1 ja (ook meervoud), E2 ja, E3 project wint, E4 ja maar agent- en commandobestanden als kopie (niet als link),
+E5 ~100 ms voor 54 chats met bekende berichtvormen, E6 ja zonder wijziging, E7 ja voor de engine; `workflows.ts` en
+`icm.ts` moeten het skill-pad leren. De vragen zoals gesteld:
+
+- **E1** Laadt de gepinde OpenCode v2 `command/*.md` en `agent/*.md` uit `OPENCODE_CONFIG_DIR` (zoals `skills/`), live,
+  ook in sub-taken? Zo nee: commando's blijven per brein (zoals nu) en de agent komt via `agent` in de globale
+  runtime-config (`writeGlobalRuntimeOpencodeConfig`, zelfde route als `mcp`).
+- **E2** Werkt `skills/` als echte map met per-skill junctions (i.p.v. één junction), en pikt de engine toevoegen en
+  weghalen van een junction live op?
+- **E3** Welke skill wint bij dezelfde naam in project en config-map (nodig voor H3: oude projectkopie moet winnen)?
+- **E4** Kan een agent uit `agent/` worden gestart met `POST /api/session/:id/agent` en ziet `GET /api/agent` hem?
+- **E5** Sessies van vandaag in alle lokale mappen ophalen via `host.engineRequest` (`GET /api/session`, berichten), voor
+  de dagroutine; wat kost dat bij ~20 chats.
+- **E6** Werkt `BrainSync` voor `kind: "project"` met `gitDir` buiten de map en `remote: null` (status `local_only`)?
+  Nodig voor H5: het oude persoonlijke brein wordt een gewoon brein-project met zijn bestaande geschiedenis in
+  `<state>/history/<id>.git`. Zo nee: de geschiedenis als `.git` in de map zetten als de map niet in een cloudmap staat
+  (`isCloudFolder`), anders alleen de map behouden en de geschiedenis via de bestaande `/history`-route laten lezen.
+- **E7** Overlap ICM en skills (H7). Inventariseer wat een werkwijze (`workflows/<naam>/CONTEXT.md` + stappen, gedraaid
+  door `workflows.ts`) deelt met een skill (`SKILL.md` + bronnen, gekozen door de engine op beschrijving). Voorstel om te
+  toetsen op de bestaande voorbeeldwerkwijzen: **een werkwijze als skill-pakket**: `.opencode/skills/<naam>/SKILL.md`
+  (beschrijving, wanneer te gebruiken) met daarin `workflow/CONTEXT.md` en de stappen; `workflows.ts` vindt werkwijzen
+  dan in `workflows/*` én in skills met een `workflow/`-map. Winst: één formaat voor harnas, repo en later de hub, en
+  een werkwijze is in Claude Code nog steeds een leesbare skill. Te meten: ziet de engine `SKILL.md` nog als skill met
+  zo'n submap, en blijft de ICM-structuurcontrole (`icm.ts`) werken op het nieuwe pad. Uitkomst bepaalt of 1.1 de
+  harnas-werkwijzen (`/werkwijze`, `icm-architect`) zo verpakt.
+
+## Fase 1: het harnas (meegeleverd) en eigen skills
+
+### 1.1 Nieuw pakket `packages/bonzaiwork-harness`
+
+- `harness/skills/`, `harness/commands/`, `harness/agents/brein.md`, `harness/schema/` (OKF-typen die het harnas
+  levert, waaronder `Person`, `Organisation`, `Project`, `Decision`), `harness.json` met `version`.
+- **Verhuizen** uit `packages/bonzaiwork-brains/templates/common/.opencode/*` en `templates/vendor/icm-architect`
+  (MIT-vermelding mee) naar het harnas-pakket. `templateTargets()` (`template.ts`) leest de skills en commando's
+  voortaan uit het harnas en schrijft ze **wel** in een projectbrein (H3, met `harness: <naam>@<versie>` in de
+  frontmatter), maar **niet** in het persoonlijke brein (daar levert het harnas ze globaal). `test/template.test.ts`
+  aanpassen; `TEMPLATE_FILES` houdt `AGENTS.md`, `_meta/`, `_templates/`, `workflows/CONTEXT.md`.
+- Bundelen als tekst (zelfde patroon als `template-files.ts`) én als `extraResources` in
+  `apps/desktop/electron-builder.bonzaiwork.mjs` (eigen bestand, geen patch), zodat de junctions naar echte mappen wijzen.
+  Headless: de hooks schrijven de bundel uit naar `<state>/harness/<version>/` en linken daarheen. Dat werkt ook in de
+  verpakte app, dus **één route**: altijd uitschrijven naar `<state>/harness/<version>/`, oude versies opruimen.
+- Werkwijzen uit het harnas (`/werkwijze`, `icm-architect`) als **skill-pakket** (H7, fase 0 §9.1): `SKILL.md` met
+  daaronder `workflow/`. `workflows.ts` (`listWorkflows`, `readWorkflow`, `startStage`, `newRun`) vindt werkwijzen in
+  `workflows/<naam>/` én `.opencode/skills/<naam>/workflow/`; `icm.ts` controleert beide paden (`STAGE_CONTRACT`).
+- Nieuwe skill in het harnas: `brein-mensen` (iemand opzoeken en bijwerken in `knowledge/mensen/`), commando `/onthoud`
+  (leg uit deze chat vast wat projectoverstijgend is: mensen, besluiten, voorkeuren via `voorkeur_voorstellen`).
+- Agent `brein.md`: prompt (Nederlands, verwijst naar de breinen-tools en de routering in de persoonlijke `AGENTS.md`),
+  `tools`: breinen-MCP + lezen/zoeken; model = `BONZAIWORK_DEFAULT_MODEL`. Naam in `AGENT_NAMES` (`live/index.ts:214`): "Brein".
+
+### 1.2 Samengestelde config-map (`downstream-hooks.ts`, ons bestand)
+
+- `setEngineGlobalContext({ instructions, skills: Record<name, path>, commands?: Record<name, text>, agents?: Record<name, text> })`.
+  `skills/` wordt een echte map (0700); per naam een junction; verdwenen namen worden verwijderd; een niet-link in de
+  map blijft staan met een waarschuwing (zoals nu). Oude vorm (één junction) wordt bij de eerste start vervangen.
+  `command/` en `agent/` krijgen **kopieën** (atomisch geschreven, zoals `AGENTS.md`): fase 0 E4 mat dat de engine een
+  via een link gewijzigd agentbestand niet oppikt, een rechtstreeks geschreven bestand wel. Verandert een skill achter
+  een bestaande junction (eigen skill bewerkt), dan maakt de hook de junction opnieuw (weghalen + aanmaken; E2).
+- `apps/server/test/downstream-hooks.test.ts` uitbreiden: toevoegen, weghalen, bestaande niet-link.
+
+### 1.3 Hooks (`packages/bonzaiwork-brains/src/server-hooks.ts`, nieuw `harness.ts`)
+
+- `harness.ts`: bronnen verzamelen → `{ name, path, source: "bundled" | "repo" | "personal", version }[]`, voorrang
+  eigen > repo > meegeleverd, namen die botsen met een projectskill mogen gewoon mee (E3: het project wint, de engine
+  noemt hem één keer).
+- `refreshGlobalContext()` roept dat aan; de `signature` neemt de lijst mee. Aanroepen ook bij wijziging van
+  `<persoonlijk>/.opencode/skills` (file-watch via `fs.watch` met debounce, of bij elke pull zoals nu).
+- `APP_RULES` (`personal.ts`) uitbreiden met één regel over `/onthoud` en de agent Brein; blijft buiten elke repo.
+- Route `GET /bonzaiwork/harness` (client) → `{ version, items: [{ kind, name, source, version, path }] }` en
+  `Capabilities.harness = probe("/bonzaiwork/harness")` (ons flag-mechanisme, DESIGN.md P4: zichtbaar maar vergrendeld
+  zonder). Server-kant uit te zetten met `BONZAIWORK_HARNESS=0` in de hooks-opties, zodat het zonder release uit kan.
+- **Verouderde kopieën in een projectbrein (H3)**: na elke pull en bij het openen vergelijkt de sync de kopieën onder
+  `.opencode/skills/` en `.opencode/commands/` met het harnas (frontmatter-regel, anders sha-lijst). Ouder dan het
+  harnas → `BrainStatus.outdated: [{ name, from, to, modified: boolean }]`; `modified` is waar als de inhoud afwijkt van
+  elke ooit meegeleverde versie (het team paste hem aan). Een onderdeel zonder herkenbare herkomst (eigen skill met
+  toevallig dezelfde naam) telt niet mee. Routes (host): `POST /bonzaiwork/brains/:id/harness/update { names }` (nieuwe
+  versie schrijven, één commit "BonzaiWork-onderdelen bijgewerkt naar <versie>" via het `finishTurn`-pad zonder chat;
+  bij `modified` vervangt hij de aangepaste versie, die in de geschiedenis blijft en met de bestaande `/restore`-route
+  terug kan), `POST /bonzaiwork/brains/:id/harness/remove { names }` (kopie verwijderen, commit "… uit het project
+  gehaald; BonzaiWork levert ze"), `GET /bonzaiwork/brains/:id/harness/diff?name=` (client; unified diff tussen de
+  kopie en de harnasversie, voor "Verschillen bekijken") en `POST /bonzaiwork/brains/:id/harness/dismiss { names }`
+  ("Zo laten": per gebruiker in `brains.json`, tot er een nieuwere harnasversie is). Een alleen-lezen brein toont de
+  kaart alleen ter informatie (niets te committen).
+- **Migratie van het bestaande persoonlijke brein (H5)**, eenmalig bij de eerste start met harnas aan: record
+  `kind: "personal"` → `kind: "project"`, zelfde `path`, `gitDir`, `remote` (als er een privérepo hing) en `mode`;
+  workspace hernoemen naar "<naam> (tot <datum>)"; `<OPENCODE_CONFIG_DIR>/AGENTS.md` opnieuw schrijven zonder de oude
+  voorkeuren. Op Jouw brein verschijnt de inrichtkaart (bestaand `SetupCard`) met één extra zin en een link naar het
+  oude project; het nieuwe brein kan het oude lezen via `brein_lezen` (bestaand, alleen-lezen) en `/onthoud` kan
+  voorkeuren overnemen als voorstelkaart. Niets wordt verwijderd. Afhankelijk van E6.
+
+### 1.4 Eigen skills in het persoonlijke brein
+
+- **Wat meegaat in git** (afwijking van N5 voor `kind: "personal"`): alle tekstbestanden onder `.opencode/skills/**`,
+  `.opencode/commands/**` (niet alleen `.md`), met de bestaande geheimenscan en 10 MB-grens. In `trust.ts`
+  `personalExcludes` en in `sync.ts` de `add`-stap (`git add -- '*.md'` → plus die paden). Test in `personal.test.ts`.
+- Routes (host): `POST /bonzaiwork/brains/:personal/skills/adopt { fromWorkspaceId, name, move: boolean }` (kopieert
+  `<project>/.opencode/skills/<name>` naar het persoonlijke brein; bij `move` verwijdert hij de projectkopie in de
+  volgende beurt-commit van dat brein), `PUT/DELETE /bonzaiwork/brains/:personal/skills/:name` (schrijven via
+  `brainPath`-achtige controle, alleen tekst). `listSkills` zelf niet patchen: de UI leest harnas + eigen via
+  `/bonzaiwork/harness` en projectskills via de bestaande route.
+- `saveSkill`/`removeSkill` voor `scope: "global"` in `apps/bonzaiwork/src/backend/live/index.ts:967` gaan naar deze
+  routes i.p.v. `unsupported(...)`.
+
+### 1.5 UI (`apps/bonzaiwork/src/features/brain/`, `settings/werkwijzen.tsx`, `copy.ts`)
+
+- **Jouw brein → sectie "Werkwijzen en skills"**: drie groepen met herkomst-chip: "Van BonzaiWork <versie>"
+  (alleen-lezen, Openen), "Uit het harnas van je team" (fase 2), "Van jou" (Openen, Bewerken, Nieuwe skill,
+  Verwijderen). Lege staat met één zin.
+- **Projectinstellingen → Agent → Werkwijzen** (`MethodsSection`): rij-actie "Overal gebruiken" (→ `/skills/adopt`)
+  bij projectskills; globale rijen tonen herkomst en zijn alleen vanuit Jouw brein te bewerken (link).
+- **Brein-tab → kaart "Onderdelen van BonzaiWork zijn verouderd"** (`Callout`, zelfde schil als Actie nodig): per
+  onderdeel naam en "1.2 → 1.4". Ongewijzigd: knoppen **Bijwerken** en **Uit het project halen**, met één zin uitleg
+  bij de tweede ("Dan werkt dit onderdeel alleen nog in BonzaiWork, en blijft het vanzelf actueel"). Aangepast door het
+  team: tekst "Jullie hebben deze versie aangepast; BonzaiWork heeft een nieuwere", knoppen **Verschillen bekijken**
+  (diff in de Details-kolom, zelfde lezer als bestanden), **Harnasversie overnemen** (met bevestiging: "Jullie
+  aanpassingen gaan uit het bestand; de vorige versie blijft in de geschiedenis") en **Zo laten**. Ook als
+  aandachtsitem op Vandaag (`attention.list()`), zonder blokkade van chatten.
+- **Jouw brein na de migratie (H5)**: inrichtkaart met "Je vorige brein staat als project <naam> (tot <datum>)" en
+  link; na inrichten een rij "Overnemen uit je vorige brein" die een chat met de agent Brein start met een vaste
+  opdracht (lees het oude brein, stel voorkeuren voor, neem mensen en kennis over als concepten).
+- **Agent-kiezer** in de composer toont "Brein"; op `#/brein` is hij standaard. In een project kiesbaar.
+- Woorden: "harnas" niet in beeld (C3); zeg "Van BonzaiWork", "Van je team", "Van jou". Nieuwe teksten in `copy.ts`.
+- Demo-backend (`backend/demo/`) krijgt harnas-items en eigen skills; screenshots headless voor de PR.
+
+### 1.6 Klaar als
+
+Een skill uit project X staat na "Overal gebruiken" in Jouw brein, is in project Y beschikbaar, staat in de
+geschiedenis van het brein (incl. een niet-`.md` script) en komt mee op een tweede laptop na "Privérepo koppelen". Een
+nieuwe app-versie met een gewijzigde `okf-query` is in elk gewoon project meteen de nieuwe versie; een projectbrein met
+een ongewijzigde oude kopie toont de kaart, "Bijwerken" geeft één commit die een tweede gebruiker na zijn pull ziet,
+"Uit het project halen" laat het harnas het overnemen; een door het team aangepaste kopie blijft ongemoeid (H3). Een
+bestaand persoonlijk brein is na de upgrade een gewoon project met zijn geschiedenis, en het nieuwe Jouw brein start
+leeg (H5). `/onthoud` werkt in elke chat. Agent "Brein" staat in de kiezer en antwoordt op `#/brein`.
+
+### 1.7 Stand fase 1 (gebouwd, 09-11)
+
+- `packages/bonzaiwork-harness`: `harness/skills` (`okf-ingest`, `okf-query`, `okf-lint`, `icm-architect`, nieuw `brein-mensen`),
+  `harness/commands` (`/verwerk`, `/vastleggen`, `/onderhoud`, `/werkwijze`, nieuw `/onthoud`), `harness/agents/brein.md`,
+  `harness.json` (versie `1.0.0` + vingerafdruk per onderdeel per versie), `scripts/manifest.mjs`, `src/index.ts`
+  (`harnessItems`, `shippedVersion`, `stampedFiles`, `readStamp`), tests.
+- Breinen: `harness.ts` (samenstellen, uitschrijven naar `<state>/harness/<versie>/`, eigen skills uit het
+  persoonlijke brein, `outdatedItems`, `updateItems`, `removeItems`, `unifiedDiff`), `template.ts` schrijft
+  gestempelde kopieën in projectbreinen en niets in het persoonlijke brein, `registry.ts` (`harness`, `dismissed`),
+  `sync.ts` (`outdated` in de status, `applyHarness`, tekstbestanden van eigen skills mee), `server-hooks.ts`
+  (migratie H5 bij de eerste start, `GET /bonzaiwork/harness`, de `harness/*`- en `skills/*`-routes,
+  `BONZAIWORK_HARNESS=0`), `personal.ts` (app-regel over `/onthoud` en de agent Brein).
+- Aanhaakpunt: `setEngineGlobalContext({ instructions, skills, commands, agents })` schrijft een echte `skills/`-map
+  met per skill een junction (steeds opnieuw aangemaakt) en kopieën in `command/` en `agent/`.
+- UI: `Capabilities.harness`, Jouw brein → "Werkwijzen en skills" en "Overnemen uit je vorige brein", de kaart
+  op het Brein-tab en op Vandaag, "Overal gebruiken" en herkomst-chips in Werkwijzen, de agent Brein standaard op
+  Jouw brein, demo-staten `?brein=verouderd` en `?brein=vorig-brein`. Schermafbeeldingen `screenshots/harnas-*.png`.
+- Niet gebouwd in fase 1: de skills-hub en MCP-hub (H6, later), de harnas-repo en de dagverwerking (fase 2), een
+  OKF-type-lijst uit het harnas (fase 2), en een "harnas-skill aanwezig"-stap in de verpakte smoketest.
+
+## Fase 2: harnas-repo (H1) en de dagelijkse verwerking (H2)
+
+Stand na fase 1 (verkend 09-11): de breinen-MCP weet **niet** wie hem aanroept (`handleMcpRequest` controleert alleen het
+token); elk brein in `syncs` moet een workspace hebben (`reconcile()` gooit een brein zonder workspace weg); `okf.ts`
+controleert `type` alleen op niet-leeg; `teamBrains()` filtert op `kind === "project"` en voedt `breinen_lijst` én
+`answerBrainReads`. Dat bepaalt de keuzes hieronder.
+
+### 2.1 Harnas-repo ("Skills van je team")
+
+- **Geen nieuwe `BrainKind`.** De repo is een `BrainSync` met `kind: "project"`, `mode: "read_only"`, geclonet in
+  `<state>/harness-repo/` (geen workspace, geen project in de zijbalk) en bewaard als `registry.harness.repo:
+  BrainRecord | null`. Hij staat **niet** in `syncs` (dus `reconcile()`, `teamBrains()`, `breinen_lijst` en de
+  Stop-hook raken hem niet) maar in een eigen variabele `harnessRepo` in `server-hooks.ts`. Zijn map komt in
+  `closedFolders()` (gewone tools blijven eruit) en in de periodieke fetch: elke 10 min `prepareTurn()` (fetch +
+  fast-forward; alleen-lezen, dus nooit een commit) en bij verschil `refreshGlobalContext()` (de junctions worden
+  opnieuw gezet, fase 0 E2).
+- **Vertrouwen**: bestaand mechanisme ongewijzigd. `BrainSync.clone` zet agents, commando's met shell, plugins en
+  `opencode.json` op de sparse-checkout-lijst; `status.pendingTrust` toont ze; `sync.trust(paths)` haalt ze binnen.
+  `opencode.json`/plugins uit de repo worden **nooit** gebruikt (niet in `composeHarness`), ook niet na vertrouwen:
+  de repo levert alleen `skills/`, `commands/`, `agents/`, `harness.json`.
+- **Bron `repo` in `harness.ts`**: `composeHarness({ …, repoRoot })` leest `<repo>/skills/*/SKILL.md`,
+  `<repo>/commands/*.md`, `<repo>/agents/*.md` (alleen wat uitgecheckt is, dus vertrouwd) en `<repo>/harness.json`
+  (zelfde vorm als de bundel: `version`, `items[].versions`). Voorrang eigen > repo > meegeleverd. `HarnessView.source`
+  krijgt `"repo"`; `HarnessInfo.repo = { remote, version, status: BrainStatus } | null`.
+- **H3 voor repo-onderdelen**: `shippedVersion`/`knownItem` krijgen een manifest-parameter; `outdatedItems(root,
+  dismissed, manifests)` kijkt in de bundel én de repo-manifest, `to` is de versie van de bron die het onderdeel nu
+  levert. Een kopie van een repo-skill in een projectbrein wordt dus ook "verouderd" als de repo een nieuwere versie
+  heeft. `updateItems` schrijft dan de repo-versie, gestempeld `harness: <naam>@<repo-versie>`.
+- **Routes** (`server-hooks.ts`): `PUT /bonzaiwork/harness/repo { url }` (host; `parseRemote`, `checkConnection`,
+  `BrainSync.clone` naar `<state>/harness-repo/`, weigert als er al een is), `DELETE /bonzaiwork/harness/repo` (host;
+  map weg, record weg, context opnieuw), `POST /bonzaiwork/harness/repo/trust { paths }` (host), `POST
+  /bonzaiwork/harness/repo/update` (host; nu ophalen), `GET /bonzaiwork/harness` krijgt `repo`. De bestaande
+  `POST /bonzaiwork/brains/check-remote` dient als "Verbinding testen".
+- **UI**: Instellingen → Breinen (`personal-setup.tsx`, `BrainsAppSection`) krijgt een rij **"Skills van je team"**
+  tussen het persoonlijke brein en de naam-in-de-geschiedenis: zonder repo een `BrainLinkField` + "Koppelen"; met repo
+  de link, een `StatusChip` (bijgewerkt / nieuwe versie / actie nodig), "Nu bijwerken", "Loskoppelen" (ConfirmDialog)
+  en, als er onderdelen op akkoord wachten, een trust-kaart (nieuwe kleine variant van de trust-`Callout` in
+  `cards.tsx`, met `HarnessInfo.repo.status.pendingTrust`). Jouw brein → Werkwijzen en skills en Instellingen → Voor
+  alle projecten tonen de chip **"Van je team <versie>"** (bestaande `OriginChip`/`harnessKindChip` uitbreiden). Woord
+  "harnas" blijft uit beeld (C3).
+- **Demo**: `?brein=teamskills` geeft een gekoppelde repo met twee skills en één onderdeel dat op akkoord wacht.
+- **Beheerdoc**: hoofdstuk "Skills voor je team in één repo" in `docs/bonzaiwork/brein-beheer.md`: indeling
+  (`harness.json`, `skills/`, `commands/`, `agents/`), versie ophogen en vingerafdruk (het script
+  `packages/bonzaiwork-harness/scripts/manifest.mjs` werkt ook op een repo-map met `--root`), wat collega's zien,
+  branch-bescherming zoals bij een brein.
+
+### 2.2 Dagelijkse verwerking
+
+**Zo ziet een dag eruit.** De gebruiker werkt in zijn projecten; niets gebeurt extra. Om 17:30 start de bestaande
+routineplanner een nieuwe chat in Jouw brein met de agent Brein en de vaste opdracht uit het harnas. De agent vraagt
+met `gesprekken_lezen` de chats van die dag op (bijv. zes chats uit drie projecten), leest ze, en werkt het brein bij
+met de tools die hij al heeft: een `Person`-concept in `knowledge/mensen/` (draft, chat als bron), een besluit in
+`knowledge/projecten/<project>.md`, een voorkeur via `voorkeur_voorstellen` (kaart op Vandaag). De Stop-hook legt het
+vast in de geschiedenis. De volgende ochtend staat die chat onder Jouw brein met drie regels wat er veranderde; de
+gebruiker vraagt door of corrigeert in dezelfde chat.
+
+- **Geen nieuwe verbinding en geen nieuwe server.** `gesprekken_lezen({ sinds, tot?, project? })` is één extra tool
+  in `BRAIN_TOOLS` (`mcp.ts`); `PersonalAccess` krijgt `conversations(input)`, in `server-hooks.ts` gebouwd op
+  `host.engineRequest(ws, "GET", "/api/session")` en `…/api/session/:id/message?limit=200` per lokale workspace
+  (zelfde pad als `answers.ts`). Filter: `time.updated >= sinds` (en `< tot`), optioneel één project (naam of id).
+  Antwoord per chat: `{ project, titel, tijd, berichten: [{ rol, tekst }] }` met `type: "user"` → `text` en
+  `type: "assistant"` → `content[].text` (fase 0 E5), zonder tool-aanroepen; afgekapt op ~4 000 tekens per chat en
+  ~40 chats, met `meer: true` als er meer was.
+- **Niet zijn eigen samenvattingen lezen**: chats van routines worden overgeslagen. De breinen-hooks kennen de
+  routines niet (de routines hangen aan de breinen, niet andersom), dus `createCombinedHooks` geeft na het aanmaken
+  `routines.isRoutineChat` door met `brains.setRoutineCheck(...)`.
+- **Alleen in Jouw brein.** De MCP weet niet wie hem aanroept, dus de grens loopt via de engine-toestemming, zoals bij
+  `brein_lezen`: `ENGINE_PERMISSIONS` krijgt `breinen_gesprekken_lezen: ask`. De server beantwoordt die vraag zelf
+  (bestaande 1,5 s-lus `answerProjectReads`/`answerBrainReads`): **toestaan** voor een chat in de workspace van het
+  persoonlijke brein (ook de routinechat, die daar draait), **weigeren** (`reject`) voor elke andere workspace, zodat
+  een teambrein nooit andere projecten uitleest. `answers.ts` krijgt daarvoor een tweede actie naast
+  `breinen_brein_(lezen|zoeken)` en een `personalId`. De UI toont de kaart niet voor deze actie
+  (`isBrainRead`-achtige filter in `attention`): de server is er binnen 1,5 s. e2e bewijst allebei.
+- **Prompt uit het harnas**: `packages/bonzaiwork-harness/harness/prompts/dagverwerking.md` (nieuwe map; geen
+  onderdeel met vingerafdruk, wel in `HARNESS_FILES`), via `harnessPrompt("dagverwerking")` en in `GET
+  /bonzaiwork/harness` als `prompts.daily`, zodat release management hem bijstelt zonder UI-wijziging. Opdracht: roep
+  `gesprekken_lezen` aan voor de laatste 24 uur (of sinds de laatste regel "Dagelijkse verwerking" in
+  `knowledge/log.md`), werk per persoon `knowledge/mensen/<naam>.md` (`type: Person`), per project
+  `knowledge/projecten/<project>.md` (`type: Project`) en besluiten (`type: Decision`) bij als `status: draft` met de
+  chat als bron (`resource: bonzaiwork://chat/<id>`), stel voorkeuren voor met `voorkeur_voorstellen`, en sluit af
+  met drie regels: nieuw, bijgewerkt, voorstellen.
+- **Routine "Dagelijkse verwerking"**: rij op Jouw brein onder Voorkeuren (zelfde patroon als "Wat is er nieuw":
+  bestaande routine op naam, anders `RoutineEditor` met `template = { name, prompt: harness.prompts.daily, brains: [],
+  schedule: daily 17:30 }`). De run is een gewone routinechat in de workspace van Jouw brein; de Stop-hook legt de
+  wijzigingen vast onder die chat. Gemiste runs worden niet ingehaald (bestaand gedrag).
+- **OKF-typen**: `okf.ts` controleert alleen niet-leeg, dus geen code nodig. `templates/common/_meta/schema.md` krijgt
+  `Person`, `Project` en `Decision` in de typelijst met één regel schrijfafspraak elk; `copy.brain.knowledge.types`
+  krijgt `person: "Mensen"` en `project: "Projecten"` zodat de kennis-sectie ze groepeert.
+
+### 2.3 Stand fase 2 (gebouwd, 10-11)
+
+- Harnas: `harness/prompts/dagverwerking.md`, `harnessPrompt()`, `readManifest()`, `shippedVersion`/`knownItem` met
+  manifest-parameter, `manifest.mjs --root` voor een teamrepo.
+- Breinen: `harness.ts` met bron `repo` (`TeamHarness`, `readTeamHarness`, `repoItems`, `providedItem`), `outdatedItems`/
+  `updateItems`/`removeItems`/`itemVersions` kennen de teamversie; `server-hooks.ts` beheert de teamrepo als
+  read-only `BrainSync` in `<state>/harness-repo/` (routes `PUT`/`DELETE /bonzaiwork/harness/repo`, `…/trust`,
+  `…/update`, `repo` en `prompts.daily` in `GET /bonzaiwork/harness`, bijwerken in de 10-minutenlus, map dicht
+  voor de gewone tools), `conversations()` achter de MCP-tool `gesprekken_lezen` (`mcp.ts`), `setRoutineCheck`
+  vanuit de gecombineerde hooks, `breinen_gesprekken_lezen: ask` met het antwoord van de server
+  (`answerConversationReads`: toestaan in Jouw brein, weigeren elders). `trust.ts` kent de indeling van een
+  teamrepo (`TrustLayout`). `_meta/schema.md` heeft `Person` en `Project`.
+- UI: Instellingen → Breinen → "Skills van je team" (`team-repo.tsx`), chips "Van je team", rij "Dagelijkse
+  verwerking" op Jouw brein (werkdagen 17:30, prompt uit het harnas), geen kaart voor `breinen_gesprekken_lezen`;
+  demo `?brein=teamskills`.
+- Niet gebouwd: de e2e-stap met een echte teamrepo in de engine (de unit-test dekt clone, trust, update en
+  voorrang; `/api/skill` met een repo-skill volgt uit fase 0 E2), en de kaart H3 voor repo-onderdelen in de demo.
+
+### 2.4 Klaar als
+
+Twee gebruikers met dezelfde harnas-repo zien een nieuwe skill binnen 10 minuten in elk project, zonder app-update;
+een agent uit die repo laadt pas na "Toestaan". Na een dag werken in twee projecten bevat Jouw brein een
+`Person`-concept voor iemand die in beide voorkwam, met bron, en een voorkeursvoorstel staat als kaart op Vandaag.
+`gesprekken_lezen` werkt in Jouw brein en in de routinechat en wordt vanuit een projectbrein geweigerd zonder kaart.
+
+### 2.5 Bestanden en verificatie (fase 2)
+
+| Bestand | Wijziging |
+|---|---|
+| `packages/bonzaiwork-harness/harness/prompts/dagverwerking.md`, `src/index.ts`, `scripts/manifest.mjs`, test | prompt-bestanden; `harnessPrompt()`; `shippedVersion`/`knownItem` met manifest-parameter; `--root` voor een repo-map |
+| `packages/bonzaiwork-brains/src/harness.ts` | bron `repo` (`repoRoot`, repo-manifest), `outdatedItems(..., manifests)`, `source: "repo"` |
+| `packages/bonzaiwork-brains/src/server-hooks.ts` | `harnessRepo` (clone in `<state>/harness-repo/`, fetch-lus, closedFolders), routes `/bonzaiwork/harness/repo*`, `conversations()` voor de MCP, `setRoutineCheck`, antwoord op `breinen_gesprekken_lezen` |
+| `packages/bonzaiwork-brains/src/mcp.ts`, `answers.ts`, `registry.ts`, `personal.ts` | tool `gesprekken_lezen`; tweede actie + `personalId`; `harness.repo`; app-regel over de dagverwerking |
+| `packages/bonzaiwork-server-hooks/src/server-hooks.ts` | `brains.setRoutineCheck(routines.isRoutineChat)` |
+| `packages/bonzaiwork-brains/templates/common/_meta/schema.md` | typen `Person`, `Project`, `Decision` |
+| `apps/bonzaiwork/src/backend/{types,live/brains,demo/brains}.ts`, `queries.ts` | `HarnessInfo.repo`, `prompts.daily`, `source: "repo"`, repo-routes, demo `?brein=teamskills` |
+| `apps/bonzaiwork/src/features/brain/personal-setup.tsx` (`BrainsAppSection`), `cards.tsx`, `skills-section.tsx`, `personal-page.tsx` | rij "Skills van je team" met trust-kaart; chip "Van je team"; rij "Dagelijkse verwerking" |
+| `apps/bonzaiwork/src/features/settings/werkwijzen.tsx`, `home/attention-cards.tsx` of `attention`-filter, `copy.ts` | `OriginChip` repo; kaart voor `breinen_gesprekken_lezen` verbergen; teksten |
+| `docs/bonzaiwork/brein-beheer.md`, `frontend-contract.md` §7.5, `brein-harnas-plan.md` (stand fase 2), `README.md` | beheer, contract, stand |
+
+Verificatie:
+- Unit (`packages/bonzaiwork-brains/test/harness.test.ts`): een bare repo als harnas-repo met `harness.json`, een
+  skill en een agent → `composeHarness` levert de skill met `source: "repo"`, de agent pas na `trust`; een repo-skill
+  met dezelfde naam als een meegeleverde wint, een eigen skill wint van beide; een nieuwe versie op de bare repo
+  staat na `update` in de context; een projectbrein met een oude kopie van de repo-skill staat in `outdated` met
+  `to` = repo-versie; `DELETE` haalt alles weg. `mcp`-test: `gesprekken_lezen` met een nep-`conversations()`
+  (filters op tijd en project, routinechats weg, afkappen). `answers.test.ts`: toestaan in de persoonlijke workspace,
+  weigeren elders.
+- e2e (`e2e/brains.e2e.ts`): een chat in Jouw brein leest zijn eigen gesprekken van die dag via de tool; dezelfde
+  vraag in het Sales-brein krijgt een weigering zonder openstaande toestemmingsvraag; een skill uit een gekoppelde
+  harnas-repo staat in `/api/skill` van een gewoon project.
+- UI headless met demo: Instellingen → Breinen met en zonder repo (plus trust-kaart), Jouw brein met "Van je team"
+  en de rij Dagelijkse verwerking; `pnpm --filter @bonzaiwork/app typecheck && test`.
+- `check-patches.mjs` groen (0 nieuwe patches); typecheck en tests van harness, brains, server-hooks, server.
+
+## Fase 3 (later, niet in dit plan uitgewerkt)
+
+`/onthoud` koppelen aan "Zal ik dit vastleggen?"; harnas-skills met scripts (trust); hybride zoeken (bestaand fase 3);
+agent Brein als sub-agent (`@brein`) in projectchats. **Skills-hub en beheerde MCP-hub via Bonzai LiteLLM (H6)**: apart
+ontwerp; aanknopingspunten die er dan al liggen zijn de bronnenlijst in `harness.ts`, de LiteLLM-proxyroute met de
+gebruikerskey en `updateEngineMcp` + vertrouwensstap in `downstream-hooks.ts`.
+
+## Bestanden (kern)
+
+| Bestand | Wijziging |
+|---|---|
+| `packages/bonzaiwork-harness/**` | nieuw: skills, commands, agents, schema, `harness.json`, `src/index.ts` (bundel als tekst), tests |
+| `packages/bonzaiwork-brains/templates/common/.opencode/**`, `templates/vendor/**` | verhuizen naar harnas; `template.ts`, `template-files.ts`, `test/template.test.ts` |
+| `packages/bonzaiwork-brains/src/harness.ts` | nieuw: bronnen, voorrang, uitschrijven naar `<state>/harness/<version>/` |
+| `packages/bonzaiwork-brains/src/server-hooks.ts` | `refreshGlobalContext`, route `/bonzaiwork/harness`, skills-routes, soort `harness` |
+| `packages/bonzaiwork-brains/src/personal.ts`, `trust.ts`, `sync.ts` | `APP_RULES`; tekstbestanden onder `.opencode/` mee in git (persoonlijk) |
+| `packages/bonzaiwork-brains/src/mcp.ts` | `gesprekken_lezen` |
+| `packages/bonzaiwork-brains/src/registry.ts` | `KINDS` + `harness`; migratie personal → project (H5) |
+| `packages/bonzaiwork-brains/src/sync.ts`, `server-hooks.ts` | `outdated` in `BrainStatus`, routes `harness/update` en `harness/remove` (H3) |
+| `apps/bonzaiwork/src/features/brain/brain-tab.tsx`, `cards.tsx` | kaart verouderde onderdelen; aandachtsitem op Vandaag |
+| `apps/server/src/downstream-hooks.ts` (+ test) | samengestelde `skills/`, `command/`, `agent/` |
+| `apps/bonzaiwork/src/backend/{types,live/index,live/brains,demo/brains}.ts` | `Capabilities.harness`, client, demo |
+| `apps/bonzaiwork/src/features/brain/personal-page.tsx`, nieuw `skills-section.tsx` | sectie werkwijzen/skills, dagverwerking-rij |
+| `apps/bonzaiwork/src/features/settings/werkwijzen.tsx` | herkomst-chips, "Overal gebruiken" |
+| `apps/bonzaiwork/src/copy.ts` | teksten |
+| `apps/desktop/electron-builder.bonzaiwork.mjs` | niets als "altijd uitschrijven naar state" werkt (1.1) |
+| `docs/bonzaiwork/brein-harnas-plan.md` (nieuw), `frontend-contract.md` §7.5, `brein-beheer.md`, `project-breinen-fase0.md` §9, `README.md` | ontwerp, contract, beheer, metingen |
+
+## Verificatie
+
+- Fase 0 (gedaan): `bun scripts/bonzaiwork/spikes/brains/harness-probe.mjs` blijft bij elke engine-update draaien,
+  naast `engine-probe.mjs`; een veranderd antwoord blokkeert de update.
+- Unit: `pnpm --filter @bonzaiwork/harness test`, `pnpm --filter @bonzaiwork/brains test` (nieuw: `harness.test.ts`
+  voorrang en opruimen van oude versies; `personal.test.ts` niet-`.md` skillbestand in de geschiedenis; `template.test.ts`
+  zonder skills), `apps/server/test/downstream-hooks.test.ts` (samengestelde map).
+- Unit (H3/H5): twee gebruikers op één bare repo: gebruiker A klikt "Bijwerken" → B ziet de nieuwe versie na pull;
+  een door B aangepaste kopie staat in `outdated` met `modified: true`, "Harnasversie overnemen" vervangt hem en
+  `/restore` zet hem terug, "Zo laten" verbergt hem tot een nieuwere harnasversie; een eigen skill met dezelfde naam
+  maar zonder herkomst komt nooit in `outdated`; "Uit het project halen" verwijdert en commit; een bestaand
+  persoonlijk brein (fixture met geschiedenis en voorkeuren) wordt een project met dezelfde geschiedenis en de
+  globale `AGENTS.md` bevat de oude voorkeuren niet meer.
+- e2e: `pnpm --filter @bonzaiwork/brains e2e` uitbreiden: skill overnemen → zichtbaar in tweede workspace; agent
+  Brein via `GET /api/agent`; `gesprekken_lezen` geweigerd vanuit een projectbrein, toegestaan in Jouw brein; een
+  projectbrein zonder BonzaiWork (kale checkout) bevat alle harnas-skills en -commando's als gewone bestanden.
+- UI headless (`pnpm --filter @bonzaiwork/app dev` + demo-backend): screenshots Jouw brein (skills-sectie, dagverwerking),
+  projectinstellingen (herkomst-chip, Overal gebruiken), agent-kiezer; regel-ids uit `DESIGN.md` in de PR.
+- `node scripts/bonzaiwork/check-patches.mjs` groen (0 nieuwe patches); typecheck van alle `@bonzaiwork/*` en
+  `openwork-server`; verpakte smoketest draait de bestaande stappen plus "harnas-skill aanwezig in config-map".

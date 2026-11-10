@@ -29,8 +29,10 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
+packages/bonzaiwork-harness/     het harnas: meegeleverde skills, commando's en de agent Brein, met versie en vingerafdrukken (brein-harnas-plan)
 docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest is, en regels daarvoor
 docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
+docs/bonzaiwork/brein-harnas-plan.md           volgende iteratie: meegeleverd harnas (skills, commando's, agent Brein), eigen skills, dagelijkse verwerking; fase 0 in project-breinen-fase0.md §9
 docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per kwartier je werkdag bijhoudt
 docs/bonzaiwork/agenda-manager-plan.md         implementatieplan van die agenda-agent: regels, bestanden, routes, prompts, fasen
 docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt en stand per fase

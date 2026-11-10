@@ -1,0 +1,60 @@
+{
+  "version": "1.0.0",
+  "items": {
+    "agent:brein": {
+      "versions": {
+        "1.0.0": "4215b95f32a77d31613ab2091971f0b6f8fceb7d37efab81126ccaab2e9848b4"
+      }
+    },
+    "command:onderhoud": {
+      "versions": {
+        "1.0.0": "27dd931d2f37ed5d3fc480ad3d00ca1638d05aac0d0609712085e6adcba56e8d"
+      }
+    },
+    "command:onthoud": {
+      "versions": {
+        "1.0.0": "3031092f14220cdaf66935afc1b421dc9782ad59231ff325faaf2499553b3baa"
+      }
+    },
+    "command:vastleggen": {
+      "versions": {
+        "1.0.0": "547cb6a1b5ae88c73b4f4c91be23096e8ad672ac25555524c53c8d113009fc32"
+      }
+    },
+    "command:verwerk": {
+      "versions": {
+        "1.0.0": "c79bb0340ce5bf6f0756be422c5af6b17e175cf700fb4e1bac0b3a96779b18e0"
+      }
+    },
+    "command:werkwijze": {
+      "versions": {
+        "1.0.0": "ffae4d62b7a2a2f189affdae5abc69af8db2a4db9e09ad7e8ba1c5b23495a756"
+      }
+    },
+    "skill:brein-mensen": {
+      "versions": {
+        "1.0.0": "5c970b47cc474c6155f34aec972c164f640460e87c204a49955e0320f2d8d60f"
+      }
+    },
+    "skill:icm-architect": {
+      "versions": {
+        "1.0.0": "431574cdcdcd28be52d041aae47ed5186af701898479f9676d71ff7525938fb1"
+      }
+    },
+    "skill:okf-ingest": {
+      "versions": {
+        "1.0.0": "2a1d03f523d42cfd12f7628dbe330a9c7c44ade9bdc597fd64f47c2847fb5768"
+      }
+    },
+    "skill:okf-lint": {
+      "versions": {
+        "1.0.0": "e8fc959e7f09c101aa01b849cca7746072e6107f8a87ad43fb29f8d7761688a8"
+      }
+    },
+    "skill:okf-query": {
+      "versions": {
+        "1.0.0": "6cc8942e2c75fdf06871d3b9094da0e2fd9b82d81105591e58d656e9be379594"
+      }
+    }
+  }
+}

@@ -214,14 +214,15 @@ function failedChatStore(host: string) {
 const AGENT_NAMES: Record<string, { name: string; description: string }> = {
   build: { name: "Uitvoeren", description: "Werkt direct in je bestanden" },
   plan: { name: "Plannen", description: "Denkt mee en maakt een plan, zonder iets te wijzigen" },
+  brein: { name: "Brein", description: "Weet wat je over jezelf, je mensen en je projecten hebt vastgelegd" },
 };
 
 export async function createLiveBackend(): Promise<Backend> {
   // whenStarting: a request that meets "engine not running" waits for engineReady() (below).
   const connection: Connection = { ...(await resolveConnection()), whenStarting: () => engineReady() };
-  const [metaOnServer, routinesOnServer, brainsOnServer, agendaOnServer] = await Promise.all([
+  const [metaOnServer, routinesOnServer, brainsOnServer, agendaOnServer, harnessOnServer] = await Promise.all([
     probe(connection, "/bonzaiwork/projects"), probe(connection, "/bonzaiwork/routines"), probe(connection, "/bonzaiwork/brains"),
-    probe(connection, "/bonzaiwork/agenda/settings"),
+    probe(connection, "/bonzaiwork/agenda/settings"), probe(connection, "/bonzaiwork/harness"),
   ]);
   const meta: MetaStore = metaOnServer ? serverMetaStore(connection) : deviceMetaStore(new URL(connection.baseUrl).host);
   const desktop = hasDesktopBridge();
@@ -236,6 +237,7 @@ export async function createLiveBackend(): Promise<Backend> {
     globalConfig: false,
     brains: brainsOnServer,
     agenda: agendaOnServer,
+    harness: brainsOnServer && harnessOnServer,
   };
 
   const workspaces = new Map<string, Workspace>();
@@ -512,7 +514,8 @@ export async function createLiveBackend(): Promise<Backend> {
       return session.title || "Nieuwe chat";
     };
     const items: AttentionItem[] = [];
-    const waiting = [...requests.permissions.map((request) => ({ kind: "permission" as const, request })), ...requests.questions.map((request) => ({ kind: "question" as const, request }))];
+    // `breinen_gesprekken_lezen` is the server's to answer (brein-harnas-plan §2.2): never a card for the person.
+    const waiting = [...requests.permissions.filter((request) => request.action !== "breinen_gesprekken_lezen").map((request) => ({ kind: "permission" as const, request })), ...requests.questions.map((request) => ({ kind: "question" as const, request }))];
     await Promise.all(
       waiting.map(async ({ kind, request }) => {
         if (projectMeta.archivedChatIds.includes(request.chatId)) return;
@@ -576,8 +579,10 @@ export async function createLiveBackend(): Promise<Backend> {
     }
     for (const brain of brainList) {
       const state = brain.status.state;
-      if (!live.has(brain.projectId) || (state !== "conflict" && state !== "needs_trust" && state !== "error")) continue;
-      items.push({ kind: "brain", projectId: brain.projectId, state, at: brain.status.lastSyncAt ?? Date.now() });
+      if (!live.has(brain.projectId)) continue;
+      if (state === "conflict" || state === "needs_trust" || state === "error") items.push({ kind: "brain", projectId: brain.projectId, state, at: brain.status.lastSyncAt ?? Date.now() });
+      // Outdated copies of BonzaiWork's parts (brein-harnas-plan H3): a quiet item, never a blocker.
+      else if (brain.status.outdated.length) items.push({ kind: "brain", projectId: brain.projectId, state: "outdated", at: brain.status.lastSyncAt ?? Date.now() });
     }
     for (const proposal of proposals) items.push({ kind: "proposal", proposal, at: proposal.at });
     return sortAttention(items);
@@ -966,11 +971,22 @@ export async function createLiveBackend(): Promise<Backend> {
         return { skill: { name: str(item, "name") ?? name, description: str(item, "description") ?? "", scope: str(item, "scope") === "global" ? "global" : "project", error: str(item, "error") ?? null }, content: str(payload, "content") ?? "" };
       },
       async saveSkill(scopeId, input) {
-        if (scopeId === "global") throw unsupported("Skills voor alle projecten bewerken");
+        // Skills for every project live in Jouw brein (brein-harnas-plan §1.4).
+        if (scopeId === "global") {
+          const personalId = capabilities.harness ? (await brains.list()).find((brain) => brain.status.kind === "personal")?.projectId : null;
+          if (!personalId) throw unsupported("Skills voor alle projecten bewerken");
+          await brains.savePersonalSkill(personalId, input);
+          return;
+        }
         await req(`/workspace/${enc(scopeId)}/skills`, { method: "POST", body: { name: input.name, content: input.content, description: input.description } });
       },
       async removeSkill(scopeId, name) {
-        if (scopeId === "global") throw unsupported("Skills voor alle projecten verwijderen");
+        if (scopeId === "global") {
+          const personalId = capabilities.harness ? (await brains.list()).find((brain) => brain.status.kind === "personal")?.projectId : null;
+          if (!personalId) throw unsupported("Skills voor alle projecten verwijderen");
+          await brains.removePersonalSkill(personalId, name);
+          return;
+        }
         await req(`/workspace/${enc(scopeId)}/skills/${enc(name)}`, { method: "DELETE" });
       },
       async commands(projectId, scope) {

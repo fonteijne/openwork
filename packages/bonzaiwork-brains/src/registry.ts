@@ -14,6 +14,10 @@ type RegistryFile = {
   brains: BrainRecord[];
   /** Per project (any project, brain or not): other brains it consults without asking (plan §5.2). */
   reads: Record<string, string[]>;
+  /** The harness (brein-harnas-plan H5): when the old personal brain became a project, and which one; the team's repository of skills (§2.1). */
+  harness: { migratedAt: number | null; previousPersonal: string | null; repo: BrainRecord | null };
+  /** Per brain: harness items the user chose to leave as they are ("Zo laten"), with the harness version that was declined (H3). */
+  dismissed: Record<string, Record<string, string>>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -58,13 +62,33 @@ function readReads(value: unknown): Record<string, string[]> {
   return reads;
 }
 
+function readHarness(value: unknown): RegistryFile["harness"] {
+  return {
+    migratedAt: isRecord(value) && typeof value.migratedAt === "number" ? value.migratedAt : null,
+    previousPersonal: isRecord(value) ? stringOrNull(value.previousPersonal) : null,
+    repo: isRecord(value) ? readRecord(value.repo) : null,
+  };
+}
+
+function readDismissed(value: unknown): Record<string, Record<string, string>> {
+  const dismissed: Record<string, Record<string, string>> = {};
+  if (isRecord(value)) {
+    for (const [brain, items] of Object.entries(value)) {
+      if (!isRecord(items)) continue;
+      const entries = Object.entries(items).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+      if (entries.length) dismissed[brain] = Object.fromEntries(entries);
+    }
+  }
+  return dismissed;
+}
+
 function readAuthor(value: unknown): Author | null {
   return isRecord(value) && typeof value.name === "string" && typeof value.email === "string" && value.name && value.email
     ? { name: value.name, email: value.email } : null;
 }
 
 export class BrainRegistry {
-  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {} };
+  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {}, harness: { migratedAt: null, previousPersonal: null, repo: null }, dismissed: {} };
   private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly file: string) {}
@@ -80,7 +104,21 @@ export class BrainRegistry {
       author: readAuthor(parsed.author),
       brains: Array.isArray(parsed.brains) ? parsed.brains.flatMap((entry) => readRecord(entry) ?? []) : [],
       reads: readReads(parsed.reads),
+      harness: readHarness(parsed.harness),
+      dismissed: readDismissed(parsed.dismissed),
     };
+  }
+
+  get harness(): RegistryFile["harness"] { return this.data.harness; }
+  setHarness(harness: RegistryFile["harness"]): Promise<void> {
+    this.data = { ...this.data, harness };
+    return this.flush();
+  }
+
+  dismissed(brainId: string): Readonly<Record<string, string>> { return this.data.dismissed[brainId] ?? {}; }
+  dismiss(brainId: string, items: Readonly<Record<string, string>>): Promise<void> {
+    this.data = { ...this.data, dismissed: { ...this.data.dismissed, [brainId]: { ...this.data.dismissed[brainId], ...items } } };
+    return this.flush();
   }
 
   get author(): Author | null { return this.data.author; }
@@ -109,7 +147,8 @@ export class BrainRegistry {
   }
 
   remove(id: string): Promise<void> {
-    this.data = { ...this.data, brains: this.data.brains.filter((brain) => brain.id !== id) };
+    const { [id]: _gone, ...dismissed } = this.data.dismissed;
+    this.data = { ...this.data, brains: this.data.brains.filter((brain) => brain.id !== id), dismissed };
     return this.flush();
   }
 

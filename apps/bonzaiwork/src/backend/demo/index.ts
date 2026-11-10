@@ -52,6 +52,7 @@ const CAPABILITIES: Capabilities = {
   globalConfig: true,
   brains: true,
   agenda: true,
+  harness: true,
 };
 
 const MIN = 60_000;

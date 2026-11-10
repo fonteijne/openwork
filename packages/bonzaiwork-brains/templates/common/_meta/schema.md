@@ -10,7 +10,9 @@ Kies het `type` van een concept uit deze lijst. Past er geen, voeg dan hier een 
 | Type | Voor |
 |---|---|
 | Process | een bedrijfsproces: wie doet wat, wanneer en waarom |
-| Decision | een besluit, met de reden en de datum |
+| Decision | een besluit, met de reden, de datum en wie besliste |
+| Person | iemand die in je werk terugkomt: rol, waar je deze persoon van kent, afspraken; nooit privé- of gezondheidsgegevens |
+| Project | een project of klant: waar het staat, wat er speelt, wie erbij hoort |
 | Policy | een regel of beleid dat geldt |
 | Product | een product of dienst |
 | System | een systeem, tool of dashboard |

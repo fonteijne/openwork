@@ -18,6 +18,7 @@
     "e2e": "bun e2e/brains.e2e.ts"
   },
   "dependencies": {
+    "@bonzaiwork/harness": "workspace:*",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

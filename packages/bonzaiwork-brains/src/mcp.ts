@@ -13,6 +13,10 @@ import { ALWAYS_EXCLUDED_FOLDERS } from "./trust.ts";
  */
 export type TeamBrain = { id: string; name: string; description: string; root: string; lastSyncAt: number | null };
 
+/** One chat of the user, as the daily review reads it (brein-harnas-plan §2.2): no tool calls, no in-between steps. */
+export type Conversation = { id: string; project: string; title: string; updatedAt: number; messages: Array<{ role: "user" | "assistant"; text: string }> };
+export type ConversationQuery = { since: number; until: number | null; project: string | null };
+
 export type PersonalAccess = {
   /** The personal brain's folder, or null when there is none yet. */
   root(): string | null;
@@ -24,6 +28,8 @@ export type PersonalAccess = {
   teamBrains(): Promise<TeamBrain[]>;
   /** Brings a brain up to date before it is read, when it is quiet; never waits long. */
   refresh(id: string): Promise<void>;
+  /** The user's own chats in every local project since a moment, newest first; routine chats left out. */
+  conversations(query: ConversationQuery): Promise<Conversation[]>;
 };
 
 type Json = Record<string, unknown>;
@@ -69,6 +75,11 @@ export const BRAIN_TOOLS = [
     name: "brein_lezen",
     description: "Lees één Markdown-bestand uit een ander gedeeld brein (alleen lezen). Neem over wat je nodig hebt in het huidige project, met bronvermelding (brein en pad).",
     inputSchema: { type: "object", properties: { brein: { ...str, description: "Naam van het brein uit breinen_lijst" }, pad: str }, required: ["brein", "pad"] },
+  },
+  {
+    name: "gesprekken_lezen",
+    description: "Lees de gesprekken die de gebruiker sinds een moment in zijn projecten voerde (titel, project, vragen en antwoorden), voor de dagelijkse verwerking van het persoonlijke brein. Alleen in Jouw brein.",
+    inputSchema: { type: "object", properties: { sinds: { ...str, description: "Vanaf wanneer: een datum/tijd (ISO), of bijvoorbeeld 24h of 7d" }, tot: { ...str, description: "Tot wanneer (ISO); standaard nu" }, project: { ...str, description: "Alleen dit project (naam)" } }, required: ["sinds"] },
   },
   {
     name: "voorkeur_voorstellen",
@@ -166,12 +177,50 @@ async function teamTool(access: PersonalAccess, name: string, text: (key: string
 
 const TEAM_TOOLS = new Set(["breinen_lijst", "brein_zoeken", "brein_lezen"]);
 
+const CONVERSATION_CHARS = 4_000;
+const CONVERSATION_LIMIT = 40;
+
+/** "24h", "7d", "90m" or an ISO date; null when it is neither. */
+export function parseSince(value: string, now: number): number | null {
+  const relative = /^(\d+)\s*([mhd])$/i.exec(value.trim());
+  if (relative) {
+    const amount = Number(relative[1]);
+    const unit = relative[2].toLowerCase();
+    return now - amount * (unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000);
+  }
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? null : at;
+}
+
+/** The chats as text the model reads: one block per chat, cut per chat, at most CONVERSATION_LIMIT chats. */
+export function renderConversations(conversations: readonly Conversation[]): string {
+  if (!conversations.length) return "Geen gesprekken in deze periode.";
+  const shown = conversations.slice(0, CONVERSATION_LIMIT);
+  const blocks = shown.map((chat) => {
+    const when = new Date(chat.updatedAt).toISOString().slice(0, 16).replace("T", " ");
+    let body = chat.messages.map((message) => `${message.role === "user" ? "Gebruiker" : "Agent"}: ${message.text.replace(/\s+\n/g, "\n").trim()}`).join("\n\n");
+    if (body.length > CONVERSATION_CHARS) body = `${body.slice(0, CONVERSATION_CHARS)}\n[… ingekort]`;
+    return `## ${chat.title || "Chat"} · ${chat.project} · ${when} · bonzaiwork://chat/${chat.id}\n\n${body}`;
+  });
+  const more = conversations.length > shown.length ? `\n\n[Nog ${conversations.length - shown.length} gesprekken niet getoond; vraag een kortere periode of één project.]` : "";
+  return `${blocks.join("\n\n")}${more}`;
+}
+
 export async function callBrainTool(access: PersonalAccess, name: string, args: Json): Promise<ToolResult> {
   const text = (key: string) => (typeof args[key] === "string" ? String(args[key]) : "");
   if (TEAM_TOOLS.has(name)) return teamTool(access, name, text);
   const root = access.root();
   if (!root) return refuse("Er is nog geen persoonlijk brein ingesteld. De gebruiker kan dat doen in Mijn brein.");
   if (name === "persoonlijk_brein_zoeken") return ok(await search(root, access.excluded(), text("vraag")));
+  if (name === "gesprekken_lezen") {
+    const now = Date.now();
+    const since = parseSince(text("sinds"), now);
+    if (since === null) return refuse("Geef sinds als datum/tijd (ISO) of als periode, bijvoorbeeld 24h of 7d.");
+    const until = text("tot").trim() ? Date.parse(text("tot")) : null;
+    if (until !== null && Number.isNaN(until)) return refuse("Geef tot als datum/tijd (ISO).");
+    const conversations = await access.conversations({ since, until, project: text("project").trim() || null });
+    return ok(renderConversations(conversations));
+  }
   if (name === "voorkeur_voorstellen") {
     const preference = text("voorkeur").trim();
     if (!preference) return refuse("Geef de voorkeur in één zin.");

@@ -12,6 +12,8 @@ import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
 import { navigate } from "~/lib/router";
 
+import { TeamRepoRows } from "./team-repo";
+
 /**
  * Makes the personal brain (brains plan §5.1): a project named "Mijn brein" on an existing notes
  * folder or a new one, registered as kind personal. Nothing is copied or moved; history lives
@@ -167,6 +169,7 @@ export function BrainsAppSection() {
           </div>
         </div>
       )}
+      <TeamRepoRows readOnly={readOnly} />
       <div className="pt-3 text-sm font-medium">{copy.brain.authorTitle}</div>
       <Author />
     </Section>

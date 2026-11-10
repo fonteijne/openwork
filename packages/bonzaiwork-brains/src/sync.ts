@@ -9,7 +9,8 @@ import { remoteProblemMessage, SYNC_MESSAGES } from "./messages.ts";
 import type { ProposalService } from "./proposals.ts";
 import { scanForSecrets, type SecretHit } from "./secrets.ts";
 import { classifyGitError, type RemoteProblem } from "./ssh.ts";
-import { findTrustItems, personalExcludes, sparsePatterns, unsafePath, untrusted, withLocalExcludes, type TreeEntry, type TrustItem } from "./trust.ts";
+import { isTextFile, type OutdatedItem } from "./harness.ts";
+import { findTrustItems, isPersonalHarnessPath, personalExcludes, sparsePatterns, unsafePath, untrusted, withLocalExcludes, type TreeEntry, type TrustItem, type TrustLayout } from "./trust.ts";
 
 /**
  * One brain's synchronisation (plan §2, §4): fetch and update before a turn,
@@ -81,6 +82,8 @@ export type BrainStatus = {
   excluded: string[];
   /** "Via voorstel": the open merge or pull request; `manual` when the user opens it from the link. */
   proposal: Proposal | null;
+  /** Project brain: copies of harness items that are older than the harness (brein-harnas-plan H3). */
+  outdated: OutdatedItem[];
 };
 
 export type Author = { name: string; email: string };
@@ -104,6 +107,10 @@ export type BrainSyncOptions = {
   proposals?: ProposalService;
   /** True while a chat may write in this folder: background work waits (plan §4.2). */
   busy?: () => Promise<boolean>;
+  /** Project brain: which harness copies in the folder are outdated (brein-harnas-plan H3). */
+  inspect?: (record: BrainRecord) => Promise<OutdatedItem[]>;
+  /** Where risky parts live in this repository: a brain (`.opencode/`), or a team repository of skills (root). */
+  trustLayout?: TrustLayout;
 };
 
 type ErrorCause = RemoteProblem | "secret" | "content" | "config" | "remote" | "branch" | "history" | "git" | "local";
@@ -306,7 +313,7 @@ export class BrainSync {
         this.log("warn", "brain has a file name sparse-checkout cannot exclude", { ref: source });
         return false;
       }
-      const found = await findTrustItems(entries, (blob) => this.ok(["cat-file", "-p", blob]));
+      const found = await findTrustItems(entries, (blob) => this.ok(["cat-file", "-p", blob]), this.options.trustLayout);
       for (const item of found) if (!items.has(item.path) || source === ref) items.set(item.path, item);
     }
     this.pending = untrusted([...items.values()], this.record.trusted);
@@ -373,7 +380,9 @@ export class BrainSync {
       else add.push(path);
     }
     for (const path of untrackedFiles) {
-      if (!/\.md$/i.test(path)) unshared.push({ path, reason: "not_markdown" });
+      // A personal brain's own skills and commands travel with their text files (brein-harnas-plan §1.4).
+      const ownSkillFile = this.record.kind === "personal" && isPersonalHarnessPath(path) && await isTextFile(join(this.record.path, path));
+      if (!/\.md$/i.test(path) && !ownSkillFile) unshared.push({ path, reason: "not_markdown" });
       else if (await tooLarge(path)) unshared.push({ path, reason: "too_large" });
       else add.push(path);
     }
@@ -793,6 +802,22 @@ export class BrainSync {
     });
   }
 
+  /**
+   * The user updates or removes harness copies on the Brein tab (brein-harnas-plan H3): `apply`
+   * changes the folder, then one commit of the user's own, shared like any other change.
+   */
+  applyHarness(message: string, apply: () => Promise<string[]>): Promise<{ changed: string[]; status: BrainStatus }> {
+    return this.lock(async () => {
+      if (this.record.mode === "read_only" || !await this.guard()) return { changed: [], status: await this.statusNow() };
+      const changed = await apply();
+      if (changed.length) {
+        await this.commit(`${message}\n\nVia BonzaiWork\n`, "own", message);
+        if (this.sharesByItself) await this.push();
+      }
+      return { changed, status: await this.statusNow() };
+    });
+  }
+
   /** "Wijzigingen delen" (manual mode), "Opnieuw proberen", and the offline retry. */
   share(): Promise<BrainStatus> {
     return this.lock(async () => {
@@ -1152,6 +1177,7 @@ export class BrainSync {
       warnings: this.warnings,
       excluded: [...this.record.excluded],
       proposal: this.record.proposal ?? null,
+      outdated: this.record.kind === "project" && this.options.inspect ? await this.options.inspect(this.record).catch(() => []) : [],
     };
   }
 
@@ -1198,7 +1224,7 @@ export class BrainSync {
   /** What is in the folder now is the user's own: it counts as trusted (it ran before BonzaiWork anyway). */
   private async trustWhatIsThere(): Promise<void> {
     if (!await this.hasCommit("HEAD")) return;
-    const items = await findTrustItems(await this.treeEntries("HEAD"), (blob) => this.ok(["cat-file", "-p", blob]));
+    const items = await findTrustItems(await this.treeEntries("HEAD"), (blob) => this.ok(["cat-file", "-p", blob]), this.options.trustLayout);
     await this.persist({ trusted: { ...this.record.trusted, ...Object.fromEntries(items.map((item) => [item.path, item.blob])) } });
   }
 

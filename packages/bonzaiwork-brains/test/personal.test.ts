@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { callBrainTool, contentVersion, handleMcpRequest, type PersonalAccess, type TeamBrain } from "../src/mcp.ts";
 import { brainPath, composeInstructions, isCloudFolder, PERSONAL_INSTRUCTIONS_LIMIT } from "../src/personal.ts";
-import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type SessionActivity } from "../src/server-hooks.ts";
+import { createBrainsServerHooks, type BrainsHost, type BrainsServerHooks, type EngineGlobalContext, type SessionActivity } from "../src/server-hooks.ts";
 import { createGit } from "../src/git.ts";
 
 const cleanup: string[] = [];
@@ -75,7 +75,7 @@ describe("paden en instructies", () => {
 describe("de breinen-MCP", () => {
   const access = (root: string, wrote: string[] = [], proposed: string[] = [], team: TeamBrain[] = [], refreshed: string[] = []): PersonalAccess => ({
     root: () => root, excluded: () => ["Dagboek"], wrote: (path) => wrote.push(path), propose: async (text) => { proposed.push(text); return "p"; },
-    teamBrains: async () => team, refresh: async (id) => { refreshed.push(id); },
+    teamBrains: async () => team, refresh: async (id) => { refreshed.push(id); }, conversations: async () => [],
   });
   const text = (result: { content: Array<{ text: string }> }) => result.content.map((part) => part.text).join("");
 
@@ -156,7 +156,7 @@ describe("het persoonlijke brein in de server", () => {
     const state = await mkdtemp(join(tmpdir(), "state-"));
     cleanup.push(state);
     const listeners = new Set<(activity: SessionActivity) => void>();
-    const host: BrainsHost & { mcp: Record<string, unknown>; context: { instructions: string | null; skillsDirectory: string | null } | null } = {
+    const host: BrainsHost & { mcp: Record<string, unknown>; context: EngineGlobalContext | null } = {
       port: 4242, readOnly: false, mcp: {}, context: null,
       workspaces: () => [{ id: "ws_mijn", path: root }, { id: "ws_ander", path: join(state, "ander") }],
       reloadEngineProviders: async () => {},
@@ -187,7 +187,9 @@ describe("het persoonlijke brein in de server", () => {
     expect(existsSync(join(state, "history", "ws_mijn.git"))).toBe(true);
     expect(existsSync(join(root, "_meta/voorkeuren.md"))).toBe(true);
     expect(await readFile(join(root, "Projecten/offerte.md"), "utf8")).toContain("[[Klant]]");
-    expect(host.context?.skillsDirectory).toBe(join(root, ".opencode", "skills"));
+    expect(Object.keys(host.context?.skills ?? {})).toEqual(expect.arrayContaining(["okf-query", "brein-mensen"]));
+    expect(Object.keys(host.context?.commands ?? {})).toContain("onthoud");
+    expect(Object.keys(host.context?.agents ?? {})).toEqual(["brein"]);
     expect(hooks.enginePolicies().map((policy) => policy.resource)).toEqual(expect.arrayContaining(["read:Dagboek/*", "edit:Dagboek/*", "edit:_meta/voorkeuren.md"]));
 
     const git = await createGit({ stateDirectory: join(state, "check") });

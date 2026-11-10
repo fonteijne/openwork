@@ -31,6 +31,7 @@ export const keys = {
   brainCandidate: (projectId: string) => ["brains", projectId, "candidate"] as const,
   concept: (projectId: string, path: string) => ["brains", projectId, "concept", path] as const,
   proposals: ["brain-proposals"] as const,
+  harness: ["brain-harness"] as const,
   brainAuthor: ["brain-author"] as const,
   workflows: (projectId: string) => ["workflows", projectId] as const,
   reads: (projectId: string) => ["brain-reads", projectId] as const,
@@ -140,6 +141,13 @@ export function useBrain(projectId: string): Brain | null {
 
 export function usePersonalBrain(): Brain | null {
   return useBrains().data?.find((brain) => brain.status.kind === "personal") ?? null;
+}
+
+/** The harness: what counts in every project (brein-harnas-plan); refreshed with the brains. */
+export function useHarness() {
+  // Also the team repository's state: the server updates it every ten minutes.
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.harness, queryFn: () => backend.brains.harness(), enabled: backend.capabilities.harness, staleTime: 10_000, refetchInterval: 30_000 });
 }
 
 export function useBrainHistory(projectId: string, enabled = true) {

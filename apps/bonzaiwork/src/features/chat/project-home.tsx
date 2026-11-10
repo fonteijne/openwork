@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Repeat } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, startModel, useAttention, useBrains, useComposerEntries, useRoutines, useStatus } from "~/backend/queries";
+import { keys, startModel, useAttention, useBrains, useComposerEntries, usePersonalBrain, useRoutines, useStatus } from "~/backend/queries";
 import type { AttentionItem, Chat, Message, Project } from "~/backend/types";
 import { Button } from "~/components/ui/button";
 import { StatusChip } from "~/components/ui/chip";
@@ -272,6 +272,12 @@ export function ProjectHome(props: { project: Project }) {
   const [agent, setAgent] = useState<string | null>(null);
   const smallUp = useMediaQuery(SMALL_UP);
   const { project } = props;
+  // A chat with Jouw brein starts with the agent Brein (brein-harnas-plan H4); the picker can still change it.
+  const personal = usePersonalBrain();
+  const brainAgent = backend.capabilities.harness && personal?.projectId === project.id;
+  useEffect(() => {
+    if (brainAgent) setAgent((current) => current ?? "brein");
+  }, [brainAgent]);
   const blocked = chatBlocked(status.data, project);
   const effectiveModel = model ?? startModel(status.data, project);
 

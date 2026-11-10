@@ -32,6 +32,7 @@ export const APP_RULES = `# Werken in BonzaiWork
 - Kijk alleen in een ander brein als de gebruiker erom vraagt. Denk je dat een ander brein helpt, stel het dan in één zin voor en wacht op antwoord.
 - Uit een ander brein (\`breinen_lijst\`, \`brein_zoeken\`, \`brein_lezen\`) lees je alleen. Wat je gebruikt, zet je in het huidige project met de bron erbij (brein en pad); een ander brein pas je nooit aan.
 - Zet nooit wachtwoorden, sleutels of privégegevens van personen in een brein.
+- Mensen, besluiten en projectoverstijgende afspraken horen in het persoonlijke brein (\`knowledge/mensen/\`, \`knowledge/projecten/\`); het commando \`/onthoud\` legt ze uit een gesprek vast, de agent Brein beheert ze.
 `;
 
 /** N6: what goes into every chat, at most. */

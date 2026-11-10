@@ -58,6 +58,8 @@ export type Capabilities = {
   brains: boolean;
   /** The agenda: quarter hours per project, Bridge posts and the booking document (§7.6). */
   agenda: boolean;
+  /** The harness (brein-harnas-plan): shipped skills, commands and the agent Brein in every project, own skills in Jouw brein. */
+  harness: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -275,7 +277,7 @@ export type AttentionItem =
       model: string | null;
       at: number;
     }
-  | { kind: "brain"; projectId: string; state: "conflict" | "needs_trust" | "error"; at: number }
+  | { kind: "brain"; projectId: string; state: "conflict" | "needs_trust" | "error" | "outdated"; at: number }
   | { kind: "proposal"; proposal: PreferenceProposal; at: number };
 
 /** The order "Voor jou" lists the kinds in: what stops an agent first, then what stops a routine, then knowledge. */
@@ -453,6 +455,39 @@ export type BrainStatus = {
   warnings: string[];
   excluded: string[];
   proposal: BrainProposal | null;
+  /** Project brain: copies of BonzaiWork's own parts that are older than this app ships (brein-harnas-plan H3). */
+  outdated: OutdatedItem[];
+};
+
+export type HarnessItemKind = "skill" | "command" | "agent";
+
+/** A copy of a harness item in a project brain that is older than the harness. */
+export type OutdatedItem = {
+  kind: HarnessItemKind;
+  name: string;
+  /** The version the copy is or came from; null when unknown. */
+  from: string | null;
+  to: string;
+  /** The team changed the copy: taking the new version drops their changes (they stay in the history). */
+  modified: boolean;
+};
+
+/** One part of what counts in every project: from BonzaiWork itself, the team's repository, or the user's own (Jouw brein). */
+export type HarnessItem = { kind: HarnessItemKind; name: string; source: "bundled" | "repo" | "personal"; version: string | null; description: string };
+
+/** The team's repository of skills (brein-harnas-plan §2.1): read-only, no project of its own. */
+export type TeamRepo = { remote: string | null; version: string | null; status: BrainStatus };
+
+export type HarnessInfo = {
+  version: string;
+  items: HarnessItem[];
+  /** The personal brain's project id, when there is one. */
+  personalId: string | null;
+  /** The personal brain from before the harness, now an ordinary brain project (H5). */
+  previous: { projectId: string; at: number | null } | null;
+  repo: TeamRepo | null;
+  /** Prompts the harness ships for routines the app plans (the daily review of Jouw brein). */
+  prompts: { daily: string | null };
 };
 
 export type Brain = { projectId: string; path: string; status: BrainStatus };
@@ -710,6 +745,25 @@ export interface Backend {
     author(): Promise<{ author: HistoryAuthor | null; suggested: HistoryAuthor | null }>;
     setAuthor(author: HistoryAuthor): Promise<void>;
     proposals(): Promise<PreferenceProposal[]>;
+    /** The harness: what counts in every project now, and the brain from before it (brein-harnas-plan). */
+    harness(): Promise<HarnessInfo>;
+    /** "Verschillen bekijken": the project's copy against the shipped version, as a unified diff. */
+    harnessDiff(projectId: string, kind: HarnessItemKind, name: string): Promise<string>;
+    /** "Bijwerken" / "Harnasversie overnemen": the shipped version replaces the copy, in one commit. */
+    harnessUpdate(projectId: string, items: Array<{ kind: HarnessItemKind; name: string }>): Promise<BrainStatus>;
+    /** "Uit het project halen": the copy goes; BonzaiWork provides the part from then on. */
+    harnessRemove(projectId: string, items: Array<{ kind: HarnessItemKind; name: string }>): Promise<BrainStatus>;
+    /** "Zo laten": not again for this harness version. */
+    harnessDismiss(projectId: string, items: Array<{ kind: HarnessItemKind; name: string }>): Promise<BrainStatus>;
+    /** "Overal gebruiken": a project's skill goes to Jouw brein; with `move` it leaves the project. */
+    adoptSkill(personalId: string, fromProjectId: string, name: string, move: boolean): Promise<void>;
+    savePersonalSkill(personalId: string, input: { name: string; description: string; content: string }): Promise<void>;
+    removePersonalSkill(personalId: string, name: string): Promise<void>;
+    /** "Skills van je team": link a read-only repository of skills, commands and agents (brein-harnas-plan §2.1). */
+    linkTeamRepo(url: string): Promise<TeamRepo | null>;
+    unlinkTeamRepo(): Promise<void>;
+    trustTeamRepo(paths: string[]): Promise<TeamRepo | null>;
+    updateTeamRepo(): Promise<TeamRepo | null>;
     decide(proposalId: string, decision: "accept" | "reject", text: string | null): Promise<void>;
   };
 

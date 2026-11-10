@@ -29,6 +29,8 @@ export function createCombinedHooks(options: { litellm?: ServerHooksOptions; bra
   const brains = createBrainsServerHooks(options.brains);
   // A routine may read the brains it names without a click (brains plan §5.2).
   const routines = createRoutinesHooks({ answerBrainReads: brains.answerBrainReads, ...options.routines });
+  // The daily review of Jouw brein must not read its own routine chats (brein-harnas-plan §2.2).
+  brains.setRoutineCheck(routines.isRoutineChat);
   // Where you worked, per quarter hour (docs/bonzaiwork/agenda-manager-plan.md).
   // Turns in a routine's chat are the planner's, not yours (agenda plan §5.4).
   const agenda = createAgendaHooks({ isRoutineChat: routines.isRoutineChat, ...options.agenda });

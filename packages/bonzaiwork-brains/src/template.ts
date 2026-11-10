@@ -1,25 +1,38 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { brainPaths, harnessItems, stampedFiles } from "@bonzaiwork/harness";
+
 import { appendLog, renderIndexes } from "./okf.ts";
 import { TEMPLATE_FILES } from "./template-files.ts";
 
 /**
  * The brain template (plan §6.1, §6.6, §6.7): `AGENTS.md` as the ICM entry,
- * `_meta/`, `_templates/`, an OKF bundle in `knowledge/`, `workflows/`, and
- * the skills and commands for ingesting, recording, maintenance and making
- * workflows. Writes only what is missing: an existing note is never
- * replaced, an existing `AGENTS.md` gets the routing added below it.
+ * `_meta/`, `_templates/`, an OKF bundle in `knowledge/`, `workflows/`. A
+ * project brain also gets the harness skills and commands as stamped copies,
+ * so the repository works without BonzaiWork (brein-harnas-plan H3); the
+ * personal brain gets them from the harness itself, in every project. Writes
+ * only what is missing: an existing note is never replaced, an existing
+ * `AGENTS.md` gets the routing added below it.
  */
 export type TemplateKind = "project" | "personal";
 
-/** Where each template file goes in a brain of this kind. */
+/** Where each template file goes in a brain of this kind, with its content. */
 export function templateTargets(kind: TemplateKind): Map<string, string> {
   const targets = new Map<string, string>();
-  for (const source of TEMPLATE_FILES.keys()) {
-    if (source.startsWith("common/")) targets.set(source.slice("common/".length), source);
-    else if (source.startsWith(kind === "project" ? "team/" : "personal/")) targets.set(source.slice(source.indexOf("/") + 1), source);
-    else if (source.startsWith("vendor/")) targets.set(`.opencode/skills/${source.slice("vendor/".length)}`, source);
+  for (const [source, content] of TEMPLATE_FILES) {
+    if (source.startsWith("common/")) targets.set(source.slice("common/".length), content);
+    else if (source.startsWith(kind === "project" ? "team/" : "personal/")) targets.set(source.slice(source.indexOf("/") + 1), content);
+  }
+  if (kind === "project") {
+    for (const item of harnessItems()) {
+      if (item.kind === "agent") continue;
+      const paths = brainPaths(item);
+      for (const [path, content] of stampedFiles(item)) {
+        const target = paths.get(path);
+        if (target) targets.set(target, content);
+      }
+    }
   }
   return targets;
 }
@@ -36,8 +49,8 @@ export async function applyTemplate(root: string, input: { kind: TemplateKind; n
   const written: string[] = [];
   let extendedAgents = false;
   const values = { name: input.name.trim() || "Brein", description: input.description.trim() || "Waar dit brein over gaat en voor wie." };
-  for (const [target, source] of templateTargets(input.kind)) {
-    const content = fill(TEMPLATE_FILES.get(source) ?? "", values);
+  for (const [target, raw] of templateTargets(input.kind)) {
+    const content = target.startsWith(".opencode/") ? raw : fill(raw, values);
     const path = join(root, target);
     const existing = await readFile(path, "utf8").catch(() => null);
     if (existing !== null) {

@@ -1631,6 +1631,9 @@ importers:
 
   packages/bonzaiwork-brains:
     dependencies:
+      '@bonzaiwork/harness':
+        specifier: workspace:*
+        version: link:../bonzaiwork-harness
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -1649,6 +1652,18 @@ importers:
         version: 5.9.3
 
   packages/bonzaiwork-feedback:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.7
+      bun-types:
+        specifier: ^1.3.13
+        version: 1.3.14
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/bonzaiwork-harness:
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -5663,7 +5678,9 @@ packages:
   '@smithy/smithy-client@4.12.5':
     resolution: {integrity: sha512-UqwYawyqSr/aog8mnLnfbPurS0gi4G7IYDcD28cUIBhsvWs1+rQcL2IwkUQ+QZ7dibaoRzhNF99fAQ9AUcO00w==}
     engines: {node: '>=18.0.0'}
-    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
+    deprecated: |-
+      Deprecated due to a bug in custom logger data redaction. Upgrade to the latest version. If you used a custom logger with
+        this version, review your logs and rotate any credentials or other secrets. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/types@4.13.1':
     resolution: {integrity: sha512-787F3yzE2UiJIQ+wYW1CVg2odHjmaWLGksnKQHUrK/lYZSEcy1msuLVvxaR/sI2/aDe9U+TBuLsXnr3vod1g0g==}
