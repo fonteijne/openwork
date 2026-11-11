@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, asc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
 import {
   AuthSessionTable,
   AuthUserTable,
@@ -13,14 +13,13 @@ import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "./db.js"
 import { env } from "./env.js"
 import { organizationFeatureEnabled } from "./features.js"
+import { ssoConnectionDisplayName, ssoDomainColumnCovers, ssoDomainsCover } from "./sso-domains.js"
 import {
   blocksNonSsoSignIn,
   organizationRequiresSsoSession,
   readOrganizationSsoPolicy,
-  ssoProofIsCurrent,
   type DomainSsoRequirement,
   type SignInSsoCandidate,
-  type SsoSessionMaxAgeHours,
 } from "./sso-routing.js"
 
 /**
@@ -99,7 +98,7 @@ async function readSsoOrganizations(where: ReturnType<typeof and>) {
 export async function findDomainSsoRequirement(email: string): Promise<DomainSsoRequirement | null> {
   const domain = emailDomain(email)
   if (!domain) return null
-  const rows = await readSsoOrganizations(and(eq(SsoConnectionTable.domain, domain), eq(SsoProviderTable.domain, domain)))
+  const rows = await readSsoOrganizations(and(ssoDomainColumnCovers(SsoConnectionTable.domain, domain), ssoDomainColumnCovers(SsoProviderTable.domain, domain)))
   const row = rows[0]
   if (!row) return null
   const perOrganization = (await readSsoPerOrganization([row.organizationId])).get(row.organizationId) === true
@@ -110,6 +109,44 @@ export async function findDomainSsoRequirement(email: string): Promise<DomainSso
     signInPath: row.signInPath || defaultSignInPath(row.organizationSlug),
     policy: readOrganizationSsoPolicy(row.metadata),
     perOrganization,
+  }
+}
+
+/** One identity provider a person can sign in with: a ready connection (enabled, domain verified). */
+export type SsoSignInOption = {
+  providerId: string
+  name: string
+  kind: "oidc" | "saml"
+}
+
+/**
+ * The organization's ready SSO connections, oldest first, for sign-in to
+ * show one button each. With an email domain, only those covering it: a
+ * provider only signs in people on its own domains.
+ */
+export async function listOrganizationSsoSignInOptions(input: { organizationSlug: string; emailDomain?: string | null }): Promise<{ organizationName: string; options: SsoSignInOption[] } | null> {
+  const [organization] = await db
+    .select({ id: OrganizationTable.id, name: OrganizationTable.name })
+    .from(OrganizationTable)
+    .where(eq(OrganizationTable.slug, input.organizationSlug))
+    .limit(1)
+  if (!organization) return null
+  const rows = await db
+    .select({ providerId: SsoConnectionTable.providerId, name: SsoConnectionTable.name, issuer: SsoConnectionTable.issuer, kind: SsoConnectionTable.kind, domain: SsoConnectionTable.domain })
+    .from(SsoConnectionTable)
+    .innerJoin(SsoProviderTable, and(
+      eq(SsoConnectionTable.providerId, SsoProviderTable.providerId),
+      eq(SsoConnectionTable.organizationId, SsoProviderTable.organizationId),
+      eq(SsoProviderTable.domainVerified, true),
+    ))
+    .where(and(eq(SsoConnectionTable.organizationId, organization.id), eq(SsoConnectionTable.status, "enabled")))
+    .orderBy(asc(SsoConnectionTable.createdAt), asc(SsoConnectionTable.id))
+  const emailDomain = input.emailDomain?.trim().toLowerCase() || null
+  return {
+    organizationName: organization.name,
+    options: rows
+      .filter((row) => !emailDomain || ssoDomainsCover(row.domain, emailDomain))
+      .map((row) => ({ providerId: row.providerId, name: ssoConnectionDisplayName(row), kind: row.kind === "saml" ? "saml" : "oidc" })),
   }
 }
 
@@ -140,7 +177,7 @@ export async function findNonSsoSignInBlock(input: { email: string | null; userI
     ? await readSsoOrganizations(inArray(OrganizationTable.id, memberOrganizationIds))
     : []
   const domainRows = domain
-    ? await readSsoOrganizations(and(eq(SsoConnectionTable.domain, domain), eq(SsoProviderTable.domain, domain)))
+    ? await readSsoOrganizations(and(ssoDomainColumnCovers(SsoConnectionTable.domain, domain), ssoDomainColumnCovers(SsoProviderTable.domain, domain)))
     : []
   const rows = [...memberRows, ...domainRows.filter((row) => !memberRows.some((member) => member.organizationId === row.organizationId))]
   if (rows.length === 0) return null
@@ -151,7 +188,7 @@ export async function findNonSsoSignInBlock(input: { email: string | null; userI
       organizationId: row.organizationId,
       policy: readOrganizationSsoPolicy(row.metadata),
       perOrganization: perOrganization.get(row.organizationId) === true,
-      emailOnVerifiedDomain: domain !== null && row.domain === domain,
+      emailOnVerifiedDomain: domain !== null && ssoDomainsCover(row.domain, domain),
       member: memberOrganizationIds.includes(row.organizationId),
     }
     if (blocksNonSsoSignIn(candidate)) {
@@ -161,15 +198,13 @@ export async function findNonSsoSignInBlock(input: { email: string | null; userI
   return null
 }
 
-type SsoRequiredOrganization = SsoAccessBlock & { maxAgeHours: SsoSessionMaxAgeHours | null }
-
 /**
  * Organizations among `organizationIds` that only a session signed in through
  * their own SSO may open: `ssoPerOrganization` on, SSO enabled on a verified
  * domain, and "Require SSO" (or a restricted domain) set.
  */
-async function readSsoRequiredOrganizations(organizationIds: readonly string[]): Promise<Map<string, SsoRequiredOrganization>> {
-  const result = new Map<string, SsoRequiredOrganization>()
+async function readSsoRequiredOrganizations(organizationIds: readonly string[]): Promise<Map<string, SsoAccessBlock>> {
+  const result = new Map<string, SsoAccessBlock>()
   const ids = [...new Set(organizationIds.map((id) => normalizeDenTypeId("organization", id)))]
   if (ids.length === 0 || env.orgMode === "single_org") return result
   // The flag first (cached), so organizations without it cost no extra query.
@@ -185,7 +220,6 @@ async function readSsoRequiredOrganizations(organizationIds: readonly string[]):
       organizationSlug: row.organizationSlug,
       organizationName: row.organizationName,
       signInPath: row.signInPath || defaultSignInPath(row.organizationSlug),
-      maxAgeHours: policy.ssoSessionMaxAgeHours,
     })
   }
   return result
@@ -203,19 +237,16 @@ async function readSessionSsoProofs(sessionId: string): Promise<Map<string, Date
 
 /**
  * Organizations among `organizationIds` this session may not open until it
- * signs in through their SSO: it never did, or the organization asks for SSO
- * again and that time has passed. A request without a session (an API key,
+ * signs in through their SSO. A request without a session (an API key,
  * an MCP token) is checked where that credential was issued instead.
  */
-export async function findSsoBlockedOrganizations(input: { sessionId: string | null; organizationIds: readonly string[]; now?: Date }): Promise<Map<string, SsoAccessBlock>> {
+export async function findSsoBlockedOrganizations(input: { sessionId: string | null; organizationIds: readonly string[] }): Promise<Map<string, SsoAccessBlock>> {
   const required = await readSsoRequiredOrganizations(input.organizationIds)
   const result = new Map<string, SsoAccessBlock>()
   if (required.size === 0) return result
   const proofs = input.sessionId ? await readSessionSsoProofs(input.sessionId) : new Map<string, Date>()
-  const now = input.now ?? new Date()
-  for (const [organizationId, { maxAgeHours, ...block }] of required) {
-    const authenticatedAt = proofs.get(organizationId)
-    if (authenticatedAt && ssoProofIsCurrent({ authenticatedAt, maxAgeHours, now })) continue
+  for (const [organizationId, block] of required) {
+    if (proofs.has(organizationId)) continue
     result.set(organizationId, block)
   }
   return result
@@ -225,7 +256,7 @@ export async function findSsoBlockedOrganizations(input: { sessionId: string | n
  * Whether this session may turn on "Require SSO" (or restrict the domain) for
  * the organization without losing access to it: the organization has no
  * enabled SSO on a verified domain yet (nothing is enforced), or the session
- * has a current sign-in through it.
+ * has signed in through it.
  */
 export async function sessionCanRequireOrganizationSso(input: { sessionId: string | null; organizationId: string }) {
   const organizationId = normalizeDenTypeId("organization", input.organizationId)
@@ -234,9 +265,7 @@ export async function sessionCanRequireOrganizationSso(input: { sessionId: strin
   const row = rows[0]
   if (!row) return true
   if (!input.sessionId) return false
-  const authenticatedAt = (await readSessionSsoProofs(input.sessionId)).get(organizationId)
-  if (!authenticatedAt) return false
-  return ssoProofIsCurrent({ authenticatedAt, maxAgeHours: readOrganizationSsoPolicy(row.metadata).ssoSessionMaxAgeHours, now: new Date() })
+  return (await readSessionSsoProofs(input.sessionId)).has(organizationId)
 }
 
 export async function findSsoAccessBlock(input: { sessionId: string | null; organizationId: string | null | undefined }): Promise<SsoAccessBlock | null> {

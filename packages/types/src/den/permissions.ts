@@ -12,13 +12,25 @@ import { z } from "zod"
  * - `defaultOn` reproduces the role checks from before Permissions: a key is
  *   `["admin"]` only when every action it gates was open to plain admins.
  *   Actions that need the owner or a super-admin are owner-only by default:
- *   `defaultOn: []`. The owner and super-admins hold every key and can grant
+ *   `defaultOn: []`. The owner holds every key; the Super admin default set
+ *   starts with every key (see `isPermissionDefaultOn`), and either can grant
  *   owner-only keys to Admin or team permissions.
  * - `sensitive` matches the old recent sign-in requirement of what it gates.
  */
 
-export const PERMISSION_DEFAULT_SET_KEYS = ["member", "admin"] as const
+/**
+ * The organization's default permission sets: Member (every member), Admin
+ * (effective admins) and Super admin (direct super-admin role). Each is a
+ * stored, editable set seeded from the catalog.
+ */
+export const PERMISSION_DEFAULT_SET_KEYS = ["member", "admin", "super-admin"] as const
 export type PermissionDefaultSetKey = (typeof PERMISSION_DEFAULT_SET_KEYS)[number]
+
+export const PERMISSION_DEFAULT_SET_LABELS: Readonly<Record<PermissionDefaultSetKey, string>> = {
+  member: "Member",
+  admin: "Admin",
+  "super-admin": "Super admin",
+}
 
 export const PERMISSION_AREAS = {
   organization: { label: "Organization" },
@@ -42,7 +54,11 @@ export type PermissionDefinition = {
   /** Short, user-facing label, e.g. "Delete providers". */
   label: string
   description?: string
-  /** Code defaults (feature off) and seed/reconcile targets (feature on). */
+  /**
+   * Code defaults (feature off) and seed/reconcile targets (feature on) for
+   * Member and Admin. Super admin starts on with every key regardless; read
+   * through `isPermissionDefaultOn` rather than this list.
+   */
   defaultOn: readonly PermissionDefaultSetKey[]
   /** Can never be denied in these default sets. No key uses it today: the owner can always restore access. */
   lockedOn?: readonly "admin"[]
@@ -298,6 +314,18 @@ export const PERMISSIONS = {
     defaultOn: OWNER_ONLY,
     sensitive: true,
   },
+  // Read-only invoices, split from the portal so admins (and billing managers)
+  // can see and download invoices without being able to change payment
+  // details or cancel. Sensitive like the portal: invoices carry the billing
+  // address and a payment method summary. New key: reconciliation turns it on
+  // in every organization's Admin set (it was never seen there before).
+  "billing_invoices.view": {
+    area: "billing",
+    label: "View invoices",
+    description: "See and download the organization's invoices. Does not open the billing portal or change payment details.",
+    defaultOn: ADMIN,
+    sensitive: true,
+  },
 
   // Models and providers
   "inference.view": {
@@ -459,6 +487,23 @@ export const PERMISSIONS = {
 
 export type PermissionKey = keyof typeof PERMISSIONS
 
+/**
+ * Starting point for a "Billing manager" custom role (a team permission set):
+ * see the plan, seats and usage, see and download invoices, open the billing
+ * portal (payment method, billing details, change or cancel the subscription)
+ * and start a subscription. Nothing else: no members, teams, permissions,
+ * connections, plugins, models, security or organization settings. Deleting
+ * the organization and transferring ownership stay owner-only and are not
+ * catalog keys at all.
+ */
+export const BILLING_MANAGER_PERMISSION_KEYS = [
+  "billing.view",
+  "billing.manage",
+  "billing_invoices.view",
+  "billing_portal.use",
+  "gateway_usage.view",
+] as const satisfies readonly PermissionKey[]
+
 type PermissionFollowsTargets = {
   [K in PermissionKey]: (typeof PERMISSIONS)[K] extends { follows: infer Target } ? Target : never
 }[PermissionKey]
@@ -478,8 +523,18 @@ export function getPermissionDefinition(key: PermissionKey): PermissionDefinitio
   return PERMISSIONS[key]
 }
 
+/**
+ * Whether a catalog entry starts on in a default set: always for Super admin
+ * (it holds every key, including owner-only ones, like the owner), otherwise
+ * when its `defaultOn` names the set. Seeding, reconciliation, code defaults
+ * and the "restore a shipped default" edit rule all read this.
+ */
+export function isPermissionDefaultOn(definition: Pick<PermissionDefinition, "defaultOn">, set: PermissionDefaultSetKey): boolean {
+  return set === "super-admin" || definition.defaultOn.includes(set)
+}
+
 export function permissionDefaultKeys(set: PermissionDefaultSetKey): PermissionKey[] {
-  return PERMISSION_KEYS.filter((key) => getPermissionDefinition(key).defaultOn.includes(set))
+  return PERMISSION_KEYS.filter((key) => isPermissionDefaultOn(getPermissionDefinition(key), set))
 }
 
 export function isPermissionLockedOn(key: PermissionKey, set: PermissionDefaultSetKey): boolean {
@@ -487,9 +542,10 @@ export function isPermissionLockedOn(key: PermissionKey, set: PermissionDefaultS
   return getPermissionDefinition(key).lockedOn?.includes(set) ?? false
 }
 
-/** No default set includes it: only the owner holds it until someone grants it with Permissions on. */
+/** Neither Member nor Admin includes it: only the owner and the Super admin set hold it until someone grants it. */
 export function isPermissionOwnerOnlyByDefault(key: PermissionKey): boolean {
-  return getPermissionDefinition(key).defaultOn.length === 0
+  const definition = getPermissionDefinition(key)
+  return !isPermissionDefaultOn(definition, "member") && !isPermissionDefaultOn(definition, "admin")
 }
 
 export function isPermissionSensitive(key: PermissionKey): boolean {

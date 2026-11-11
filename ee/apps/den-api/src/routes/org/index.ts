@@ -16,6 +16,7 @@ import { registerOrgWorkflowRoutes } from "./codemode-scripts.js"
 import { LEGACY_ORG_PROXY_HEADER } from "../../middleware/user-organizations.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { registerOrgCoreRoutes } from "./core.js"
+import { registerOrgConfigBlobRoutes } from "./config-blobs.js"
 import { registerOrgServiceReadinessRoutes } from "./service-readiness.js"
 import { registerOrgMcpAppCatalogRoutes } from "./mcp-app-catalog.js"
 import { registerDeleteOrganizationRoutes } from "./delete-organization.js"
@@ -47,7 +48,9 @@ import { registerOrgTeamRoutes } from "./teams.js"
 import { registerOrgWebOriginRoutes } from "./web-origins.js"
 import { registerOrgWorkbotReadinessRoutes } from "./workbot-readiness.js"
 import { registerOrgWorkbotSettingsRoutes } from "./workbot-settings.js"
+import { registerOrgWorkbotTeamSettingsRoutes } from "./workbot-team-settings.js"
 import { registerOrgAutomationSettingsRoutes } from "./automation-settings.js"
+import { registerOrgGatewayApiKeyRoutes } from "./gateway-api-keys.js"
 
 const LEGACY_ORG_PATH_PREFIX = "/v1/orgs/"
 
@@ -92,6 +95,7 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables & Req
   registerOrgWorkflowRoutes(app)
   registerOrgMcpAppCatalogRoutes(app)
   registerOrgDesktopPolicyRoutes(app)
+  registerOrgConfigBlobRoutes(app)
   registerOrgAgentPermissionRoutes(app)
   registerOrgEgressDiagnosticRoutes(app)
   registerOrgInferenceRoutes(app)
@@ -105,6 +109,7 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables & Req
   registerOrgInstallLinkRoutes(app)
   registerOrgLlmProviderRoutes(app)
   registerOrgInferenceProviderRoutes(app)
+  registerOrgGatewayApiKeyRoutes(app)
   registerOrgMemberRoutes(app)
   registerOrgPermissionRoutes(app)
   registerOAuthProviderRoutes(app)
@@ -116,6 +121,7 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables & Req
   registerOrgTeamRoutes(app)
   registerOrgWebOriginRoutes(app)
   registerOrgWorkbotSettingsRoutes(app)
+  registerOrgWorkbotTeamSettingsRoutes(app)
   registerOrgAutomationSettingsRoutes(app)
   registerOrgWorkbotReadinessRoutes(app)
   registerOrgDefaultModelRoutes(app)

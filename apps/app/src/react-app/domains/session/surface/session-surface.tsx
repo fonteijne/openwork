@@ -73,6 +73,7 @@ import { isComputerTarget } from "./composer/computer-mentions";
 import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./composer/mention-encoding";
 import { openDesktopUrl } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
+import type { SentMessageDraft } from "./composer/sent-message-tokens";
 import { COMPOSER_DRAFT_TOKEN_RE, COMPOSER_PILL_TOKEN_GLOBAL_RE, composerPillText, parseComposerPillToken } from "./composer/composer-pills";
 import { createPastedTextChip, insertDraftToken, resolvePastedTextPlaceholders } from "./composer/pasted-text";
 import {
@@ -798,7 +799,7 @@ export type SessionSurfaceProps = {
   respondPermission?: (requestID: string, reply: "once" | "always" | "reject") => void;
   activeQuestion?: PendingQuestion | null;
   questionReplyBusy?: boolean;
-  respondQuestion?: (requestID: string, answers: string[][]) => void | Promise<void>;
+  respondQuestion?: (requestID: string, answers: string[][] | null) => void | Promise<void>;
   safeStringify?: (value: unknown) => string;
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   providerConnectedCount?: number;
@@ -3707,12 +3708,18 @@ export function SessionSurface(props: SessionSurfaceProps) {
     });
   }, [openingHistory.runWithFullSnapshot, props.onForkAtMessage, props.sessionId, sessionOwner, setError]);
 
-  const handleEditUserMessage = useCallback((messageId: string, text: string) => {
+  const handleEditUserMessage = useCallback((messageId: string, text: string, sent?: SentMessageDraft) => {
     if (archived) return;
+    // Chips come back as chips: register the mentions and pasted text the
+    // draft's tokens name before the editor renders it.
+    if (sent) {
+      setComposerMentions(props.sessionId, { ...mentions, ...sent.mentions });
+      setComposerPasteParts(props.sessionId, sent.pasteParts);
+    }
     // Preserve the boundary with the draft; the destructive revert is deferred
     // until the replacement prompt is actually sent.
     void typeComposerText(text, messageId);
-  }, [archived, typeComposerText]);
+  }, [archived, mentions, props.sessionId, setComposerMentions, setComposerPasteParts, typeComposerText]);
 
   const handleRestoreRevertedSession = useCallback(() => {
     if (archived || !archiveStateKnown || sessionWorkHeld(props.opencodeBaseUrl, props.sessionId)) return;
@@ -3826,6 +3833,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         <div
           ref={scrollRef}
           data-thread-scroll
+          tabIndex={0}
           onWheel={(event) => {
             sessionScroll.markScrollGesture(event.target);
           }}
@@ -4057,6 +4065,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
         editing={editing}
         stopping={stopping}
         steering={steering}
+        followUpDefault={local.prefs.followUpDefault}
         submissionPreparing={preparingCloudTools || sending || autoSending}
         queuedCount={queuedItems.length}
         disabled={!archiveStateKnown || archiveHeld || model.transitionState !== "idle" || sessionModelUnavailable || queuedDrainState.phase.kind === "admission_unknown"}
@@ -4167,6 +4176,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
                         void Promise.resolve(props.respondQuestion?.(composerQuestion.id, answers)).catch(() => {});
                       }
                     }}
+                    onDismiss={props.respondQuestion ? () => {
+                      if (composerQuestion) {
+                        void Promise.resolve(props.respondQuestion?.(composerQuestion.id, null)).catch(() => {});
+                      }
+                    } : undefined}
                   />
                   </div>
                 ) : (props.todos ?? []).some((todo) => todo.content.trim()) ? (

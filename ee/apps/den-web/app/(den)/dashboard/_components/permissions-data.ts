@@ -5,6 +5,7 @@ import { getPermissionDefinition, isPermissionKey } from "@openwork/types/den/pe
 import { z } from "zod";
 import { getErrorMessage, getReauthRequiredError, requestJson } from "../../_lib/den-flow";
 import { ORG_SCOPE_HEADER } from "../../_lib/org-scope";
+import { roleSetTeams } from "../../_lib/role-catalog";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { permissionsQueryKeys } from "./permissions-query-keys";
 
@@ -14,7 +15,7 @@ import { permissionsQueryKeys } from "./permissions-query-keys";
  */
 
 const statusSchema = z.enum(["allow", "deny"]);
-const setKindSchema = z.enum(["member_default", "admin_default", "team"]);
+const setKindSchema = z.enum(["member_default", "admin_default", "super_admin_default", "team"]);
 const sourceKindSchema = z.enum(["user", "seed", "reconcile", "migration"]);
 
 const teamReferenceSchema = z.object({ id: z.string(), name: z.string().nullable() });
@@ -25,6 +26,7 @@ const adminTeamSchema = z.object({ id: z.string(), name: z.string(), memberCount
 const appliesToSummarySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("everyone"), memberCount: z.number() }),
   z.object({ kind: z.literal("admins"), directAdminCount: z.number(), adminTeams: z.array(adminTeamSchema) }),
+  z.object({ kind: z.literal("super_admins"), superAdminCount: z.number() }),
   z.object({ kind: z.literal("team"), team: teamReferenceSchema.nullable(), teams: z.array(teamReferenceSchema).default([]), memberCount: z.number() }),
 ]);
 
@@ -32,6 +34,7 @@ const appliesToDetailSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("everyone"), memberCount: z.number() }),
   // People's names and emails come only with teams.view; the counts always do.
   z.object({ kind: z.literal("admins"), directAdminCount: z.number(), directAdmins: z.array(personSchema).nullable(), adminTeams: z.array(adminTeamSchema) }),
+  z.object({ kind: z.literal("super_admins"), superAdminCount: z.number(), superAdmins: z.array(personSchema).nullable() }),
   z.object({ kind: z.literal("team"), team: teamReferenceSchema.nullable(), teams: z.array(teamReferenceSchema).default([]), memberCount: z.number(), members: z.array(personSchema).nullable() }),
 ]);
 
@@ -258,8 +261,7 @@ export function useCustomRoleTeams(orgId: string | null, enabled: boolean) {
   for (const set of query.data ?? []) {
     if (set.kind !== "team") continue;
     // A shared role (sharedRoles) applies to every team in `teams`.
-    const teams = set.teams.length > 0 ? set.teams : set.team ? [set.team] : [];
-    for (const team of teams) setByTeam.set(team.id, set);
+    for (const team of roleSetTeams(set)) setByTeam.set(team.id, set);
   }
   const nameByTeam = new Map([...setByTeam].map(([teamId, set]) => [teamId, set.name]));
   return { setByTeam, nameByTeam, teamIds: new Set(setByTeam.keys()), loading: enabled && query.isPending };

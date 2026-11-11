@@ -1,7 +1,10 @@
 import { useSyncExternalStore } from "react";
 import { providerCredentialScope, useProviderCredentialHealth } from "./credential-health";
 import { liveProviderSyncStatusQueryKey, usesLiveProviderSync, type LiveProviderSyncStatus } from "./live-provider-sync";
-import { isOpencodeV2BaseUrl } from "@/app/lib/opencode-v2-adapter";
+import { createClientV2, isOpencodeV2BaseUrl } from "@/app/lib/opencode-v2-adapter";
+import { CLAUDE_AGENT_HOST_PROVIDER_ID, CLAUDE_AGENT_PROVIDER_ID, CLAUDE_CODE_CHECK_TIMEOUT_MESSAGE, CLAUDE_CODE_CHECK_TIMEOUT_MS, CLAUDE_CODE_NAME, plainClaudeMessage, type ClaudeAgentSetupState, type ClaudeAgentIntegration } from "@/app/lib/claude-agent";
+import type { OpenworkServerClient } from "@/app/lib/openwork-server";
+import { fetchProviderCatalog, providerListQueryKey, refreshProviderListQueries } from "../../../infra/provider-list-query";
 import { CLOUD_MODEL_CONFIG_VERSION } from "@openwork/types/cloud-model-fast";
 
 import { applyEdits, modify, parse } from "jsonc-parser";
@@ -13,6 +16,7 @@ import type {
 import { t } from "../../../../i18n";
 import {
   createDenClient,
+  markFeatureUsed,
   readDenSettings,
   resolveDenBaseUrls,
   type DenOrgLlmProvider,
@@ -30,7 +34,7 @@ import {
   workspaceOpenworkRead,
   workspaceOpenworkWrite,
 } from "../../../../app/lib/desktop";
-import { OpenworkServerError } from "../../../../app/lib/openwork-server";
+import { buildOpenworkWorkspaceBaseUrl, OpenworkServerError } from "../../../../app/lib/openwork-server";
 import type {
   Client,
   ProviderListItem,
@@ -268,7 +272,7 @@ function configsAreSemanticallyEqual(left: string, right: string): boolean {
 }
 
 export type ProviderAuthMethod = {
-  type: "oauth" | "api" | "cloud";
+  type: "oauth" | "api" | "cloud" | "external";
   label: string;
   methodIndex?: number;
 };
@@ -309,6 +313,7 @@ export type ProviderLoadState = {
 };
 
 export type ProviderAuthStoreSnapshot = {
+  claudeAgent?: ClaudeAgentSetupState;
   providerLoadState: ProviderLoadState;
   gatewayUsageProviderScope?: number | null;
   providerAuthModalOpen: boolean;
@@ -330,6 +335,11 @@ export type ProviderAuthStoreSnapshot = {
 };
 
 type CreateProviderAuthStoreOptions = {
+  claudeAgentEnabled?: () => boolean;
+  /** Test seam: how often the Claude Code check is read, how long a repeat check waits for a late problem, and when it gives up. */
+  claudeCheckTiming?: { pollMs?: number; settleMs?: number; timeoutMs?: number; followUpMs?: number };
+  nativeOpenworkClient?: () => OpenworkServerClient | null;
+  nativeWorkspaceId?: () => string | null;
   client: () => Client | null;
   providers: () => ProviderListItem[];
   providerDefaults: () => Record<string, string>;
@@ -410,6 +420,46 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let started = false;
   let denSessionCleanup: (() => void) | null = null;
   let lastWorkspaceKey = "";
+  let claudeIntegration: ClaudeAgentIntegration | null = null;
+  let claudeBusy = false;
+  let claudeChecking = false;
+  let claudeVerified = false;
+  let claudeError: string | null = null;
+  let claudeContext = "";
+  let claudeFollowUp: ReturnType<typeof setTimeout> | null = null;
+  let claudeIdleWaiters: Array<() => void> = [];
+  const nativeTarget = () => ({
+    client: options.nativeOpenworkClient ? options.nativeOpenworkClient() : options.openworkServer.getSnapshot().openworkServerClient,
+    workspaceId: (options.nativeWorkspaceId ? options.nativeWorkspaceId() : options.runtimeWorkspaceId())?.trim() || null,
+  });
+  const nativeContext = () => {
+    const target = nativeTarget();
+    return JSON.stringify([target.client?.baseUrl, target.client?.token, target.workspaceId]);
+  };
+  /**
+   * Claude Code sign-in is offered only when the person can use it: the
+   * feature is on, the organization allows personal providers, and a workspace
+   * engine is reachable. Otherwise nothing about it is shown or read.
+   */
+  const claudeAvailable = () => {
+    if (!options.claudeAgentEnabled?.()) return false;
+    if (isProviderAddRestrictedByDesktopPolicy({ providerId: CLAUDE_AGENT_PROVIDER_ID, checkRestriction: options.checkDesktopAppRestriction })) return false;
+    const target = nativeTarget();
+    return Boolean(target.workspaceId && target.client);
+  };
+  const claudeLoginOffered = () => claudeAvailable() && claudeContext === nativeContext()
+    && Boolean(claudeIntegration?.methods.some((method) => method.id === "claude-login" && method.type === "external"));
+  const claudeSetupState = (): ClaudeAgentSetupState | undefined => {
+    if (!claudeAvailable()) return undefined;
+    const current = claudeContext === nativeContext();
+    return {
+      integration: current ? claudeIntegration : null,
+      busy: claudeBusy,
+      checking: claudeChecking,
+      verified: current && claudeVerified,
+      error: current ? claudeError : null,
+    };
+  };
 
   let state: MutableState = {
     providerLoadState: { status: "idle", error: null },
@@ -487,6 +537,11 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       });
     }
 
+    // Claude Code is a way to connect Anthropic, so Anthropic is listed even
+    // when the engine's own provider list could not be read.
+    if (claudeLoginOffered() && !merged.has(CLAUDE_AGENT_HOST_PROVIDER_ID)) {
+      merged.set(CLAUDE_AGENT_HOST_PROVIDER_ID, { id: CLAUDE_AGENT_HOST_PROVIDER_ID, name: "Anthropic", env: [] });
+    }
     return Array.from(merged.values()).toSorted(compareProviders);
   };
 
@@ -653,6 +708,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
   const refreshSnapshot = () => {
     snapshot = {
+      claudeAgent: claudeSetupState(),
       providerLoadState: state.providerLoadState,
       gatewayUsageProviderScope: state.gatewayUsageProviderScope === readGatewayUsageScope().generation
         && verifiedGatewayUsageContext === getCloudProviderSyncContextKey()
@@ -1696,19 +1752,199 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
   };
 
+  const claudeCatalogTarget = (target: { client: OpenworkServerClient; workspaceId: string }) => {
+    const baseUrl = `${buildOpenworkWorkspaceBaseUrl(target.client.baseUrl, target.workspaceId)}/opencode2`;
+    const directory = options.selectedWorkspaceRoot();
+    return { baseUrl, directory, client: createClientV2(baseUrl, directory, { token: target.client.token }) };
+  };
+
+  /** Whether the engine lists Claude Code's models: true once a check of `claude` has finished at least once. */
+  const readClaudeModels = async (target: { client: OpenworkServerClient; workspaceId: string }) => {
+    const { client, directory } = claudeCatalogTarget(target);
+    const list = await fetchProviderCatalog({ client, directory });
+    return { list, listed: list.all.some((provider) => provider.id === CLAUDE_AGENT_PROVIDER_ID && Object.keys(provider.models ?? {}).length > 0) };
+  };
+
+  const publishClaudeCatalog = async (target: { client: OpenworkServerClient; workspaceId: string }, context: string, known?: ProviderListResponse) => {
+    const { baseUrl, directory } = claudeCatalogTarget(target);
+    // Always read the actual v2 catalog, including while Gateway live sync is off.
+    try {
+      const list = known ?? (await readClaudeModels(target)).list;
+      if (disposed || nativeContext() !== context || !claudeAvailable()) return;
+      getReactQueryClient().setQueryData(providerListQueryKey({ baseUrl, directory }), list);
+      await refreshProviderListQueries(getReactQueryClient());
+      if (disposed || nativeContext() !== context || !claudeAvailable()) return;
+      dispatchProviderCatalogChanged({ baseUrl, directory });
+    } catch {
+      // The model picker reads the catalog again on its own; the connection itself is unaffected.
+    }
+  };
+
+  const claudeWait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  /**
+   * Connecting only records the choice; the engine then checks `claude` on its
+   * own and reports a problem on the connection. Wait for that answer so the
+   * person is told "connected" or the reason, never left on a saved reference.
+   *
+   * The engine keeps Claude Code's model list between checks and gives a new
+   * connection no status until its check ends, so a repeat check looks clean
+   * straight away. `settleMs` holds a repeat check open long enough for a
+   * problem to arrive (about one second with Claude Code 2.1 on a Mac).
+   */
+  const waitForClaudeCheck = async (
+    target: { client: OpenworkServerClient; workspaceId: string },
+    input: { repeat: boolean; current: () => boolean },
+  ): Promise<{ integration: ClaudeAgentIntegration; list?: ProviderListResponse; problem: string | null } | null> => {
+    const pollMs = options.claudeCheckTiming?.pollMs ?? 600;
+    const settleMs = input.repeat ? options.claudeCheckTiming?.settleMs ?? 5_000 : 0;
+    const timeoutMs = options.claudeCheckTiming?.timeoutMs ?? CLAUDE_CODE_CHECK_TIMEOUT_MS;
+    const started = Date.now();
+    let cleanReads = 0;
+    for (;;) {
+      const integration = await target.client.claudeAgentIntegration(target.workspaceId);
+      if (!input.current()) return null;
+      const active = integration.connections[0];
+      if (!active) throw new Error("Claude Code connection was not returned by the server. Check again before retrying.");
+      if (active.status?.status === "needs_auth") return { integration, problem: active.status.message };
+      const models = await readClaudeModels(target).catch(() => null);
+      if (!input.current()) return null;
+      const elapsed = Date.now() - started;
+      // Models and the login problem arrive separately, so one clean read is
+      // confirmed by a second before it counts as a working login.
+      cleanReads = models?.listed && elapsed >= settleMs ? cleanReads + 1 : 0;
+      if (cleanReads >= 2) return { integration, list: models?.list, problem: null };
+      if (elapsed >= timeoutMs) throw new Error(CLAUDE_CODE_CHECK_TIMEOUT_MESSAGE);
+      await claudeWait(pollMs);
+      if (!input.current()) return null;
+    }
+  };
+
+  async function runClaudeAction(action: "read" | "connect" | "disconnect") {
+    if (claudeBusy) return;
+    if (!claudeAvailable()) throw new Error("Claude Code sign-in is not available in this workspace.");
+    const { client, workspaceId } = nativeTarget();
+    if (!client || !workspaceId) throw new Error("Choose a workspace to connect Claude Code.");
+    const target = { client, workspaceId };
+    const context = nativeContext();
+    if (claudeContext !== context) { claudeIntegration = null; claudeVerified = false; }
+    claudeContext = context;
+    claudeBusy = true;
+    claudeChecking = action === "connect";
+    claudeError = null;
+    if (claudeFollowUp) { clearTimeout(claudeFollowUp); claudeFollowUp = null; }
+    refreshSnapshot(); emitChange();
+    const current = () => !disposed && context === nativeContext() && claudeAvailable();
+    try {
+      let integration = await client.claudeAgentIntegration(workspaceId);
+      if (!current()) return;
+      let list: ProviderListResponse | undefined;
+      if (action === "connect") {
+        if (!integration.methods.some((method) => method.id === "claude-login" && method.type === "external")) {
+          throw new Error("Claude Code setup is unavailable on this server. Update OpenWork and check again.");
+        }
+        const previousIds = new Set(integration.connections.map((connection) => connection.id));
+        // A repeat check is one where the engine already lists Claude Code's models.
+        const repeat = (await readClaudeModels(target).catch(() => null))?.listed === true;
+        if (!current()) return;
+        claudeVerified = false;
+        // Deliberately one POST: a timeout is uncertain, not permission to replay it.
+        await client.connectClaudeAgent(workspaceId);
+        if (!current()) return;
+        markFeatureUsed("claudeAgentProvider");
+        integration = await client.claudeAgentIntegration(workspaceId);
+        if (!current()) return;
+        if (!integration.connections.length) throw new Error("Claude Code connection was not returned by the server. Check again before retrying.");
+        const created = integration.connections.filter((connection) => !previousIds.has(connection.id));
+        // Native order is active first. Other new IDs may belong to another
+        // concurrent Connect; never treat those as our superseded references.
+        const keep = integration.connections[0] ?? created[0];
+        if (keep) {
+          for (const connection of integration.connections) {
+            if (!previousIds.has(connection.id) || connection.id === keep.id) continue;
+            if (!current()) return;
+            const latest = await client.claudeAgentIntegration(workspaceId);
+            if (!current()) return;
+            // Another client may have switched the active connection since our
+            // POST. Preserve its active reference, even if it was in our snapshot.
+            if (latest.connections[0]?.id === connection.id || !latest.connections.some((entry) => entry.id === connection.id)) continue;
+            await client.removeClaudeAgentConnection(workspaceId, connection.id);
+          }
+          if (!current()) return;
+        }
+        const checked = await waitForClaudeCheck(target, { repeat, current });
+        if (!checked || !current()) return;
+        claudeIntegration = checked.integration;
+        if (checked.problem) throw new Error(plainClaudeMessage(checked.problem));
+        integration = checked.integration;
+        list = checked.list;
+        claudeVerified = true;
+      } else if (action === "disconnect") {
+        // Only connection references are removed. Claude Code stays signed in.
+        for (const connection of integration.connections) {
+          if (!current()) return;
+          await client.removeClaudeAgentConnection(workspaceId, connection.id);
+        }
+        if (!current()) return;
+        integration = await client.claudeAgentIntegration(workspaceId);
+        if (!current()) return;
+        if (integration.connections.length) throw new Error("Some Claude Code connections remain. Disconnect again to remove them.");
+        claudeVerified = false;
+      } else if (integration.connections[0]?.status?.status === "needs_auth" || !integration.connections.length) {
+        claudeVerified = false;
+      }
+      if (!current()) return;
+      claudeIntegration = integration;
+      // The model picker catches up on its own; the person's result does not wait for it.
+      if (action !== "read") void publishClaudeCatalog(target, context, list);
+      if (action === "connect") {
+        // A slow computer can report a sign-in problem after the wait above; read once more so the row stays true.
+        claudeFollowUp = setTimeout(() => { claudeFollowUp = null; void runClaudeAction("read").catch(() => undefined); }, options.claudeCheckTiming?.followUpMs ?? 15_000);
+      }
+      return action === "disconnect" ? `Disconnected ${CLAUDE_CODE_NAME} from OpenWork. Claude Code itself stays signed in.` : `${CLAUDE_CODE_NAME} connected`;
+    } catch (error) {
+      if (!current()) return;
+      claudeError = error instanceof Error ? error.message : "Could not check Claude Code. Check again.";
+      throw error;
+    } finally {
+      claudeBusy = false;
+      claudeChecking = false;
+      for (const resolve of claudeIdleWaiters.splice(0)) resolve();
+      if (!disposed) {
+        refreshSnapshot(); emitChange();
+        if (context !== nativeContext() && claudeAvailable()) void runClaudeAction("read").catch(() => undefined);
+      }
+    }
+  }
+
   const loadProviderAuthMethods = async () => {
     const c = options.client();
-    if (!c) {
-      throw new Error(t("providers.not_connected"));
+    const native = claudeAvailable();
+    if (!c && !native) throw new Error(t("providers.not_connected"));
+    // A read already under way (the page just opened) answers for this one.
+    const nativeRead = !native ? Promise.resolve()
+      : claudeBusy ? new Promise<void>((resolve) => { claudeIdleWaiters.push(resolve); })
+      : runClaudeAction("read").catch(() => undefined);
+    let methods: Record<string, ProviderAuthMethod[]> = {};
+    let legacyError: unknown = null;
+    try {
+      if (c) {
+        const [legacyMethods] = await Promise.all([c.provider.auth().then(unwrap), loadProviderCatalog(c)]);
+        methods = buildProviderAuthMethods(legacyMethods as Record<string, ProviderAuthMethod[]>, getProviderAuthProviders());
+      }
+    } catch (error) {
+      legacyError = error;
     }
-    const [methods] = await Promise.all([
-      c.provider.auth().then(unwrap),
-      loadProviderCatalog(c),
-    ]);
-    return buildProviderAuthMethods(
-      methods as Record<string, ProviderAuthMethod[]>,
-      getProviderAuthProviders(),
-    );
+    await nativeRead;
+    // Claude Code is one of the ways to connect Anthropic, listed first.
+    const offered = claudeLoginOffered();
+    if (legacyError || (!c && !offered)) {
+      // The engine's own sign-in list can fail on its own; Claude Code stays reachable.
+      if (!offered) throw legacyError ?? new Error(t("providers.not_connected"));
+      setStateField("providerAuthError", "Other provider connections could not be loaded. Close this window and retry from AI providers.");
+    }
+    if (offered) methods[CLAUDE_AGENT_HOST_PROVIDER_ID] = [{ type: "external", label: CLAUDE_CODE_NAME }, ...(methods[CLAUDE_AGENT_HOST_PROVIDER_ID] ?? [])];
+    return methods;
   };
 
   async function startProviderAuth(
@@ -1996,6 +2232,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   }
 
   async function submitProviderApiKey(providerId: string, apiKey: string) {
+    if (providerId === CLAUDE_AGENT_PROVIDER_ID) throw new Error("Claude Code uses its own sign-in, not an API key.");
     setStateField("providerAuthError", null);
     const c = options.client();
     if (!c) {
@@ -2675,6 +2912,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   }
 
   async function disconnectProvider(providerId: string) {
+    if (providerId === CLAUDE_AGENT_PROVIDER_ID) return runClaudeAction("disconnect");
     setStateField("providerAuthError", null);
     const c = options.client();
     if (!c) {
@@ -2879,6 +3117,9 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     const workspaceKey = currentWorkspaceKey();
     const workspaceChanged = workspaceKey !== lastWorkspaceKey;
     lastWorkspaceKey = workspaceKey;
+    if (claudeAvailable() && !claudeBusy && claudeContext !== nativeContext()) {
+      void runClaudeAction("read").catch(() => undefined);
+    }
     refreshSnapshot();
     emitChange();
     if (workspaceChanged) {
@@ -3136,6 +3377,8 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     started = false;
     denSessionCleanup?.();
     denSessionCleanup = null;
+    if (claudeFollowUp) { clearTimeout(claudeFollowUp); claudeFollowUp = null; }
+    for (const resolve of claudeIdleWaiters.splice(0)) resolve();
     listeners.clear();
   };
 
@@ -3153,6 +3396,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     startGatewayProviderOAuth,
     isGatewayModelAvailable,
     startProviderAuth,
+    connectClaudeAgent: () => runClaudeAction("connect"),
     refreshProviders,
     completeProviderAuthOAuth,
     submitProviderApiKey,

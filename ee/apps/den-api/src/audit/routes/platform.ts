@@ -54,12 +54,14 @@ const ADMIN = "adminRoute(): platform admin acting across tenants; no single ten
 
 export const platformAuditRoutes: readonly AuditRouteDeclaration[] = [
   // app.use middleware entries (not endpoints)
-  support("ALL", "/*", "request.pipeline", "Global middleware stack (observability, request id, headers, access log, CORS, sessionMiddleware, audit request capture)."),
+  support("ALL", "/*", "request.pipeline", "Global middleware stack (observability, request id, headers, access log, CORS, sessionMiddleware, audit request capture, config token confinement)."),
   support("ALL", "/v1/*", "request.preclaim_scope", "preclaimScopeMiddleware: denies provisional agent users outside their bootstrap scope."),
   support("ALL", "/api/auth/scim/v2/*", "scim.diagnostics", "SCIM diagnostics middleware (timing logs only); concrete SCIM v2 routes are declared in ./org.ts."),
   support("ALL", "/api/auth/sso/saml2/callback/*", "sso.saml_callback.policy", "samlResponsePolicyMiddleware before better-auth; the endpoint itself is declared with the better-auth endpoints."),
   support("ALL", "/api/auth/sso/saml2/sp/acs/*", "sso.saml_acs.policy", "samlResponsePolicyMiddleware before better-auth ACS; the endpoint itself is declared with the better-auth endpoints."),
   support("ALL", "/v1/auth/desktop-handoff/exchange", "desktop_handoff.cors", "Reflecting CORS middleware for the grant exchange (only when !env.corsHandledByEdge)."),
+  support("ALL", "/mcp/public", "mcp_public.no_index", "noIndex middleware: marks the public App MCP surface as not to be indexed by search engines (header only); the App server route is declared with the MCP consumption transports."),
+  support("ALL", "/mcp/public/*", "mcp_public.no_index", "noIndex middleware: marks the public App MCP surface as not to be indexed by search engines (header only); the App server route is declared with the MCP consumption transports."),
 
   // app.fetch re-dispatch
   route("ALL", "/v1/orgs/:orgId/*", "proxy", "legacy_org.proxy", "request.proxy", "organization", "orgId", "delegatedRoute legacy org proxy re-dispatches through app.fetch; the destination route records."),
@@ -70,6 +72,7 @@ export const platformAuditRoutes: readonly AuditRouteDeclaration[] = [
   mcp("ALL", "/mcp/agent/connections/:connectionId", "mcp_agent.connection.proxy"),
   mcp("ALL", "/mcp/agent/servers/:connectionId", "mcp_agent.connection.server"),
   mcp("ALL", "/mcp/admin", "mcp_admin.transport"),
+  mcp("ALL", "/mcp/public/apps/:appIdOrName", "mcp_public.app.server"),
   mcp("GET", "/mcp/.well-known/oauth-protected-resource", "mcp.protected_resource.read"),
   mcp("GET", "/mcp/agent/.well-known/oauth-protected-resource", "mcp_agent.protected_resource.read"),
   mcp("GET", "/mcp/admin/.well-known/oauth-protected-resource", "mcp_admin.protected_resource.read"),
@@ -94,6 +97,7 @@ export const platformAuditRoutes: readonly AuditRouteDeclaration[] = [
   readOnly("/oauth/client-metadata.json", "discovery.oauth_client_metadata.read", "platform.discovery", "discovery_document", null),
   readOnly("/docs", "api_docs.read", "platform.discovery", "api_document", null),
   readOnly("/openapi.json", "api_docs.openapi.read", "platform.discovery", "api_document", null),
+  readOnly("/v1/config-blobs/schema/:formatVersion", "config_blob.schema.read", "platform.discovery", "api_document", null, "Public JSON Schema of the config blob format (envelope and area spec schemas); no organization, no flag, side-effect free."),
   readOnly("/v1/app-version", "app_version.read", "platform.discovery", "app_version", null),
   readOnly("/v1/orgs/sso/singleton", "auth.sso_singleton.read", "platform.discovery", "deployment", null),
   readOnly("/v1/auth/bootstrap/status", "auth.bootstrap.status.read", "platform.discovery", "deployment", null),
@@ -121,6 +125,7 @@ export const platformAuditRoutes: readonly AuditRouteDeclaration[] = [
 
   // Auth helpers
   platform("GET", "/v1/auth/login-options", "auth.login_options.read", "platform.auth", "login_options", null, "Public, bot-protected; reveals account sign-in methods."),
+  platform("GET", "/v1/auth/sso-options", "auth.sso_options.read", "platform.auth", "login_options", null, "Public, rate limited; lists an organization's enabled SSO identity providers for its /sso/<slug> page."),
   platform("GET", "/v1/orgs/sso/resolve", "auth.sso.resolve", "platform.auth", "login_options", null, "Public, bot-protected email -> SSO routing."),
   handler("GET", "/v1/orgs/invitations/preview", "tenant_read", "invitation.preview", "invitation.read", "invitation", "Public preview by invitation id/token. The token proves the invitation's organization: once the invitation is found the handler attributes the served read there (category read, off by default), actor unknown. The token is never recorded (no resource id). Unknown tokens (404) stay platform evidence."),
   platform("POST", "/v1/auth/bootstrap/verify", "auth.bootstrap.verify", "platform.auth", "deployment", null, "One-time deployment bootstrap code."),
@@ -145,6 +150,7 @@ export const platformAuditRoutes: readonly AuditRouteDeclaration[] = [
 
   // Scheduled maintenance (bearer DEN_MAINTENANCE_TOKEN; 404 when unset)
   platform("POST", "/internal/audit/usage/refresh", "audit.usage.refresh", "platform.maintenance", "audit_usage", null, "Called by the den-audit-usage cron (Helm CronJob, Render cron job). Recomputes every organization's audit_state totals from stored rows; no organization activity, so platform evidence only."),
+  platform("POST", "/internal/github/reconcile/run", "connector.github.reconcile.run", "platform.maintenance", "github_reconcile", null, "Called by the den-github-reconcile cron (Helm CronJob, Render cron job). Checks due GitHub connector targets for new commits across organizations and queues resyncs; each resulting sync records its own connector_sync.completed job outcome, so platform evidence only."),
 
   // Global platform admin
   platform("GET", "/v1/admin/services", "platform.service_readiness.read", "platform.admin", "service_readiness", null, `${ADMIN} Cached diagnostics; stale-while-revalidate schedules read-only outbound probes through bounded durable admission (not a pure metadata read). No credentials or upstream error bodies.`),

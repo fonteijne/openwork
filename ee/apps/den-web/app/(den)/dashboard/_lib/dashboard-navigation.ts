@@ -26,6 +26,7 @@ import {
   getAuthSecurityRoute,
   getAutomationsRoute,
   getBillingRoute,
+  getConfigRoute,
   getDesktopPoliciesRoute,
   getDiagnosticsRoute,
   getDeploymentsRoute,
@@ -45,7 +46,7 @@ import {
 } from "../../_lib/den-org";
 import type { DenOrgMode } from "../../_lib/runtime-config";
 import { canOpenAdminRoute } from "./admin-route-access";
-import { type WorkbotEntry, workbotEntryHref, workbotNavMarker } from "./workbot-entry";
+import { myBotNavMarker, type WorkbotEntry, workbotEntryHref, workbotNavMarker } from "./workbot-entry";
 
 export type DashboardNavChild = {
   href: string;
@@ -104,6 +105,8 @@ export type BuildDashboardNavSectionsInput = {
   myBot?: boolean;
   /** The authSecuritySettings feature: one Auth & Security entry instead of SSO and SCIM. */
   authSecuritySettings?: boolean;
+  /** The configBlobs feature: Settings › Config (export and import the organization's configuration). */
+  configBlobs?: boolean;
 };
 
 export function buildDashboardNavSections({
@@ -119,6 +122,7 @@ export function buildDashboardNavSections({
   organizationId = null,
   myBot = false,
   authSecuritySettings = false,
+  configBlobs = false,
 }: BuildDashboardNavSectionsInput): DashboardNavSection[] {
   const workflowsEnabled = capabilities.workflows;
   const showWeb = runtimeConfigLoaded && capabilities.openworkWeb;
@@ -127,7 +131,7 @@ export function buildDashboardNavSections({
       ? [{ href: workbotEntryHref(organizationId), label: "Workbot", icon: MessageCircle, testId: "dashboard-nav-workbot", ...workbotNavMarker(workbotEntry) }]
       : []),
     ...(myBot && orgSlug
-      ? [{ href: getLibraryMyAgentRoute(orgSlug), label: "My bot", icon: Radar, testId: "dashboard-nav-my-bot" }]
+      ? [{ href: getLibraryMyAgentRoute(orgSlug), label: "My bot", icon: Radar, testId: "dashboard-nav-my-bot", ...myBotNavMarker(workbotEntry) }]
       : []),
     {
       href: orgSlug ? getLibraryRoute(orgSlug) : "#",
@@ -183,6 +187,9 @@ export function buildDashboardNavSections({
         ...(canOpen(getMarketplacesRoute(orgSlug))
           ? [{ href: getMarketplacesRoute(orgSlug), label: "Advanced" }]
           : []),
+        ...(configBlobs && canOpen(getConfigRoute(orgSlug))
+          ? [{ href: getConfigRoute(orgSlug), label: "Config" }]
+          : []),
         ...(capabilities.mcpConnections && canOpen(getToolTesterRoute(orgSlug))
           ? [{ href: getToolTesterRoute(orgSlug), label: "Tool Tester" }]
           : []),
@@ -236,6 +243,7 @@ const PAGE_KEYWORDS: Record<string, string[]> = {
   "API Keys": ["token", "secret"],
   "Auth & Security": ["sso", "single sign on", "saml", "oidc", "scim", "provisioning", "directory", "okta", "entra", "identity provider"],
   Billing: ["plan", "invoice", "payment"],
+  Config: ["export", "import", "backup", "json", "copy settings", "change requests", "revert"],
   "Bring Your Own Keys (Legacy)": ["llm", "provider", "byok", "api key"],
   Connectors: ["mcp", "integrations", "servers", "connect"],
   "Desktop policies": ["policy", "mdm", "lock", "desktop"],

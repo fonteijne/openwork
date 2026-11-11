@@ -90,7 +90,8 @@ import { ImageAttachmentBadge } from "@/components/chat/image-attachment-badge"
 import { AttachmentFileChip, ComposerBadgeChip, ComposerPillChip, PastedTextChip } from "@/components/chat/composer-pill"
 import { agentBadge, fileMentionBadge } from "@/react-app/domains/session/surface/composer/composer-chips"
 import { isChatAttachmentUrl } from "@/react-app/domains/session/sync/attachment-file-part"
-import { readComposerPill, splitComposerPillText } from "@/react-app/domains/session/surface/composer/composer-pills"
+import { splitComposerPillText } from "@/react-app/domains/session/surface/composer/composer-pills"
+import { composerDraftFromSentParts, sentTextPartToken } from "@/react-app/domains/session/surface/composer/sent-message-tokens"
 import { Image } from "@/components/ui/image"
 import {
   Message,
@@ -755,35 +756,26 @@ type UserMessageProps = {
   isStreaming: boolean
 }
 
-function isPastedTextPart(part: UIMessage["parts"][number]) {
-  if (part.type !== "text") return false
-  const metadata = part.providerMetadata?.opencode
-  return Boolean(metadata && typeof metadata === "object" && "pastedText" in metadata && metadata.pastedText === true)
-}
-
 function fileBytes(part: FileUIPart) {
   const metadata = part.providerMetadata?.opencode
   const bytes = metadata && typeof metadata === "object" && "bytes" in metadata ? metadata.bytes : undefined
   return typeof bytes === "number" ? bytes : undefined
 }
 
-/** Agent and file mentions keep their composer badge in the sent message. */
-function textPartMentionBadge(part: UIMessage["parts"][number]) {
-  if (part.type !== "text") return null
-  const metadata = part.providerMetadata?.opencode
-  if (!metadata || typeof metadata !== "object") return null
-  if ("agentMention" in metadata && typeof metadata.agentMention === "string") return agentBadge(metadata.agentMention)
-  if ("fileMention" in metadata && typeof metadata.fileMention === "string") return fileMentionBadge(metadata.fileMention)
-  return null
-}
-
-/** The pill a sent text part was tagged with in the composer, if any. */
-function textPartComposerPill(part: UIMessage["parts"][number]) {
-  if (part.type !== "text") return null
-  const metadata = part.providerMetadata?.opencode
-  return metadata && typeof metadata === "object" && "composerPill" in metadata
-    ? readComposerPill(metadata.composerPill)
-    : null
+/** The chip a sent text part is drawn as: the same one the composer drew. */
+function renderSentTokenChip(part: UIMessage["parts"][number], key: string) {
+  const token = sentTextPartToken(part)
+  if (!token) return null
+  switch (token.kind) {
+    case "pill":
+      return <ComposerPillChip key={key} pill={token.pill} />
+    case "pasted":
+      return part.type === "text" ? <PastedTextChip key={key} text={part.text} /> : null
+    case "agent":
+      return <ComposerBadgeChip key={key} badge={agentBadge(token.name)} />
+    case "file":
+      return <ComposerBadgeChip key={key} badge={fileMentionBadge(token.path)} />
+  }
 }
 
 function renderPlainTextWithSearchHighlights(text: string, highlightQuery: string | undefined, keyPrefix: string) {
@@ -997,6 +989,11 @@ const UserMessage = React.memo(
       onOpenTarget(target)
     }
     const messageText = React.useMemo(() => getMessagesText([message]), [message])
+    // Edit puts every chip back in the composer as the same chip.
+    const editMessage = () => {
+      const draft = composerDraftFromSentParts(message.parts)
+      onEditUserMessage(message.id, draft.text, draft)
+    }
     const inlineParts = React.useMemo(
       () => message.parts.filter((part) => (part.type === "text" && Boolean(part.text)) || isFileUIPart(part)),
       [message.parts],
@@ -1006,7 +1003,7 @@ const UserMessage = React.memo(
     const menuActions: MenuAction[] = []
     if (messageText) menuActions.push(
       { type: "item", id: "copy", label: "Copy", icon: <Copy className="size-4" />, onSelect: () => navigator.clipboard.writeText(messageText) },
-      { type: "item", id: "edit", label: "Edit message", icon: <Pencil className="size-4" />, disabled: readOnly || Boolean(wall), onSelect: () => onEditUserMessage(message.id, messageText) },
+      { type: "item", id: "edit", label: "Edit message", icon: <Pencil className="size-4" />, disabled: readOnly || Boolean(wall), onSelect: editMessage },
     )
     if (!wall) menuActions.push(
       { type: "item", id: "revert", label: "Revert", icon: <Undo2 className="size-4" />, disabled: readOnly, onSelect: () => onRevertToUserMessage(message.id) },
@@ -1037,11 +1034,8 @@ const UserMessage = React.memo(
                     onClick={openLink}
                   >
                     {inlineParts.map((part, index) => {
-                      const pill = textPartComposerPill(part)
-                      if (pill) return <ComposerPillChip key={`pill-${index}`} pill={pill} />
-                      if (part.type === "text" && isPastedTextPart(part)) return <PastedTextChip key={`pasted-${index}`} text={part.text} />
-                      const mention = textPartMentionBadge(part)
-                      if (mention) return <ComposerBadgeChip key={`mention-${index}`} badge={mention} />
+                      const chip = renderSentTokenChip(part, `chip-${index}`)
+                      if (chip) return chip
                       if (part.type === "text") {
                         return (
                           <span key={`text-${index}`} className="whitespace-pre-wrap">
@@ -1083,7 +1077,7 @@ const UserMessage = React.memo(
                           size="icon"
                           aria-label="Edit message"
                           disabled={readOnly}
-                          onClick={() => onEditUserMessage(message.id, messageText)}
+                          onClick={editMessage}
                         >
                           <Pencil />
                         </Button>
@@ -1406,6 +1400,11 @@ function getRenderableMessage(message: UIMessage) {
  * Measured from the last turn's top, so history placeholders swapping above
  * do not count. A shrink the person causes (collapsing a row) is not held.
  * Released when the turn ends, where the steps fold anyway.
+ *
+ * The reserve never empties the screen. A message the person sends starts a
+ * new last group with nothing held below it: inheriting the earlier turn's
+ * room pushed the new message up out of sight over blank space. And at most
+ * half the view is held, so the turn's latest row always stays on screen.
  */
 function LiveTurnReserve({ active }: { active: boolean }) {
   const ref = React.useRef<HTMLDivElement>(null)
@@ -1415,7 +1414,7 @@ function LiveTurnReserve({ active }: { active: boolean }) {
     if (!spacer || !list) return
     spacer.style.height = ""
     if (!active || typeof ResizeObserver === "undefined") return
-    let anchor: Element | null = null
+    let anchor: string | null = null
     let tallest = 0
     let releaseUntil = 0
     const measure = () => {
@@ -1425,13 +1424,17 @@ function LiveTurnReserve({ active }: { active: boolean }) {
       if (!last || last.hasAttribute("data-thread-placeholder")) return
       const box = spacer.getBoundingClientRect()
       const span = box.top - last.getBoundingClientRect().top
-      // A new last group (a follow-up mid-run) keeps the room already reserved.
-      if (last !== anchor) {
-        tallest = anchor ? span + box.height : span
-        anchor = last
+      // A new last group (a message just sent) starts with nothing held below
+      // it, so it lands at the bottom instead of rising over blank space. The
+      // same group remounting keeps its room.
+      const group = last.getAttribute("data-thread-group")
+      if (group !== anchor) {
+        tallest = span
+        anchor = group
       }
       tallest = performance.now() < releaseUntil ? span : Math.max(tallest, span)
-      const reserve = Math.max(0, tallest - span)
+      const view = list.closest("[data-thread-scroll]")?.clientHeight || window.innerHeight
+      const reserve = Math.min(Math.max(0, tallest - span), view / 2)
       if (Math.abs(reserve - box.height) > 0.5) spacer.style.height = reserve > 0 ? `${reserve}px` : ""
     }
     const release = () => { releaseUntil = performance.now() + 500 }
