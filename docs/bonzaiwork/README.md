@@ -4,7 +4,7 @@ Eigen desktop-app op basis van OpenWork, met een eigen UI en LiteLLM als enige p
 De opdracht staat in [`referentie.md`](./referentie.md). Dit document beschrijft wat er gebouwd is,
 hoe het geverifieerd is, waar we van de referentie afwijken en wat er nog openstaat.
 
-Stand: upstream-release `v0.18.65` (`abb0def`), gemerged in `nightly` via fonteijne/openwork#34. Getest op Linux (CI, stand-in LiteLLM). De test op macOS arm64 met echte LiteLLM is voor deze release (en voor `v0.18.64`) nog niet gedaan; de laatste stand die daar wel op getest is, is `2aa4481` (`v0.18.63`).
+Stand: upstream-release `v0.18.66` (`ef75f7b`), gemerged in `nightly` via fonteijne/openwork#37. Getest op Linux (CI, stand-in LiteLLM). De test op macOS arm64 met echte LiteLLM is voor deze release (en voor `v0.18.64` en `v0.18.65`) nog niet gedaan; de laatste stand die daar wel op getest is, is `2aa4481` (`v0.18.63`).
 
 ## Genomen beslissingen
 
@@ -87,7 +87,7 @@ Electron main (BonzaiWork-entry)
 | Unit-tests | `bun test` in beide pakketten + `apps/server/test/downstream-hooks.test.ts` | 4 + 9 + 4 groen |
 | Bestaande upstream-tests rond de gepatchte bestanden | 17 testbestanden (`engine-v2-*`, `live-provider-*`, `provider-config-templates`, …) | 88 groen, 11 overgeslagen, 0 fout |
 | Typecheck | `openwork-server`, `@openwork/app`, `@bonzaiwork/*` | 0 fouten |
-| **B "klaar als"** | `pnpm --filter @bonzaiwork/litellm e2e`: echte server + v2-engine + stand-in LiteLLM, met `ANTHROPIC_API_KEY` gezet, een project-`opencode.json` met een eigen provider (die zichzelf via `experimental.policies` probeert toe te staan) en een lokale `auth.json` | engine toont alleen `litellm`; chat via de projectprovider faalt; chat via LiteLLM slaagt; twee workspaces bereiken LiteLLM met hun eigen key; geen key in logs, engine-config, `runtime.sqlite` of workspaces |
+| **B "klaar als"** | `pnpm --filter @bonzaiwork/litellm e2e`: echte server + v2-engine + stand-in LiteLLM, met `ANTHROPIC_API_KEY` gezet, een project-`opencode.json` met een eigen provider (die zichzelf via `experimental.policies` probeert toe te staan) en een lokale `auth.json` | engine toont alleen `litellm`; chat via de projectprovider faalt; chat via LiteLLM slaagt; twee workspaces bereiken LiteLLM met hun eigen key; met een nep-`claude` op PATH die zich als ingelogd meldt: ook na een Claude Code-connect geen `claude-agent` in de engine en geen chatbeurt ermee, en met de omgeving van de desktop-entry start de engine die `claude` nooit; geen key in logs, engine-config, `runtime.sqlite` of workspaces |
 | UI (headless Chrome) | Vite-dev + headless server; onboarding → afgewezen key → geldige key → chat → instellingen | zie `screenshots/`; key niet in de DOM |
 | **A "klaar als"** | `package.mjs --dir --linux` + `xvfb-run node smoke-packaged.mjs` | verpakte app toont BonzaiWork-onboarding met de ingebakken URL, koppelt een key, beantwoordt een chatbeurt via LiteLLM; de chat staat in de eigen geschiedenis, niet in de gedeelde OpenCode-database |
 | **C (deel)** | dezelfde smoketest; al het uitgaande verkeer via een registrerende proxy die niets doorstuurt | 0 verzoeken naar `*.openworklabs.com`; enige uitgaande bestemming: `redirector.gvt1.com` (Chromium component updater) |
@@ -165,6 +165,31 @@ leverde dat 0 fouten op, maar die bestanden veranderen vaak. De huidige UI impor
 - **v1-engine draait mee**: zie afwijking 4. Niet nagelopen is of v1 via `/opencode` nog andere providers
   kan gebruiken. Onze UI komt er niet, maar elk proces met het owner-token wel. Een hook die de v1-start
   overslaat, of een v1-providerfilter, ligt voor de hand.
+- **Claude Code (`claude-agent`)** (sinds `v0.18.66`, upstream #7171): de v2-engine (2.2.6) heeft een
+  ingebouwde provider die Claude Code als model gebruikt. De proxy in `server.ts` laat één aanroep door:
+  `POST /opencode2/api/integration/claude-agent/connect/external` met de Claude Code-login. Het
+  feature-flag `claudeAgentProvider` stuurt alleen de upstream-UI aan; de route zelf is niet geflagd.
+  Gemeten in de engine-E2E, met een nep-`claude` die zich als ingelogd abonnement meldt:
+  - De engine-policy (`provider.use * deny`, `litellm allow`) houdt `claude-agent` buiten de providerlijst
+    en weigert een chatbeurt ermee, ook na een geslaagde connect (204). De nep-`claude` krijgt nooit een
+    prompt.
+  - Wel start de engine `claude` voor zijn logincontrole, al bij het laden van een map, ook zonder connect.
+    Een echte Claude Code praat dan buiten LiteLLM om met Anthropic, en de smoketest ziet dat niet (zie
+    hieronder). De engine kent geen instelling om deze provider uit te zetten. Wel zoekt hij Claude Code
+    eerst in `OPENCODE_CLAUDE_PATH` (dat upstream sinds deze release aan de engine doorgeeft) en pas als
+    die leeg is op PATH. `SERVER_ENVIRONMENT_DEFAULTS` zet die daarom op een pad dat niet bestaat
+    (`NO_CLAUDE_CODE_PATH`). In de E2E start de engine de nep-`claude` op PATH dan nooit, en chats via
+    LiteLLM werken gewoon.
+
+  **Besluit:** we weigeren `/opencode2/api/integration/*` níet met een eigen route. Dat kan niet zonder
+  nieuwe patch: `server.ts` stuurt `/workspace/:id/opencode2/*` door vóór de routetabel, dus een
+  downstream-route komt daar nooit aan de beurt. Er zou een nieuwe hook in `server.ts` en
+  `downstream-hooks.ts` voor nodig zijn. Die voegt weinig toe: het gebruik is al dicht via de policy, het
+  starten van Claude Code via `OPENCODE_CLAUDE_PATH`, en beide worden in CI getest. Een connect slaat
+  hoogstens een nutteloze verwijzing op in de engine. Opnieuw bekijken als upstream meer `/integration`-
+  routes doorlaat of de engine-policy anders gaat werken. Een ontwikkelaar die zelf `OPENCODE_CLAUDE_PATH`
+  zet, overschrijft de standaard (zoals bij alle `SERVER_ENVIRONMENT_DEFAULTS`); dan blijft alleen de
+  policy over.
 - **Smoketest ziet engineverkeer niet**: de v2-engine krijgt geen proxyvariabelen, dus wat die zelf
   ophaalt gaat buiten de opnemende proxy om. De smoketest bewijst E6 voor Electron, de server en v1.
   Chromium haalt verder `redirector.gvt1.com` op (component updater van Google, geen OpenWork).

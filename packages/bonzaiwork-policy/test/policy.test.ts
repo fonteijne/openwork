@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { isAllowedProvider, liteLLMProviderEntry, pickDefaultModel, PREFERRED_MODEL_IDS, readPreferredModels, readSettings, SERVER_ENVIRONMENT_DEFAULTS, trimTrailingSlashes } from "../src/index.ts";
 
@@ -22,6 +23,13 @@ describe("provider policy", () => {
   test("the engines' model catalog stays on this machine", () => {
     expect(SERVER_ENVIRONMENT_DEFAULTS.OPENCODE_DISABLE_MODELS_FETCH).toBe("1");
     expect(new URL(SERVER_ENVIRONMENT_DEFAULTS.OPENCODE_MODELS_URL ?? "").hostname).toBe("127.0.0.1");
+  });
+
+  test("engine v2 never finds Claude Code", () => {
+    // Empty would make the engine search PATH for `claude`.
+    const path = SERVER_ENVIRONMENT_DEFAULTS.OPENCODE_CLAUDE_PATH ?? "";
+    expect(path.startsWith("/")).toBe(true);
+    expect(existsSync(path)).toBe(false);
   });
 
   test("settings require HTTPS except for a loopback LiteLLM", () => {
