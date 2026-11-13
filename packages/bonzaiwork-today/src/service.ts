@@ -383,12 +383,20 @@ export function createTodayService(deps: TodayDeps) {
       return meetings.filter((meeting) => meeting.start < until);
     },
 
-    async unreadMail(limit: number): Promise<MailSummary[]> {
+    /**
+     * The unread mail a round has not read yet. A mail the agent read and did not report is not
+     * offered again (unless `again`), so a full inbox costs its tokens once, not every round.
+     */
+    async unreadMail(limit: number, again = false): Promise<MailSummary[]> {
       requireConnector("mail");
       try {
         const found = await deps.ms365.unread(limit);
         status.mail = { state: "ok", detail: null, checkedAt: deps.now() };
-        return found;
+        if (again) return found;
+        const fresh = found.filter((mail) => store.state.seen[`mail:${mail.id}`] === undefined);
+        for (const mail of fresh) store.state.seen[`mail:${mail.id}`] = deps.now();
+        if (fresh.length) await store.save();
+        return fresh;
       } catch (error) {
         status.mail = fail(error);
         throw new TodayError(502, "mail_failed", error instanceof ConnectorError ? error.message : "De mail is niet te lezen.");

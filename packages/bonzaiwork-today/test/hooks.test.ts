@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { createRoutinesHooks } from "../../bonzaiwork-routines/src/index.ts";
 import { createMs365, createSlackCli } from "../src/connectors.ts";
 import { createTodayHooks, type TodayHooks, type TodayHost } from "../src/hooks.ts";
+import { readView } from "../src/read.ts";
 import type { Todo, TodayView } from "../src/types.ts";
 
 /**
@@ -272,11 +273,14 @@ describe("de agent en de buitenwereld (plan §3, T7)", () => {
     expect(todos.text).toContain("Van het team, zonder eigenaar (1)");
     expect((await tool("agenda_lezen")).text).toContain("evt-soon · 2026-11-13 10:20–11:20 · Klantoverleg · Zaal 2 · van Robin");
     expect((await tool("mail_ongelezen")).text).toContain("id: mail-1\nvan: Robin <robin@example.invalid>");
+    // The next round only gets what is new; asking again shows it once more.
+    expect((await tool("mail_ongelezen")).text).toBe("Geen nieuwe ongelezen mail sinds de vorige ronde.");
+    expect((await tool("mail_ongelezen", { opnieuw: true })).text).toContain("id: mail-1");
     expect((await tool("slack_ongelezen", { alleen_vermeldingen: true })).text).toContain('"mentions":1');
     const slack = await lines(join(root, "slack.log"));
     expect(slack[0]).toMatchObject({ command: "unreads", args: ["--json", "--limit", "10", "--mentions-only"] });
     const ms365 = await lines(join(root, "ms365.log"));
-    expect(ms365.map((entry) => entry.name)).toEqual(["get-calendar-view", "read-mail-text"]);
+    expect(ms365.map((entry) => entry.name)).toEqual(["get-calendar-view", "read-mail-text", "read-mail-text", "read-mail-text"]);
     expect(ms365[1]?.args).toMatchObject({ folderId: "inbox", filter: "isRead eq false" });
   });
 
@@ -357,6 +361,20 @@ describe("de agent en de buitenwereld (plan §3, T7)", () => {
     expect((await view()).plan?.approved).toBe(true);
     await call("POST", "/bonzaiwork/today/plan", { decision: "drop" });
     expect((await view()).plan).toBeNull();
+  });
+
+  test("de app leest het antwoord van de route terug tot precies dezelfde vorm", async () => {
+    await hooks.service.refreshMeetings(true);
+    await tool("bericht_melden", { bron: "slack", id: "C1:1.0", titel: "#sales", van: "Robin", waarom: "Vraagt iets", concept: "Ja.", kanaal: "C1", draad: "1.0", link: "https://slack.example/x" });
+    await tool("belofte_voorstellen", { tekst: "Prijslijst sturen", wie: "ik", datum: "2026-11-16", bron: "mail", bron_id: "mail-1" });
+    await tool("voorbereiding_melden", { afspraak_id: "evt-soon", voorbereiding: "- Doel" });
+    await tool("eerste_stap", { id: (await first()).id, stap: "Open de offerte", waarom: "Te laat" });
+    await tool("dagplan_voorstellen", { top: [(await first()).id], blokken: [{ van: "11:00", tot: "12:00", wat: "Offerte" }] });
+    await call("POST", "/bonzaiwork/today/focus", { todoId: (await first()).id, chatId: "ses_1" });
+    const answer = (await call("GET", "/bonzaiwork/today")).body;
+    const now = await view();
+    expect(now.items.map((item) => item.kind).sort()).toEqual(["commitment", "meeting", "message"]);
+    expect(readView(JSON.parse(JSON.stringify(answer)))).toEqual(now);
   });
 
   test("de koppelingen testen zegt per koppeling of het werkt", async () => {

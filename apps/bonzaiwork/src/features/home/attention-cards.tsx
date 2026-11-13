@@ -21,6 +21,7 @@ import { href, navigate } from "~/lib/router";
 import { fileName } from "~/lib/tools";
 
 import { isBrainRead } from "../brain/brain-permission";
+import { WorldCard } from "../today/world-cards";
 import { lastUserText } from "./model";
 
 const REVERSIBLE = new Set(["edit", "write", "patch"]);
@@ -597,5 +598,7 @@ export function AttentionCard(props: AttentionCardProps) {
       return project ? <BrainCard isFocal={props.isFocal} item={item} project={project} brain={props.brain} cardRef={props.cardRef} /> : null;
     case "proposal":
       return <ProposalCard isFocal={props.isFocal} item={item} onResolved={props.onResolved} cardRef={props.cardRef} />;
+    case "world":
+      return <WorldCard isFocal={props.isFocal} item={item.item} onResolved={props.onResolved} cardRef={props.cardRef} />;
   }
 }

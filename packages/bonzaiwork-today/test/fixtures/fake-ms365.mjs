@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const log = process.env.FAKE_MS365_LOG;
-const now = Number(process.env.FAKE_NOW);
+const now = Number(process.env.FAKE_NOW) || Date.now();
 const iso = (ms) => new Date(ms).toISOString().replace("Z", "0000");
 const events = { value: [
   { id: "evt-soon", subject: "Klantoverleg", start: { dateTime: iso(now + 20 * 60_000), timeZone: "UTC" }, end: { dateTime: iso(now + 80 * 60_000), timeZone: "UTC" }, location: { displayName: "Zaal 2" }, organizer: { emailAddress: { name: "Robin" } } },

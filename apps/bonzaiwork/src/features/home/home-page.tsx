@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, useAttention, useBrainAuthor, useBrains, useRecentChats, useRoutines } from "~/backend/queries";
+import { keys, useAttention, useBrainAuthor, useBrains, useProjects, useRecentChats, useRoutines, useToday } from "~/backend/queries";
 import type { Brain, BrainHistoryEntry, Project } from "~/backend/types";
 import { PageTitle, TopBar } from "~/components/top-bar";
+import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { errorText } from "~/lib/errors";
 import { SEEN_ALL_EVENT } from "~/lib/shortcuts";
 import { SMALL_UP, useMediaQuery } from "~/lib/use-media";
 
 import { useSidebarProjects } from "../projects/use-listed-projects";
+import { withWorld } from "../today/model";
+import { FocusLine, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
 import { AttentionSection } from "./attention-section";
 import { HomeComposer } from "./home-composer";
 import { awayRows, MAX_AWAY_ROWS, nextRoutine, readLastSeen, writeLastSeen } from "./model";
@@ -50,6 +54,8 @@ function useSeenAll(onSeenAll: () => void) {
  * composer sticks to the bottom, in thumb reach (brief §4).
  */
 export function HomePage() {
+  const backend = useBackend();
+  const client = useQueryClient();
   const smallUp = useMediaQuery(SMALL_UP);
   const { projects, summaries } = useSidebarProjects();
   const attention = useAttention();
@@ -64,7 +70,15 @@ export function HomePage() {
   const brainMap = useMemo(() => new Map<string, Brain>((brains.data ?? []).map((brain) => [brain.projectId, brain])), [brains.data]);
   const routineMap = useMemo(() => new Map((routines.data ?? []).map((routine) => [routine.id, routine])), [routines.data]);
   const next = useMemo(() => nextRoutine(routines.data ?? []), [routines.data]);
-  const items = attention.data ?? [];
+  // The personal agent (docs/bonzaiwork/persoonlijke-agent-plan.md §4): off, Vandaag is as it was.
+  const today = useToday();
+  const agent = today.data?.enabled ? today.data : null;
+  // A to-do can live in any brain, also one that is not in the sidebar (the personal brain).
+  const allProjects = useProjects();
+  const everyProject = useMemo(() => new Map<string, Project>((allProjects.data ?? []).map((project) => [project.id, project])), [allProjects.data]);
+  const items = useMemo(() => withWorld(attention.data ?? [], agent?.items ?? []), [attention.data, agent]);
+  // What stops an agent goes first (P7); otherwise the to-do to start with is the focal element.
+  const decisionWaits = items.some((item) => item.kind === "permission" || item.kind === "question");
   const away = useMemo(
     () => awayRows({ chats: recent.data ?? [], history: histories, lastSeenAt, ownAuthor: author.data?.author?.name ?? null, limit: MAX_AWAY_ROWS }),
     [recent.data, histories, lastSeenAt, author.data],
@@ -77,7 +91,19 @@ export function HomePage() {
   };
   useSeenAll(seenAll);
 
-  const composer = <HomeComposer projects={projects} size={smallUp ? "large" : "default"} autoFocus={false} />;
+  // "Parkeren" (T5): the thought goes to the inbox of the personal brain; the page stays as it is.
+  const park = async (text: string): Promise<boolean> => {
+    try {
+      await backend.today.park(text);
+      toast(copy.today.parkedToast);
+      void client.invalidateQueries({ queryKey: keys.today });
+      return true;
+    } catch (failure) {
+      toast(errorText(failure), { tone: "error" });
+      return false;
+    }
+  };
+  const composer = <HomeComposer projects={projects} size={smallUp ? "large" : "default"} autoFocus={false} onPark={agent && !agent.blocked ? park : undefined} />;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -87,7 +113,11 @@ export function HomePage() {
       <main className="min-h-0 flex-1 overflow-y-auto" data-testid="home-page">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6 pb-12 sm:px-6 sm:pt-8">
           {smallUp ? composer : null}
-          <AttentionSection items={attention.data} loading={attention.isLoading} projects={projectMap} brains={brainMap} routines={routineMap} nextRoutine={next} />
+          {agent?.focus ? <FocusLine focus={agent.focus} projects={everyProject} /> : null}
+          {agent?.blocked ? <TodayBlocked reason={agent.blocked} /> : null}
+          {agent && !agent.blocked ? <StartSection view={agent} projects={everyProject} isFocal={!decisionWaits} /> : null}
+          <AttentionSection items={attention.data ? items : undefined} loading={attention.isLoading} projects={projectMap} brains={brainMap} routines={routineMap} nextRoutine={next} focal={!agent?.start || decisionWaits} />
+          {agent ? <UpcomingSection rows={agent.upcoming} projects={everyProject} /> : null}
           <BusySection chats={recent.data ?? []} projects={projectMap} />
           <WhileAwaySection rows={away} projects={projectMap} lastSeenAt={lastSeenAt} onSeenAll={seenAll} />
           <WorkdaySection nextRoutine={next} projects={projectMap} />

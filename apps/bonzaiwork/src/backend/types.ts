@@ -9,6 +9,7 @@
  */
 
 import type { AgendaSettingsView, BridgePost, Correction, DayView } from "@bonzaiwork/agenda/model";
+import type { ChatStart as TodayChatStart, DayItem, Focus, TodaySettings, Todo, TodayView } from "@bonzaiwork/today/model";
 
 // ---------------------------------------------------------------------------
 // App, keys and models
@@ -58,6 +59,8 @@ export type Capabilities = {
   brains: boolean;
   /** The agenda: quarter hours per project, Bridge posts and the booking document (§7.6). */
   agenda: boolean;
+  /** The personal agent on Vandaag: to-dos, deadlines, mail, Slack (docs/bonzaiwork/persoonlijke-agent-plan.md). */
+  today: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -276,10 +279,12 @@ export type AttentionItem =
       at: number;
     }
   | { kind: "brain"; projectId: string; state: "conflict" | "needs_trust" | "error"; at: number }
-  | { kind: "proposal"; proposal: PreferenceProposal; at: number };
+  | { kind: "proposal"; proposal: PreferenceProposal; at: number }
+  /** Something from the world the personal agent found: a mail or Slack thread, a promise, an appointment that starts soon. */
+  | { kind: "world"; item: DayItem; at: number };
 
 /** The order "Voor jou" lists the kinds in: what stops an agent first, then what stops a routine, then knowledge. */
-export const ATTENTION_ORDER: readonly AttentionItem["kind"][] = ["permission", "question", "chat_failed", "routine", "brain", "proposal"];
+export const ATTENTION_ORDER: readonly AttentionItem["kind"][] = ["permission", "question", "world", "chat_failed", "routine", "brain", "proposal"];
 const ROUTINE_REASON_ORDER: readonly Extract<AttentionItem, { kind: "routine" }>["reason"][] = ["needs_attention", "failed", "missed"];
 
 /**
@@ -291,6 +296,8 @@ export function sortAttention(items: AttentionItem[]): AttentionItem[] {
   const rank = (item: AttentionItem) => {
     // Permissions and questions share one group: both stop an agent, newest first.
     if (item.kind === "permission" || item.kind === "question") return 0;
+    // An appointment that starts soon goes before the messages and promises: it has a clock.
+    if (item.kind === "world") return ATTENTION_ORDER.indexOf("world") * 10 + (item.item.kind === "meeting" ? 0 : item.item.kind === "message" ? 1 : 2);
     const base = ATTENTION_ORDER.indexOf(item.kind) * 10;
     return item.kind === "routine" ? base + ROUTINE_REASON_ORDER.indexOf(item.reason) : base;
   };
@@ -729,6 +736,8 @@ export interface Backend {
 
   agenda: AgendaBackend;
 
+  today: TodayBackend;
+
   feedback: {
     /** Screenshot and redacted logs, taken before the dialog opens; null when this backend has neither. */
     collect(notes: string): Promise<FeedbackReport | null>;
@@ -770,6 +779,49 @@ export type AgendaBackend = {
   /** Saves the booking document in Downloads; the demo downloads it in the browser. */
   saveBookingDocument(from: string, to: string): Promise<{ path: string }>;
 };
+
+// ---------------------------------------------------------------------------
+// Vandaag: the personal agent (docs/bonzaiwork/persoonlijke-agent-plan.md)
+// ---------------------------------------------------------------------------
+
+export type {
+  AgentRound, CleanupCandidate, ConnectorStatus, DayItem, DayPlan, Focus, Meeting, StartHere, StartReason, TodaySettings, Todo, TodayView, UpcomingBucket, UpcomingRow,
+} from "@bonzaiwork/today/model";
+
+export type TodaySettingsView = { settings: TodaySettings; /** Turned off for this installation (`BONZAIWORK_TODAY=0`); the switch cannot turn it on. */ killed: boolean };
+
+export type TodayBackend = {
+  /** Everything Vandaag shows from the personal agent, in one poll. */
+  view(): Promise<TodayView>;
+  settings(): Promise<TodaySettingsView>;
+  setSettings(patch: Partial<TodaySettings>): Promise<TodaySettingsView>;
+  /** Tries the calendar, mail and Slack connections now. */
+  checkConnectors(): Promise<TodayView["connectors"]>;
+  /** A new to-do in a brain's `taken.md`; without a brain, the personal one. */
+  addTodo(input: { text: string; brainId: string | null; due: string | null }): Promise<Todo>;
+  setDone(todoId: string, done: boolean): Promise<void>;
+  /** "Niet nu": the next to-do in "Start hier". */
+  skip(todoId: string): Promise<void>;
+  /** "Parkeren": the thought goes to the inbox of the personal brain. */
+  park(text: string): Promise<void>;
+  /** "Start": the to-do becomes the focus; `chat` is what the app starts. With a chat id: remembers the chat. */
+  focus(todoId: string, chatId: string | null): Promise<{ focus: Focus; chat: TodayChatStart }>;
+  stopFocus(): Promise<void>;
+  /** "Versturen": the server sends the reply by mail or Slack. `text` null sends the draft as it is. */
+  send(key: string, text: string | null): Promise<void>;
+  dismiss(key: string): Promise<void>;
+  /** Hides the card until tomorrow. */
+  later(key: string): Promise<void>;
+  /** A found promise becomes a to-do. */
+  accept(key: string): Promise<Todo>;
+  decidePlan(decision: "approve" | "drop"): Promise<void>;
+  /** The chat that cleans up a brain's to-dos in prose. */
+  cleanup(brainId: string): Promise<TodayChatStart>;
+  runRound(system: string): Promise<void>;
+};
+
+/** A chat Vandaag starts for the person: where, with what title and prompt, on which model (null: the project's). */
+export type { TodayChatStart };
 
 /** A failure the UI explains in its own words (DESIGN.md C6, T2). */
 export class BackendError extends Error {

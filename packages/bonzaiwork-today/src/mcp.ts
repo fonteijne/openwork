@@ -56,8 +56,8 @@ export const TODAY_TOOLS = [
   },
   {
     name: "mail_ongelezen",
-    description: "De nieuwste ongelezen mail uit de inbox van de gebruiker (standaard 10, hooguit 20), met id, afzender, onderwerp en de tekst zonder geciteerde geschiedenis. Alleen lezen.",
-    inputSchema: { type: "object", properties: { max: int } },
+    description: "De ongelezen mail uit de inbox van de gebruiker die je nog niet eerder kreeg (standaard 10, hooguit 20), met id, afzender, onderwerp en de tekst zonder geciteerde geschiedenis. Met opnieuw=true ook wat je al eerder zag. Alleen lezen.",
+    inputSchema: { type: "object", properties: { max: int, opnieuw: bool } },
   },
   {
     name: "mail_lezen",
@@ -165,8 +165,8 @@ export async function callTodayTool(service: TodayService, name: string, args: J
       return ok(meetings.map((meeting) => `- ${meeting.id} · ${meeting.allDay ? `${localDate(meeting.start)} hele dag` : `${time(meeting.start)}–${time(meeting.end).slice(11)}`} · ${meeting.title}${meeting.location ? ` · ${meeting.location}` : ""}${meeting.organizer ? ` · van ${meeting.organizer}` : ""}`).join("\n"));
     }
     case "mail_ongelezen": {
-      const mails = await service.unreadMail(count("max", 10));
-      if (!mails.length) return ok("Geen ongelezen mail.");
+      const mails = await service.unreadMail(count("max", 10), yes("opnieuw"));
+      if (!mails.length) return ok(yes("opnieuw") ? "Geen ongelezen mail." : "Geen nieuwe ongelezen mail sinds de vorige ronde.");
       return ok(mails.map((mail) => `## ${mail.subject}\nid: ${mail.id}\nvan: ${mail.from}${mail.received ? `\nontvangen: ${mail.received}` : ""}${mail.link ? `\nlink: ${mail.link}` : ""}\n\n${mail.text}`).join("\n\n---\n\n"));
     }
     case "mail_lezen": {

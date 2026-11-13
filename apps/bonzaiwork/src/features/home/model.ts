@@ -37,6 +37,8 @@ export function attentionKey(item: AttentionItem): string {
       return `brain:${item.projectId}:${item.state}`;
     case "proposal":
       return `proposal:${item.proposal.id}`;
+    case "world":
+      return `world:${item.item.key}`;
   }
 }
 
@@ -46,7 +48,7 @@ export function attentionChat(item: AttentionItem): { chatId: string; title: str
 }
 
 export function attentionProjectId(item: AttentionItem): string | null {
-  return item.kind === "proposal" ? null : item.projectId;
+  return item.kind === "proposal" || item.kind === "world" ? null : item.projectId;
 }
 
 /** Since when "Terwijl je weg was" counts on this device; a first visit looks back one day. */

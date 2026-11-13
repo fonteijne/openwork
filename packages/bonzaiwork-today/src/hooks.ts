@@ -150,7 +150,8 @@ export function createTodayHooks(options: TodayOptions = {}) {
     const shared = brains.filter((brain) => brain.kind === "project").map((brain) => brain.id).sort();
     const specs = roundSpecs(settings, timezone);
     const signature = JSON.stringify([personal.id, shared, specs.map((spec) => spec.prompt)]);
-    if (signature === roundsSignature) return;
+    // A round the person deleted on the Routines page comes back: turning the agent off is the way to stop it.
+    if (signature === roundsSignature && routines.systemRoutines(AGENT_PREFIX).length === specs.length) return;
     for (const spec of specs) await routines.ensureSystem({ ...spec, workspaceId: personal.id, model: settings.model, brains: shared });
     roundsSignature = signature;
   }

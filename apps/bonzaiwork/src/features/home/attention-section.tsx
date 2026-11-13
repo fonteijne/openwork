@@ -40,6 +40,8 @@ export function AttentionSection(props: {
   brains: ReadonlyMap<string, Brain>;
   routines: ReadonlyMap<string, Routine>;
   nextRoutine: Routine | null;
+  /** False when another element on the page is the focal one ("Start hier"): then no card gets the filled primary by weight (P7). */
+  focal?: boolean;
 }) {
   const refs = useRef(new Map<string, HTMLElement>());
   const [hidden, setHidden] = useState<Map<string, number>>(() => new Map());
@@ -96,7 +98,7 @@ export function AttentionSection(props: {
         project={projectId ? (props.projects.get(projectId) ?? null) : null}
         brain={projectId ? (props.brains.get(projectId) ?? null) : null}
         routine={item.kind === "routine" ? (props.routines.get(item.routineId) ?? null) : null}
-        isFocal={index === 0}
+        isFocal={index === 0 && props.focal !== false}
         onResolved={() => resolve(key)}
         cardRef={(element) => {
           if (element) refs.current.set(key, element);

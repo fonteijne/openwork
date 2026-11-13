@@ -14,8 +14,8 @@ export type SettingsGroup = "project" | "agent" | "toegang" | "technisch";
 export const SETTINGS_GROUPS: SettingsGroup[] = ["project", "agent", "toegang", "technisch"];
 
 /** App settings groups (brief §3). */
-export type AppSettingsGroup = "toegang" | "weergave" | "agenda" | "breinen" | "alle" | "technisch";
-export const APP_SETTINGS_GROUPS: AppSettingsGroup[] = ["toegang", "weergave", "agenda", "breinen", "alle", "technisch"];
+export type AppSettingsGroup = "toegang" | "weergave" | "agenda" | "agent" | "breinen" | "alle" | "technisch";
+export const APP_SETTINGS_GROUPS: AppSettingsGroup[] = ["toegang", "weergave", "agenda", "agent", "breinen", "alle", "technisch"];
 
 /** The tabs of a project page: Werk · Bestanden · Routines · Brein · Instellingen. */
 export type ProjectTab = "work" | "files" | "routines" | "brain" | "settings";
