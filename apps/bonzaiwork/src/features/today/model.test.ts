@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AttentionItem, DayItem, Meeting, UpcomingRow } from "~/backend/types";
 
-import { formatDay, groupUpcoming, meetingTime, minutesUntil, upcomingNow, withWorld } from "./model";
+import { FOCUS_BLOCK_MINUTES, focusMinutes, formatDay, groupUpcoming, meetingTime, minutesUntil, upcomingNow, withWorld } from "./model";
 
 const meeting: Meeting = { id: "m", title: "Overleg", start: new Date(2026, 10, 13, 10, 20).getTime(), end: new Date(2026, 10, 13, 11, 20).getTime(), allDay: false, location: null, organizer: null, link: null };
 const message: DayItem = { kind: "message", key: "mail:1", source: "mail", title: "T", from: "F", why: "W", draft: null, link: null, reply: null, at: 5 };
@@ -23,6 +23,14 @@ describe("de kaarten van de wereld in Voor jou", () => {
   it("zonder kaarten van de wereld verandert de lijst niet", () => {
     const items: AttentionItem[] = [{ kind: "brain", projectId: "a", state: "error", at: 3 }];
     expect(withWorld(items, [])).toEqual(items);
+  });
+});
+
+describe("de focusregel", () => {
+  it("telt hele minuten en begint bij nul, ook als de klok terugloopt", () => {
+    expect(focusMinutes(1_000, 1_000 + 59_000)).toBe(0);
+    expect(focusMinutes(1_000, 1_000 + 25 * 60_000 + 5)).toBe(FOCUS_BLOCK_MINUTES);
+    expect(focusMinutes(5_000, 1_000)).toBe(0);
   });
 });
 

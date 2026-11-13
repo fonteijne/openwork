@@ -24,6 +24,8 @@ let mcpEntries: Array<Record<string, Record<string, unknown> | null>>;
 let engineCalls: Array<{ method: string; path: string; body: unknown }>;
 let pendingQuestions: Array<{ id: string; action: string }>;
 let readOnly = false;
+/** The clock of Vandaag; a test moves it to the end of the day. */
+let clock = NOW;
 
 const write = async (path: string, content: string) => { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), content); };
 const read = (path: string) => readFile(join(root, path), "utf8");
@@ -72,7 +74,7 @@ const first = async (): Promise<Todo> => {
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "bonzaiwork-today-"));
-  changed = []; mcpEntries = []; engineCalls = []; pendingQuestions = []; readOnly = false;
+  changed = []; mcpEntries = []; engineCalls = []; pendingQuestions = []; readOnly = false; clock = NOW;
   await write("mijn/AGENTS.md", "# Mijn brein\n");
   await write("mijn/taken.md", "# Taken\n\n- [ ] Belasting regelen 📅 2026-11-13\n- [ ] Boek uitlezen\n");
   await write("sales/team.md", "- @sam: Sam Jansen <sam@example.invalid>\n- @robin: Robin de Vries <robin@example.invalid>\n");
@@ -99,7 +101,7 @@ beforeEach(async () => {
   const started = Date.now();
   routines = createRoutinesHooks({ stateDirectory: join(root, "state"), now: () => NOW + (Date.now() - started), tickMs: 3_600_000, mcpWaitMs: 1 });
   hooks = createTodayHooks({
-    stateDirectory: join(root, "state"), now: () => NOW, timezone: "Europe/Amsterdam", environment, reconcileEveryMs: 3_600_000, permissionPollMs: 3_600_000,
+    stateDirectory: join(root, "state"), now: () => clock, timezone: "Europe/Amsterdam", environment, reconcileEveryMs: 3_600_000, permissionPollMs: 3_600_000,
     routines,
     brains: {
       brains: async () => [
@@ -245,6 +247,40 @@ describe("taken over de breinen (plan §2)", () => {
     expect((await view()).focus).toBeNull();
   });
 
+  test("vandaag afgerond telt wat je afvinkt; een vinkje terugzetten haalt het weer weg", async () => {
+    const todo = await first();
+    await call("POST", `/bonzaiwork/today/todos/${todo.id}/done`, { done: true });
+    expect((await view()).done).toMatchObject([{ todoId: todo.id, text: "Offerte sturen", brainName: "Sales", at: NOW }]);
+    await call("POST", `/bonzaiwork/today/todos/${todo.id}/done`, { done: false });
+    expect((await view()).done).toEqual([]);
+    // Yesterday's ticks do not count today.
+    await call("POST", `/bonzaiwork/today/todos/${todo.id}/done`, { done: true });
+    clock = NOW + 24 * 3_600_000;
+    expect((await view()).done).toEqual([]);
+  });
+
+  test("dag afsluiten: vanaf een uur voor het einde, één keer per dag; morgen begint met de taak die je koos", async () => {
+    expect((await view()).close).toBeNull();
+    clock = new Date(2026, 10, 13, 17, 5).getTime();
+    const closing = (await view()).close;
+    expect(closing?.open.map((todo) => todo.text)).toEqual(["Offerte sturen", "Belasting regelen"]);
+    expect(closing?.candidates.map((todo) => todo.text)).toEqual(["Offerte sturen", "Belasting regelen", "Boek uitlezen"]);
+    const book = (await todos()).find((todo) => todo.text === "Boek uitlezen")?.id ?? "";
+    await call("POST", "/bonzaiwork/today/focus", { todoId: book });
+    expect((await call("POST", "/bonzaiwork/today/close", { todoId: book })).status).toBe(200);
+    let now = await view();
+    expect(now.close).toBeNull();
+    expect(now.focus).toBeNull();
+    // Still today: the choice counts from tomorrow.
+    expect(now.start?.todo.text).toBe("Offerte sturen");
+    clock = new Date(2026, 10, 14, 9, 0).getTime();
+    now = await view();
+    expect(now.start).toMatchObject({ reason: "chosen", todo: { text: "Boek uitlezen" } });
+    await call("POST", `/bonzaiwork/today/todos/${book}/skip`);
+    expect((await view()).start?.todo.text).toBe("Offerte sturen");
+    expect((await call("POST", "/bonzaiwork/today/close", { todoId: "bestaatniet" })).status).toBe(404);
+  });
+
   test("opruimen: de app krijgt een chat in dat brein; de agent stelt eerst voor en schrijft pas na ja", async () => {
     const chat = (await call("POST", "/bonzaiwork/today/cleanup", { brainId: "ws-sales" })).body;
     expect(chat).toMatchObject({ projectId: "ws-sales", title: "Taken opruimen" });
@@ -298,6 +334,8 @@ describe("de agent en de buitenwereld (plan §3, T7)", () => {
     expect(sent.status).toBe(200);
     expect((await lines(join(root, "ms365.log"))).at(-1)).toMatchObject({ name: "reply-mail-message", args: { "message-id": "mail-1", body: { comment: "Hoi Robin, akkoord. Groet, Sam" } } });
     expect((await view()).items.filter((item) => item.kind === "message")).toEqual([]);
+    // What left the laptop stays on record for the day.
+    expect((await view()).sent).toEqual([{ key: "mail:mail-1", via: "mail", title: "Offerte akkoord?", to: "Robin", at: NOW }]);
     // The same message found again in a later round stays away.
     expect((await tool("bericht_melden", report)).text).toContain("al afgehandeld");
     expect((await view()).items.filter((item) => item.kind === "message")).toEqual([]);
@@ -371,9 +409,15 @@ describe("de agent en de buitenwereld (plan §3, T7)", () => {
     await tool("eerste_stap", { id: (await first()).id, stap: "Open de offerte", waarom: "Te laat" });
     await tool("dagplan_voorstellen", { top: [(await first()).id], blokken: [{ van: "11:00", tot: "12:00", wat: "Offerte" }] });
     await call("POST", "/bonzaiwork/today/focus", { todoId: (await first()).id, chatId: "ses_1" });
+    await call("POST", "/bonzaiwork/today/items/send", { key: "slack:C1:1.0" });
+    await tool("bericht_melden", { bron: "mail", id: "mail-1", titel: "Offerte akkoord?", van: "Robin", waarom: "Wacht" });
+    await call("POST", `/bonzaiwork/today/todos/${(await todos()).find((todo) => todo.text === "Boek uitlezen")?.id}/done`, { done: true });
+    clock = new Date(2026, 10, 13, 17, 30).getTime();
+    await hooks.service.refreshMeetings(true);
     const answer = (await call("GET", "/bonzaiwork/today")).body;
     const now = await view();
-    expect(now.items.map((item) => item.kind).sort()).toEqual(["commitment", "meeting", "message"]);
+    expect(now.items.map((item) => item.kind).sort()).toEqual(["commitment", "message"]);
+    expect([now.done.length, now.sent.length, now.close?.candidates.length]).toEqual([1, 1, 3]);
     expect(readView(JSON.parse(JSON.stringify(answer)))).toEqual(now);
   });
 

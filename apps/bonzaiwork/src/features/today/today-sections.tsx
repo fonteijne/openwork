@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { CalendarClock, Flag, Hourglass, ListChecks, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarClock, Flag, Hourglass, ListChecks, MoonStar, Plus } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { projectHasKey, startModel, useBrains, useProjects, useRefreshToday, useStatus } from "~/backend/queries";
-import type { CleanupCandidate, DayPlan, Focus, Project, StartHere, TodayChatStart, Todo, TodayView, UpcomingRow } from "~/backend/types";
+import type { CleanupCandidate, DayClose, DayPlan, DoneEntry, Focus, Project, SentEntry, StartHere, TodayChatStart, Todo, TodayView, UpcomingRow } from "~/backend/types";
 import { ProjectIcon } from "~/components/project-icon";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
@@ -18,11 +18,12 @@ import { copy } from "~/copy";
 import { cardKeys } from "~/lib/card-keys";
 import { cn } from "~/lib/cn";
 import { errorText } from "~/lib/errors";
+import { formatTime } from "~/lib/format";
 import { href, navigate } from "~/lib/router";
 
 import { sendFirstMessage } from "../chat/first-message";
 import { SectionHeading } from "../home/attention-section";
-import { formatDay, groupUpcoming, MAX_UPCOMING_ROWS, meetingTime, startProject, upcomingNow } from "./model";
+import { FOCUS_BLOCK_MINUTES, focusMinutes, formatDay, groupUpcoming, MAX_UPCOMING_ROWS, meetingTime, startProject, upcomingNow } from "./model";
 
 /**
  * The personal agent's own sections on Vandaag (docs/bonzaiwork/persoonlijke-agent-plan.md §4):
@@ -91,10 +92,21 @@ export function FocusLine(props: { focus: Focus; projects: ReadonlyMap<string, P
   const { busy, act } = useAction();
   const { focus } = props;
   const project = focus.brainId ? props.projects.get(focus.brainId) : undefined;
+  // How long already: time is hard to feel, so the line shows it and says when a block is over.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 20_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const minutes = focusMinutes(focus.startedAt, now);
+  const over = minutes >= FOCUS_BLOCK_MINUTES;
   return (
     <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-window bg-muted px-4 py-2 text-sm" data-testid="today-focus">
       {project ? <ProjectIcon icon={project.icon} color={project.color} size="sm" /> : null}
       <span className="min-w-0 flex-1 truncate font-medium text-foreground">{copy.today.focus(focus.title)}</span>
+      <span className={cn("shrink-0 text-xs tabular-nums", over ? "font-medium text-amber-11" : "text-muted-foreground")} data-testid="today-focus-time">
+        {over ? `${copy.today.focusMinutes(minutes)} · ${copy.today.focusBreak}` : copy.today.focusMinutes(minutes)}
+      </span>
       {project && focus.chatId ? (
         <a href={href({ name: "project", projectId: project.id, chatId: focus.chatId })} className="font-medium text-foreground underline underline-offset-2">
           {copy.attention.openChat}
@@ -318,6 +330,11 @@ export function StartSection(props: { view: TodayView; projects: ReadonlyMap<str
         count={view.counts.mine || undefined}
         trailing={
           <>
+            {view.done.length ? (
+              <span className="text-xs text-muted-foreground" title={view.done.map((entry) => entry.text).join("\n")} data-testid="today-done-count">
+                {copy.today.doneToday(view.done.length)}
+              </span>
+            ) : null}
             {view.counts.inbox ? <span className="text-xs text-muted-foreground">{copy.today.parked(view.counts.inbox)}</span> : null}
             <Button variant="quiet" size="sm" onClick={() => setAdding(true)} data-testid="today-add">
               <Plus />
@@ -348,6 +365,68 @@ export function TodayBlocked(props: { reason: string }) {
         {copy.today.blockedOpenBrain}
       </a>
     </p>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dag afsluiten, and what was sent today
+// ---------------------------------------------------------------------------
+
+/**
+ * "Dag afsluiten", from an hour before the end of the working day: what got done, what moves to
+ * tomorrow, and the one to-do tomorrow starts with. Closing ends the focus; nothing is deleted.
+ */
+export function DayCloseCard(props: { close: DayClose; done: readonly DoneEntry[] }) {
+  const backend = useBackend();
+  const { busy, act } = useAction();
+  const { close } = props;
+  const [chosen, setChosen] = useState<string | null>(close.candidates[0]?.id ?? null);
+  const finish = () => void act(() => backend.today.closeDay(chosen), copy.today.close.closed);
+  return (
+    <Callout
+      className="group/card focus:outline-solid focus:outline-2 focus:outline-offset-2 focus:outline-ring"
+      tabIndex={0}
+      onKeyDown={cardKeys({ enter: finish })}
+      keyShortcuts="Enter"
+      testId="today-close"
+      label={copy.today.close.title}
+      icon={<MoonStar />}
+      title={copy.today.close.title}
+      state={`${copy.today.close.done(props.done.length)} · ${copy.today.close.carries(close.open.length)}`}
+      actions={
+        <Button variant="primary" disabled={busy} onClick={finish} data-testid="today-close-button">
+          {copy.today.close.button}
+          <Kbd>⏎</Kbd>
+        </Button>
+      }
+    >
+      {close.candidates.length ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">{copy.today.close.tomorrow}</span>
+          <Select label={copy.today.close.tomorrow} value={chosen} onValueChange={setChosen} items={close.candidates.map((todo) => ({ value: todo.id, label: todo.text }))} />
+        </div>
+      ) : null}
+    </Callout>
+  );
+}
+
+/** What left the laptop today through a card: one row until opened (P3). */
+export function SentToday(props: { sent: readonly SentEntry[] }) {
+  if (!props.sent.length) return null;
+  return (
+    <Disclosure label={copy.today.sentToday(props.sent.length)} testId="today-sent" panelClassName="ps-6 pt-1">
+      <ul>
+        {props.sent.map((entry) => (
+          <li key={`${entry.key}-${entry.at}`} className="flex min-h-8 items-baseline gap-3 text-sm">
+            <span className="w-12 shrink-0 font-mono text-xs text-muted-foreground">{formatTime(entry.at)}</span>
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-foreground">{entry.title}</span>
+              <span className="truncate text-xs text-muted-foreground">{copy.today.sentTo(copy.today.message[entry.via], entry.to)}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Disclosure>
   );
 }
 

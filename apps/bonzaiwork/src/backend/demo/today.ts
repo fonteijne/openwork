@@ -1,6 +1,6 @@
 import {
   DEFAULT_SETTINGS, MAX_SKIPS, addDays, formatTodoLine, localDate, meetingIsNear, parseTodoLine, pickStart, upcomingRows, visibleItems,
-  type AgentRound, type DayItem, type DayPlan, type Focus, type Meeting, type TodaySettings, type Todo, type TodayView,
+  rankTodos, type AgentRound, type DayItem, type DayPlan, type DoneEntry, type Focus, type Meeting, type SentEntry, type TodaySettings, type Todo, type TodayView,
 } from "@bonzaiwork/today/model";
 
 import { readLocalJson, writeLocalJson } from "~/lib/storage";
@@ -11,7 +11,7 @@ import { BackendError, type TodayBackend } from "../types";
  * Vandaag's personal agent in the browser: seeded to-dos, a mail and a Slack thread with a draft,
  * a promise, an appointment that starts soon and a day plan. It chooses and groups with the same
  * functions as the server (`@bonzaiwork/today/model`). `?agent=uit` starts with the feature off,
- * `?agent=leeg` on but with nothing found yet.
+ * `?agent=leeg` on but with nothing found yet, `?agent=avond` at the end of the day ("Dag afsluiten").
  */
 type DemoToday = {
   version: 1;
@@ -24,6 +24,10 @@ type DemoToday = {
   plan: DayPlan | null;
   focus: Focus | null;
   inbox: string[];
+  done: DoneEntry[];
+  sent: SentEntry[];
+  closed: string;
+  pinned: { todoId: string; after: string } | null;
 };
 
 type DemoProject = { id: string; name: string };
@@ -83,7 +87,9 @@ function seed(now: number, projects: readonly DemoProject[], mode: string | null
       date: today, approved: false, top: ["t-offerte", "t-prijslijst", "t-demo"],
       blocks: [{ start: "10:30", end: "11:15", label: "Offerte gemeente", todoId: "t-offerte" }, { start: "13:00", end: "14:00", label: "Prijslijst 2027", todoId: "t-prijslijst" }, { start: "15:30", end: "16:00", label: "Demo klantdag", todoId: "t-demo" }],
     },
-    focus: null, inbox: [],
+    focus: null, inbox: [], closed: "", pinned: null,
+    done: mode === "leeg" ? [] : [{ todoId: "t-klaar-1", text: "Planning rondgestuurd", brainName: first.name, at: now - 3 * HOUR }, { todoId: "t-klaar-2", text: "Notulen gedeeld", brainName: second.name, at: now - 2 * HOUR }],
+    sent: mode === "leeg" ? [] : [{ key: "mail:demo-0", via: "mail", title: "Vraag over de factuur", to: "Sam Jansen", at: now - 4 * HOUR }],
   };
 }
 
@@ -111,14 +117,18 @@ export function createDemoToday(input: { storageKey: string; search: string; now
   function view(): TodayView {
     const off = { calendar: { state: "off" as const, detail: null, checkedAt: null }, mail: { state: "off" as const, detail: null, checkedAt: null }, slack: { state: "off" as const, detail: null, checkedAt: null } };
     if (!state.settings.enabled) {
-      return { enabled: false, blocked: null, handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, connectors: off, rounds: [] };
+      return { enabled: false, blocked: null, handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, done: [], sent: [], close: null, connectors: off, rounds: [] };
     }
     const at = now();
     const today = localDate(at);
     const open = state.todos.filter((todo) => !todo.done);
     const skipped = state.skips.date === today ? state.skips.ids : [];
     const plan = state.plan?.date === today ? state.plan : null;
-    const picked = pickStart(open, { today, planTop: plan?.top ?? [], skipped });
+    const pinned = state.pinned && today > state.pinned.after ? open.find((todo) => todo.id === state.pinned?.todoId && !skipped.includes(todo.id)) : undefined;
+    const ranked = pickStart(open, { today, planTop: plan?.top ?? [], skipped });
+    const picked = pinned ? { todo: pinned, reason: "chosen" as const } : ranked;
+    const mine = rankTodos(open, { today, planTop: plan?.top ?? [] });
+    const closing = state.closed !== today && (mode === "avond" || new Date(at).getHours() >= state.settings.workEndHour - 1);
     const step = picked ? state.steps[picked.todo.id] : undefined;
     const current = state.items.filter((item) => (state.later[item.key] ?? 0) <= at && (item.kind !== "meeting" || item.meeting.end > at));
     const meetings = state.items.flatMap((item) => (item.kind === "meeting" ? [item.meeting] : []));
@@ -132,6 +142,9 @@ export function createDemoToday(input: { storageKey: string; search: string; now
       plan, focus: state.focus,
       cleanup: mode === "leeg" || !first ? [] : [{ brainId: first.id, brainName: first.name, brainKind: "project", lines: 6 }],
       counts: { mine: open.filter((todo) => todo.mine).length, backlog: open.filter((todo) => !todo.mine && !todo.owner).length, inbox: state.inbox.length },
+      done: state.done.filter((entry) => localDate(entry.at) === today).reverse(),
+      sent: state.sent.filter((entry) => localDate(entry.at) === today).reverse(),
+      close: closing ? { open: mine.filter((entry) => entry.reason === "overdue" || entry.reason === "today" || entry.reason === "waiting_due").map((entry) => entry.todo).slice(0, 5), candidates: mine.map((entry) => entry.todo).slice(0, 3) } : null,
       connectors: { calendar: ok(state.settings.calendar), mail: ok(state.settings.mail), slack: ok(state.settings.slack) },
       rounds: rounds(),
     };
@@ -172,8 +185,11 @@ export function createDemoToday(input: { storageKey: string; search: string; now
     },
     addTodo: async ({ text, brainId, due }) => add(text, brainId, due, false),
     setDone: async (todoId, done) => {
-      todoOf(todoId).done = done;
+      const todo = todoOf(todoId);
+      todo.done = done;
       if (done && state.focus?.todoId === todoId) state.focus = null;
+      state.done = state.done.filter((entry) => entry.todoId !== todoId);
+      if (done) state.done.push({ todoId, text: todo.text, brainName: todo.brainName, at: now() });
       save();
     },
     skip: async (todoId) => {
@@ -202,7 +218,11 @@ export function createDemoToday(input: { storageKey: string; search: string; now
       state.focus = null;
       save();
     },
-    send: async (key) => remove(key),
+    send: async (key) => {
+      const item = state.items.find((entry) => entry.key === key);
+      if (item?.kind === "message" && item.reply) state.sent.push({ key, via: item.reply.via, title: item.title, to: item.from, at: now() });
+      remove(key);
+    },
     dismiss: async (key) => remove(key),
     later: async (key) => {
       if (!state.items.some((item) => item.key === key)) throw missing();
@@ -218,6 +238,13 @@ export function createDemoToday(input: { storageKey: string; search: string; now
     },
     decidePlan: async (decision) => {
       state.plan = decision === "approve" && state.plan ? { ...state.plan, approved: true } : null;
+      save();
+    },
+    closeDay: async (todoId) => {
+      const today = localDate(now());
+      state.closed = today;
+      state.focus = null;
+      state.pinned = todoId ? { todoId, after: today } : null;
       save();
     },
     cleanup: async (brainId) => {

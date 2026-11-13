@@ -40,7 +40,7 @@ import { errorText } from "~/lib/errors";
 import { relativeTime } from "~/lib/format";
 import { chordLabel } from "~/lib/platform";
 import { APP_SETTINGS_GROUPS, canGoBack, canGoForward, goBack, goForward, navigate, SETTINGS_GROUPS, type Route } from "~/lib/router";
-import { chord, focusComposer, PROJECT_SLOTS } from "~/lib/shortcuts";
+import { PARK_EVENT, chord, focusComposer, PROJECT_SLOTS } from "~/lib/shortcuts";
 import { setTheme } from "~/lib/theme";
 import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
 
@@ -401,6 +401,8 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
       ...(readOnly ? [] : [{ id: "new-project", group: "actions" as const, label: copy.shell.newProject, shortcut: chord("newProject"), icon: <FolderPlus />, primary: true, run: () => { close(); setNewProject(true); } }]),
       ...(props.route.name !== "home" ? [{ id: "go-home", group: "actions" as const, label: copy.palette.goHome, shortcut: chord("home"), icon: <Inbox />, primary: true, run: () => go({ name: "home" }) }] : []),
       { id: "agenda", group: "actions", label: copy.shell.agenda, shortcut: chord("agenda"), icon: <Clock />, primary: true, run: () => { close(); toggleAgenda(wide); } },
+      // After the palette has closed and given focus back, so the dialog's own focus is not undone.
+      ...(backend.capabilities.today ? [{ id: "park", group: "actions" as const, label: copy.shell.shortcuts.park, shortcut: chord("park"), icon: <Inbox />, run: () => { close(); window.setTimeout(() => window.dispatchEvent(new Event(PARK_EVENT)), 80); } }] : []),
       ...(openProject
         ? [
             { id: "details", group: "actions" as const, label: copy.shell.details, shortcut: chord("details"), icon: <PanelRight />, run: () => { close(); toggleDetails(wide); } },

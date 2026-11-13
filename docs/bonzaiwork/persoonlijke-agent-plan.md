@@ -134,6 +134,21 @@ Volgorde; secties zonder inhoud worden niet getoond:
    te laat in amber; een taak vink je hier af.
 6. **Bezig**, **Terwijl je weg was**, **Je werkdag**, **Projecten**: ongewijzigd.
 
+Erbij gekomen na een vergelijking met wat een "command center" meestal biedt:
+
+- **Parkeren vanuit elke plek**: ⌘⇧G of "Gedachte parkeren" in het zoekvenster opent een klein venster,
+  ook midden in een chat; ⏎ parkeert en je blijft waar je was. Staat de agent uit, dan zegt de sneltoets
+  dat één keer.
+- **Tijd bij "Je was bezig met"**: de regel toont hoe lang je bezig bent en zegt na 25 minuten "tijd voor
+  een pauze".
+- **Dag afsluiten**: vanaf een uur voor het einde van de werktijd een kaart met wat af is, wat
+  doorschuift, en een keuze waarmee je morgen begint. Die taak staat de volgende dag bovenaan in "Start
+  hier" (reden "Gisteren zelf gekozen") tot je haar afvinkt of overslaat. Afsluiten beëindigt de focus.
+- **Vandaag verstuurd**: wat via een kaart is verstuurd staat als één uitklapregel bij de dag (tijd,
+  onderwerp, aan wie).
+- **Afgerond vandaag**: een telling in de kop van "Start hier". Alleen wat je in BonzaiWork afvinkt telt;
+  een vinkje in een andere editor ziet de app niet.
+
 De volgorde voor "Start hier" is vast: te laat → vandaag → een verlopen "wacht op" → de top van het
 dagplan → deze week → de rest. De agent schrijft alleen de reden en de eerste stap.
 

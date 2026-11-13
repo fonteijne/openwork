@@ -1,11 +1,11 @@
 import { cleanupPrompt, startPrompt } from "./agent.ts";
 import { ConnectorError, type MailSummary, type Ms365, type SlackCli } from "./connectors.ts";
 import { isDate, ownHandles, type TeamMember } from "./notation.ts";
-import { localDate, meetingIsNear, pickStart, upcomingRows, visibleItems } from "./rank.ts";
+import { localDate, meetingIsNear, pickStart, rankTodos, upcomingRows, visibleItems } from "./rank.ts";
 import { addTodo, parkThought, readInbox, readTeam, removeInboxEntry, scanBrain, setTodoDone, type BrainFolder, type InboxEntry } from "./scan.ts";
 import { readSettings, type TodayStore } from "./store.ts";
 import {
-  MAX_SKIPS, type AgentRound, type ChatStart, type CleanupCandidate, type ConnectorStatus, type DayItem, type DueKind, type Focus, type Meeting, type PlanBlock, type ReplyTarget,
+  MAX_SKIPS, type AgentRound, type ChatStart, type CleanupCandidate, type ConnectorStatus, type DayItem, type DueKind, type Focus, type Meeting, type PlanBlock, type ReplyTarget, type StartReason,
   type TodaySettings, type Todo, type TodayView,
 } from "./types.ts";
 
@@ -117,7 +117,7 @@ export function createTodayService(deps: TodayDeps) {
   async function view(): Promise<TodayView> {
     const now = deps.now();
     const today = localDate(now);
-    const base = { handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, connectors: { calendar: OFF, mail: OFF, slack: OFF }, rounds: [] };
+    const base = { handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, done: [], sent: [], close: null, connectors: { calendar: OFF, mail: OFF, slack: OFF }, rounds: [] };
     if (!enabled()) return { enabled: false, blocked: null, ...base };
     store.prune(now, today);
     const found = await scan();
@@ -128,14 +128,26 @@ export function createTodayService(deps: TodayDeps) {
     const open = found.todos.filter((todo) => !todo.done);
     const skipped = store.state.skips.date === today ? store.state.skips.ids : [];
     const plan = store.state.plan?.date === today ? store.state.plan : null;
-    const picked = pickStart(open, { today, planTop: plan?.top ?? [], skipped });
+    // What the person chose when closing the day before goes first, until it is done or skipped.
+    const pinned = store.state.pinned && today > store.state.pinned.after ? open.find((todo) => todo.id === store.state.pinned?.todoId && todo.mine && !skipped.includes(todo.id)) : undefined;
+    const ranked = pickStart(open, { today, planTop: plan?.top ?? [], skipped });
+    const picked: { todo: Todo; reason: StartReason } | null = pinned ? { todo: pinned, reason: "chosen" } : ranked;
     const step = picked ? store.state.steps[picked.todo.id] : undefined;
+    // "Dag afsluiten" from an hour before the end of the working day, once per day.
+    const closing = store.state.closed !== today && new Date(now).getHours() >= settings().workEndHour - 1;
+    const mine = rankTodos(open, { today, planTop: plan?.top ?? [] });
     return {
       enabled: true, blocked: null, handles: found.handles,
       start: picked ? { todo: picked.todo, reason: picked.reason, why: step?.why ?? null, firstStep: step?.step ?? null, skipsLeft: Math.max(0, MAX_SKIPS - skipped.length) } : null,
       upcoming: upcomingRows({ todos: found.todos, meetings, now }),
       items: items(now), plan, focus: store.state.focus, cleanup: found.cleanup,
       counts: { mine: open.filter((todo) => todo.mine).length, backlog: open.filter((todo) => !todo.mine && !todo.owner).length, inbox: found.inbox.length },
+      done: store.state.done.filter((entry) => localDate(entry.at) === today).reverse(),
+      sent: store.state.sent.filter((entry) => localDate(entry.at) === today).reverse(),
+      close: closing ? {
+        open: mine.filter((entry) => entry.reason === "overdue" || entry.reason === "today" || entry.reason === "waiting_due").map((entry) => entry.todo).slice(0, 5),
+        candidates: mine.map((entry) => entry.todo).slice(0, 3),
+      } : null,
       connectors: { calendar: connector("calendar"), mail: connector("mail"), slack: connector("slack") },
       rounds: deps.rounds(),
     };
@@ -183,6 +195,9 @@ export function createTodayService(deps: TodayDeps) {
     const written = await setTodoDone(brain, id, todo.path, done);
     if (!written.ok) throw new TodayError(409, written.reason, written.reason === "read_only" ? "Dit brein is alleen-lezen." : "Deze taak is intussen veranderd; kijk opnieuw.");
     if (done && store.state.focus?.todoId === id) store.state.focus = null;
+    if (done && store.state.pinned?.todoId === id) store.state.pinned = null;
+    store.state.done = store.state.done.filter((entry) => entry.todoId !== id);
+    if (done) store.state.done.push({ todoId: id, text: todo.text, brainName: todo.brainName, at: deps.now() });
     delete store.state.steps[id];
     await store.save();
     await deps.changed(brain.id);
@@ -223,6 +238,7 @@ export function createTodayService(deps: TodayDeps) {
       status[found.reply.via] = fail(error);
       throw new TodayError(502, "send_failed", `Versturen lukte niet: ${error instanceof Error ? error.message : String(error)}`);
     }
+    store.state.sent.push({ key, via: found.reply.via, title: found.title, to: found.from, at: deps.now() });
     store.dismiss(key, deps.now());
     await store.save();
     deps.log("info", "Reply sent from Vandaag", { via: found.reply.via });
@@ -282,6 +298,7 @@ export function createTodayService(deps: TodayDeps) {
       const date = today();
       const ids = store.state.skips.date === date ? store.state.skips.ids : [];
       if (ids.length < MAX_SKIPS && !ids.includes(id)) store.state.skips = { date, ids: [...ids, id] };
+      if (store.state.pinned?.todoId === id) store.state.pinned = null;
       await store.save();
     },
 
@@ -293,6 +310,16 @@ export function createTodayService(deps: TodayDeps) {
       const entry = await parkThought(personal.root, clean, new Date(deps.now()));
       await deps.changed(personal.id);
       return entry;
+    },
+
+    /** "Dag afsluiten": the day is closed, the focus ends, and tomorrow starts with the to-do the person chose. */
+    async closeDay(todoId: string | null): Promise<void> {
+      const date = today();
+      if (todoId) await findTodo(todoId);
+      store.state.closed = date;
+      store.state.focus = null;
+      store.state.pinned = todoId ? { todoId, after: date } : null;
+      await store.save();
     },
 
     async stopFocus(): Promise<void> {

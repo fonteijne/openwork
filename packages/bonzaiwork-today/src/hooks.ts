@@ -243,6 +243,7 @@ export function createTodayHooks(options: TodayOptions = {}) {
         return json({ ok: true });
       },
     },
+    { method: "POST", path: "/bonzaiwork/today/close", auth: "host-token", handle: async (request) => { needsOn(); await service.closeDay(text(await readBody(request), "todoId")); return json({ ok: true }); } },
     { method: "POST", path: "/bonzaiwork/today/cleanup", auth: "host-token", handle: async (request) => { needsOn(); return json(await service.cleanupStart(text(await readBody(request), "brainId") ?? "")); } },
     {
       method: "POST", path: "/bonzaiwork/today/rounds/run", auth: "host-token",

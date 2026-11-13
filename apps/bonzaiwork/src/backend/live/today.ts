@@ -58,6 +58,7 @@ export function createTodayClient(req: Request, options: { available: boolean })
     later: (key) => guard(async () => void (await post("/items/later", { key }))),
     accept: (key) => guard(async () => todo(await post("/items/accept", { key }))),
     decidePlan: (decision) => guard(async () => void (await post("/plan", { decision }))),
+    closeDay: (todoId) => guard(async () => void (await post("/close", todoId ? { todoId } : {}))),
     cleanup: (brainId) => guard(async () => chat(await post("/cleanup", { brainId }))),
     runRound: (system) => guard(async () => void (await post("/rounds/run", { system }, 60_000))),
   };

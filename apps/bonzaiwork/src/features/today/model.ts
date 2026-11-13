@@ -51,6 +51,14 @@ export function upcomingNow(rows: readonly UpcomingRow[]): UpcomingRow[] {
   return rows.filter((row) => row.bucket === "late" || row.bucket === "today").slice(0, MAX_UPCOMING_NOW);
 }
 
+/** One block of focused work; past it the line says so. */
+export const FOCUS_BLOCK_MINUTES = 25;
+
+/** Whole minutes a focus has run. */
+export function focusMinutes(startedAt: number, now: number): number {
+  return Math.max(0, Math.floor((now - startedAt) / 60_000));
+}
+
 /** The project a chat from Vandaag starts in, when it is still listed. */
 export function startProject(start: TodayChatStart, projects: readonly Project[]): Project | null {
   return projects.find((project) => project.id === start.projectId) ?? null;

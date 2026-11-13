@@ -1,6 +1,6 @@
 import { isDate } from "./notation.ts";
 import {
-  DEFAULT_SETTINGS, type AgentRound, type BrainKind, type ChatStart, type CleanupCandidate, type ConnectorState, type ConnectorStatus, type DayItem, type DayPlan, type Focus, type Meeting,
+  DEFAULT_SETTINGS, type AgentRound, type BrainKind, type ChatStart, type CleanupCandidate, type ConnectorState, type ConnectorStatus, type DayItem, type DayPlan, type DoneEntry, type Focus, type SentEntry, type Meeting,
   type PlanBlock, type ReplyTarget, type StartHere, type StartReason, type TodaySettings, type Todo, type TodayView, type UpcomingBucket, type UpcomingRow,
 } from "./types.ts";
 
@@ -131,7 +131,7 @@ export function readTodo(value: unknown): Todo | null {
   };
 }
 
-const REASONS: readonly StartReason[] = ["overdue", "today", "waiting_due", "plan", "soon", "oldest"];
+const REASONS: readonly StartReason[] = ["chosen", "overdue", "today", "waiting_due", "plan", "soon", "oldest"];
 const BUCKETS: readonly UpcomingBucket[] = ["late", "today", "week", "later"];
 const CONNECTOR_STATES: readonly ConnectorState[] = ["off", "ok", "not_configured", "error"];
 const ROUND_STATES: readonly AgentRound["state"][] = ["active", "inactive", "needs_attention", "archived"];
@@ -192,6 +192,16 @@ export function readView(value: unknown): TodayView {
     plan: readPlan(record(value)?.plan), focus: readFocus(record(value)?.focus),
     cleanup: each(list(value, "cleanup"), readCleanup),
     counts: { mine: number(counts, "mine") ?? 0, backlog: number(counts, "backlog") ?? 0, inbox: number(counts, "inbox") ?? 0 },
+    done: list(value, "done").flatMap((entry): DoneEntry[] => {
+      const todoId = text(entry, "todoId");
+      return todoId ? [{ todoId, text: text(entry, "text") ?? "", brainName: text(entry, "brainName") ?? "", at: number(entry, "at") ?? 0 }] : [];
+    }),
+    sent: list(value, "sent").flatMap((entry): SentEntry[] => {
+      const key = text(entry, "key");
+      const via = text(entry, "via");
+      return key && (via === "mail" || via === "slack") ? [{ key, via, title: text(entry, "title") ?? "", to: text(entry, "to") ?? "", at: number(entry, "at") ?? 0 }] : [];
+    }),
+    close: record(value)?.close ? { open: each(list(record(value)?.close, "open"), readTodo), candidates: each(list(record(value)?.close, "candidates"), readTodo) } : null,
     connectors: readConnectors(record(value)?.connectors),
     rounds: each(list(value, "rounds"), readRound),
   };

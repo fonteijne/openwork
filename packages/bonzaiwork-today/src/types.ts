@@ -32,7 +32,8 @@ export type Todo = {
   mine: boolean;
 };
 
-export type StartReason = "overdue" | "today" | "waiting_due" | "plan" | "soon" | "oldest";
+/** `chosen`: the person picked it themselves when closing the day before. */
+export type StartReason = "chosen" | "overdue" | "today" | "waiting_due" | "plan" | "soon" | "oldest";
 
 /** "Start hier": the one to-do the agent picked, why, and the first step (plan §4, T4). */
 export type StartHere = {
@@ -112,6 +113,18 @@ export type DayPlan = { date: string; top: string[]; blocks: PlanBlock[]; approv
 
 export type Focus = { todoId: string | null; title: string; brainId: string | null; chatId: string | null; startedAt: number };
 
+/** A to-do ticked on Vandaag (or by the agent), for "vandaag afgerond". Boxes ticked in another editor are not seen. */
+export type DoneEntry = { todoId: string; text: string; brainName: string; at: number };
+
+/** A reply the server sent after the person's click: what left the laptop, to whom, when. */
+export type SentEntry = { key: string; via: MessageSource; title: string; to: string; at: number };
+
+/**
+ * "Dag afsluiten": shown from an hour before the end of the working day until the day is closed.
+ * `open` is what was due and is not done; `candidates` are the to-dos tomorrow could start with.
+ */
+export type DayClose = { open: Todo[]; candidates: Todo[] };
+
 export type ConnectorState = "off" | "ok" | "not_configured" | "error";
 export type ConnectorStatus = { state: ConnectorState; detail: string | null; checkedAt: number | null };
 
@@ -152,6 +165,11 @@ export type TodayView = {
   cleanup: CleanupCandidate[];
   /** Open to-dos that are the person's, and the unassigned ones in project brains. */
   counts: { mine: number; backlog: number; inbox: number };
+  /** Ticked today, newest first. */
+  done: DoneEntry[];
+  /** Sent today, newest first. */
+  sent: SentEntry[];
+  close: DayClose | null;
   connectors: { calendar: ConnectorStatus; mail: ConnectorStatus; slack: ConnectorStatus };
   rounds: AgentRound[];
 };

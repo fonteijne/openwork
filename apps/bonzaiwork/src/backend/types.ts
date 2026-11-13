@@ -785,7 +785,7 @@ export type AgendaBackend = {
 // ---------------------------------------------------------------------------
 
 export type {
-  AgentRound, CleanupCandidate, ConnectorStatus, DayItem, DayPlan, Focus, Meeting, StartHere, StartReason, TodaySettings, Todo, TodayView, UpcomingBucket, UpcomingRow,
+  AgentRound, CleanupCandidate, ConnectorStatus, DayClose, DayItem, DoneEntry, SentEntry, DayPlan, Focus, Meeting, StartHere, StartReason, TodaySettings, Todo, TodayView, UpcomingBucket, UpcomingRow,
 } from "@bonzaiwork/today/model";
 
 export type TodaySettingsView = { settings: TodaySettings; /** Turned off for this installation (`BONZAIWORK_TODAY=0`); the switch cannot turn it on. */ killed: boolean };
@@ -815,6 +815,8 @@ export type TodayBackend = {
   /** A found promise becomes a to-do. */
   accept(key: string): Promise<Todo>;
   decidePlan(decision: "approve" | "drop"): Promise<void>;
+  /** "Dag afsluiten": tomorrow starts with `todoId` (null: the agent's own choice). */
+  closeDay(todoId: string | null): Promise<void>;
   /** The chat that cleans up a brain's to-dos in prose. */
   cleanup(brainId: string): Promise<TodayChatStart>;
   runRound(system: string): Promise<void>;

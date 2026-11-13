@@ -14,7 +14,7 @@ import { DESKTOP, SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { useSidebarProjects } from "../projects/use-listed-projects";
 import { withWorld } from "../today/model";
-import { CleanupRow, FocusLine, PlanSection, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
+import { CleanupRow, DayCloseCard, FocusLine, PlanSection, SentToday, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
 import { AttentionSection } from "./attention-section";
 import { HomeComposer } from "./home-composer";
 import { awayRows, MAX_AWAY_ROWS, nextRoutine, readLastSeen, writeLastSeen } from "./model";
@@ -115,6 +115,7 @@ export function HomePage() {
     <>
       {agent ? <UpcomingSection rows={agent.upcoming} projects={everyProject} compact={!columns} /> : null}
       {agent?.plan ? <PlanSection plan={agent.plan} open={columns} /> : null}
+      {agent ? <SentToday sent={agent.sent} /> : null}
       <WorkdaySection nextRoutine={next} projects={projectMap} />
       {cleanup ? <CleanupRow candidate={cleanup} /> : null}
     </>
@@ -131,6 +132,7 @@ export function HomePage() {
             {smallUp ? composer : null}
             {agent?.focus ? <FocusLine focus={agent.focus} projects={everyProject} /> : null}
             {agent?.blocked ? <TodayBlocked reason={agent.blocked} /> : null}
+            {agent?.close ? <DayCloseCard close={agent.close} done={agent.done} /> : null}
             {agent && !agent.blocked ? <StartSection view={agent} projects={everyProject} isFocal={!decisionWaits} /> : null}
             <AttentionSection
               items={attention.data ? items : undefined}
