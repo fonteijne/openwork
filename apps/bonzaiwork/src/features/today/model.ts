@@ -43,6 +43,14 @@ export function groupUpcoming(rows: readonly UpcomingRow[]): UpcomingGroup[] {
   return groups;
 }
 
+/** At most this many rows in "Komt eraan" when it shares one column with everything else. */
+export const MAX_UPCOMING_NOW = 3;
+
+/** What cannot wait: the rows that are late or today (the server lists them first), at most three. */
+export function upcomingNow(rows: readonly UpcomingRow[]): UpcomingRow[] {
+  return rows.filter((row) => row.bucket === "late" || row.bucket === "today").slice(0, MAX_UPCOMING_NOW);
+}
+
 /** The project a chat from Vandaag starts in, when it is still listed. */
 export function startProject(start: TodayChatStart, projects: readonly Project[]): Project | null {
   return projects.find((project) => project.id === start.projectId) ?? null;

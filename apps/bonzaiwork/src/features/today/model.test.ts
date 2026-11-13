@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AttentionItem, DayItem, Meeting, UpcomingRow } from "~/backend/types";
 
-import { formatDay, groupUpcoming, meetingTime, minutesUntil, withWorld } from "./model";
+import { formatDay, groupUpcoming, meetingTime, minutesUntil, upcomingNow, withWorld } from "./model";
 
 const meeting: Meeting = { id: "m", title: "Overleg", start: new Date(2026, 10, 13, 10, 20).getTime(), end: new Date(2026, 10, 13, 11, 20).getTime(), allDay: false, location: null, organizer: null, link: null };
 const message: DayItem = { kind: "message", key: "mail:1", source: "mail", title: "T", from: "F", why: "W", draft: null, link: null, reply: null, at: 5 };
@@ -31,6 +31,12 @@ describe("Komt eraan", () => {
     const row = (key: string, bucket: UpcomingRow["bucket"]): UpcomingRow => ({ kind: "meeting", key, bucket, date: "2026-11-13", meeting });
     expect(groupUpcoming([row("a", "late"), row("b", "late"), row("c", "week")]).map((group) => `${group.bucket}:${group.rows.length}`)).toEqual(["late:2", "week:1"]);
     expect(groupUpcoming([])).toEqual([]);
+  });
+
+  it("toont in één kolom alleen wat te laat of vandaag is, hooguit drie", () => {
+    const row = (key: string, bucket: UpcomingRow["bucket"]): UpcomingRow => ({ kind: "meeting", key, bucket, date: "2026-11-13", meeting });
+    expect(upcomingNow([row("a", "late"), row("b", "today"), row("c", "today"), row("d", "today"), row("e", "week")]).map((entry) => entry.key)).toEqual(["a", "b", "c"]);
+    expect(upcomingNow([row("e", "week"), row("f", "later")])).toEqual([]);
   });
 
   it("leest een datum en een afspraak zoals een mens ze zegt", () => {

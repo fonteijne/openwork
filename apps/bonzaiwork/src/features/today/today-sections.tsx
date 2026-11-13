@@ -22,7 +22,7 @@ import { href, navigate } from "~/lib/router";
 
 import { sendFirstMessage } from "../chat/first-message";
 import { SectionHeading } from "../home/attention-section";
-import { formatDay, groupUpcoming, MAX_UPCOMING_ROWS, meetingTime, startProject } from "./model";
+import { formatDay, groupUpcoming, MAX_UPCOMING_ROWS, meetingTime, startProject, upcomingNow } from "./model";
 
 /**
  * The personal agent's own sections on Vandaag (docs/bonzaiwork/persoonlijke-agent-plan.md §4):
@@ -186,17 +186,28 @@ function AddTodoDialog(props: { open: boolean; onOpenChange: (open: boolean) => 
   );
 }
 
-function PlanBlockList(props: { plan: DayPlan }) {
+/**
+ * The day plan. In the side column it stands open (the blocks are short and the answer, S3); in
+ * one column it is a single row until opened, so it never pushes "Voor jou" down.
+ */
+export function PlanSection(props: { plan: DayPlan; open: boolean }) {
   const backend = useBackend();
   const { busy, act } = useAction();
   const { plan } = props;
+  if (!plan.blocks.length) return null;
   return (
-    // Open while it waits for a decision: then the blocks are the answer (S3).
-    <Disclosure key={String(plan.approved)} label={copy.today.plan.title(plan.blocks.length)} defaultOpen={!plan.approved} testId="today-plan" panelClassName="ps-6 pt-1">
+    <Disclosure
+      key={`${plan.approved}-${props.open}`}
+      label={copy.today.plan.title(plan.blocks.length)}
+      trailing={plan.approved ? undefined : copy.today.plan.waiting}
+      defaultOpen={props.open}
+      testId="today-plan"
+      panelClassName="ps-6 pt-1"
+    >
       <ul>
         {plan.blocks.map((block) => (
           <li key={`${block.start}-${block.label}`} className="flex min-h-8 items-baseline gap-3 text-sm">
-            <span className="w-24 shrink-0 font-mono text-xs text-muted-foreground">{copy.today.plan.block(block.start, block.end)}</span>
+            <span className="w-[5.5rem] shrink-0 font-mono text-xs text-muted-foreground">{copy.today.plan.block(block.start, block.end)}</span>
             <span className="min-w-0 truncate text-foreground">{block.label}</span>
           </li>
         ))}
@@ -215,7 +226,7 @@ function PlanBlockList(props: { plan: DayPlan }) {
   );
 }
 
-function CleanupRow(props: { candidate: CleanupCandidate }) {
+export function CleanupRow(props: { candidate: CleanupCandidate }) {
   const backend = useBackend();
   const startChat = useStartChat();
   const { busy, act } = useAction();
@@ -226,7 +237,7 @@ function CleanupRow(props: { candidate: CleanupCandidate }) {
       if (started) navigate({ name: "project", projectId: started.project.id, chatId: started.chatId });
     });
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground" data-testid="today-cleanup">
+    <div className="flex min-h-9 items-center gap-x-3 text-xs text-muted-foreground" data-testid="today-cleanup">
       <ListChecks className="size-4 shrink-0" aria-hidden="true" />
       <span className="min-w-0 flex-1">{copy.today.cleanup.line(candidate.lines, candidate.brainName)}</span>
       <Button variant="quiet" size="sm" disabled={busy} onClick={start}>
@@ -299,7 +310,6 @@ function StartCard(props: { start: StartHere; projects: ReadonlyMap<string, Proj
 export function StartSection(props: { view: TodayView; projects: ReadonlyMap<string, Project>; isFocal: boolean }) {
   const [adding, setAdding] = useState(false);
   const { view } = props;
-  const cleanup = view.cleanup[0];
   return (
     <section aria-labelledby="home-start" data-testid="home-start">
       <SectionHeading
@@ -323,8 +333,6 @@ export function StartSection(props: { view: TodayView; projects: ReadonlyMap<str
           // One line, no explanation (C6, P1); "Taak toevoegen" stands in the heading.
           <p className="text-sm text-muted-foreground">{copy.today.nothingOpen}</p>
         )}
-        {view.plan && view.plan.blocks.length ? <PlanBlockList plan={view.plan} /> : null}
-        {cleanup ? <CleanupRow candidate={cleanup} /> : null}
       </div>
       <AddTodoDialog open={adding} onOpenChange={setAdding} projects={props.projects} />
     </section>
@@ -383,10 +391,11 @@ function UpcomingItem(props: { row: UpcomingRow; projects: ReadonlyMap<string, P
 }
 
 /** Deadlines, promises and appointments for the coming days, soonest first; late in amber. */
-export function UpcomingSection(props: { rows: readonly UpcomingRow[]; projects: ReadonlyMap<string, Project> }) {
+export function UpcomingSection(props: { rows: readonly UpcomingRow[]; projects: ReadonlyMap<string, Project>; /** In one column: only what is late or today, the rest behind "Nog n". */ compact?: boolean }) {
   if (!props.rows.length) return null;
-  const shown = groupUpcoming(props.rows.slice(0, MAX_UPCOMING_ROWS));
-  const more = props.rows.slice(MAX_UPCOMING_ROWS);
+  const first = props.compact ? upcomingNow(props.rows) : props.rows.slice(0, MAX_UPCOMING_ROWS);
+  const shown = groupUpcoming(first);
+  const more = props.rows.slice(first.length);
   const group = (rows: readonly UpcomingRow[]) => (
     <ul>
       {rows.map((row) => (

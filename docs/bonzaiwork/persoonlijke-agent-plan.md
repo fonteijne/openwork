@@ -106,6 +106,15 @@ Met `--read-only` kan BonzaiWork geen antwoord per mail versturen; "Versturen" m
 
 ## 4. Vandaag
 
+De pagina blijft kort. Op een breed venster (vanaf 1280 px) staan er twee kolommen: links het werk
+(composer, "Start hier", "Voor jou", Bezig, "Terwijl je weg was"), rechts de dag ("Komt eraan", het
+dagplan, "Je werkdag"), en die rechterkolom blijft staan terwijl links scrolt. In één kolom toont "Komt
+eraan" alleen wat te laat of vandaag is (hooguit drie regels, de rest achter "Nog n") en is het dagplan
+één regel tot je het opent. Met de agent aan toont "Voor jou" drie kaarten in plaats van vijf, en valt de
+projectenlijst op een desktop weg: die staat al in de zijbalk. Een kaart voor mail of Slack is dicht drie
+regels (wie, waarom, het begin van het concept); "Antwoord bekijken" opent het bewerkbare antwoord, en
+pas dan staat er "Versturen".
+
 Volgorde; secties zonder inhoud worden niet getoond:
 
 1. **Composer**, met **Parkeren** (⌥⏎) zodra er tekst staat: de gedachte gaat naar `inbox.md`, toast
@@ -115,7 +124,7 @@ Volgorde; secties zonder inhoud worden niet getoond:
    van de taak waarin de agent de eerste stap al doet, en meldt aanwezigheid voor de agenda. **Klaar**
    vinkt af. **Niet nu** (esc) geeft de volgende, hooguit drie keer per dag. Daaronder het **dagplan** om
    goed te keuren, de regel **Opruimen**, en in de kop "Taak toevoegen".
-4. **Voor jou** (bestaand, maximaal 5 kaarten), aangevuld met kaarten uit de wereld, na wat een agent
+4. **Voor jou** (bestaand; met de agent aan maximaal 3 kaarten), aangevuld met kaarten uit de wereld, na wat een agent
    stilzet en vóór mislukte chats:
    - afspraak die binnen een halfuur begint, met de voorbereiding als die er is · Gezien;
    - mail of Slack-draad: waarom het jou nodig heeft, het concept in een bewerkbaar veld, en in de

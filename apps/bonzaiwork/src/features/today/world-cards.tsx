@@ -7,6 +7,7 @@ import type { DayItem } from "~/backend/types";
 import { ProseHtml } from "~/components/prose-html";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
+import { Disclosure } from "~/components/ui/disclosure";
 import { Textarea } from "~/components/ui/field";
 import { Kbd } from "~/components/ui/misc";
 import { toast } from "~/components/ui/toast";
@@ -78,8 +79,11 @@ function MessageCard(props: CardProps<"message">) {
   const { item } = props;
   const { busy, act } = useWorldAction(props.onResolved);
   const [text, setText] = useState(item.draft ?? "");
+  // Closed, the card is three lines: who, why, and the start of the draft. The full text and
+  // "Versturen" only show together, so nothing is sent unseen (P9).
+  const [open, setOpen] = useState(false);
   const source = copy.today.message[item.source];
-  const canSend = Boolean(item.reply) && text.trim().length > 0;
+  const canSend = open && Boolean(item.reply) && text.trim().length > 0;
   const send = () => void act(() => backend.today.send(item.key, text), copy.today.message.sent);
   // Esc sets the card aside for a day; it never throws a message away.
   const later = () => void act(() => backend.today.later(item.key), copy.today.message.laterToast);
@@ -88,7 +92,7 @@ function MessageCard(props: CardProps<"message">) {
       ref={props.cardRef}
       className={CARD}
       tabIndex={0}
-      onKeyDown={cardKeys({ enter: canSend ? send : undefined, escape: later })}
+      onKeyDown={cardKeys({ enter: canSend ? send : item.reply && !open ? () => setOpen(true) : undefined, escape: later })}
       keyShortcuts="Enter Escape"
       testId={`attention-world-${item.source}`}
       label={source}
@@ -98,14 +102,20 @@ function MessageCard(props: CardProps<"message">) {
       state={
         <>
           {source} {copy.today.message.from(item.from)} · {item.why} <span className="whitespace-nowrap">· {relativeTime(item.at)}</span>
-          {item.reply ? <span className="block">{item.reply.via === "mail" ? copy.today.message.sendsMail(item.from) : copy.today.message.sendsSlack(item.title)}</span> : null}
+          {item.reply && open ? <span className="block">{item.reply.via === "mail" ? copy.today.message.sendsMail(item.from) : copy.today.message.sendsSlack(item.title)}</span> : null}
+          {item.reply && !open && text.trim() ? <span className="block truncate text-foreground">{text.trim().replace(/\s+/g, " ")}</span> : null}
         </>
       }
       actions={
         <>
-          {item.reply ? (
+          {item.reply && open ? (
             <Button {...primary(props.isFocal)} disabled={busy || !canSend} onClick={send} data-testid="world-send">
               {copy.today.message.send}
+              <Kbd>⏎</Kbd>
+            </Button>
+          ) : item.reply ? (
+            <Button {...primary(props.isFocal)} disabled={busy} onClick={() => setOpen(true)} data-testid="world-review">
+              {copy.today.message.review}
               <Kbd>⏎</Kbd>
             </Button>
           ) : (
@@ -117,7 +127,7 @@ function MessageCard(props: CardProps<"message">) {
             {copy.today.message.later}
             <Kbd>esc</Kbd>
           </Button>
-          {item.reply ? (
+          {item.reply && open ? (
             <Button variant="ghost" disabled={busy} onClick={() => void act(() => backend.today.dismiss(item.key), null)}>
               {copy.today.message.notMine}
             </Button>
@@ -126,8 +136,9 @@ function MessageCard(props: CardProps<"message">) {
       }
       link={item.link ? <ExternalLink url={item.link} label={copy.today.message.open(item.source === "mail" ? "Outlook" : "Slack")} /> : undefined}
     >
-      {item.reply ? (
+      {item.reply && open ? (
         <Textarea
+          autoFocus
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={Math.min(8, Math.max(3, text.split("\n").length + 1))}
@@ -173,7 +184,11 @@ function MeetingCard(props: CardProps<"meeting">) {
       }
       link={meeting.link ? <ExternalLink url={meeting.link} label={copy.today.meeting.open} /> : undefined}
     >
-      {html ? <ProseHtml html={html} className="mt-3 text-sm" /> : null}
+      {html ? (
+        <Disclosure label={copy.today.meeting.prep} size="sm" className="mt-2" panelClassName="ps-6 pt-1">
+          <ProseHtml html={html} className="text-sm" />
+        </Disclosure>
+      ) : null}
     </Callout>
   );
 }

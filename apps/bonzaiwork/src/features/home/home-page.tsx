@@ -9,11 +9,12 @@ import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
 import { SEEN_ALL_EVENT } from "~/lib/shortcuts";
-import { SMALL_UP, useMediaQuery } from "~/lib/use-media";
+import { cn } from "~/lib/cn";
+import { DESKTOP, SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { useSidebarProjects } from "../projects/use-listed-projects";
 import { withWorld } from "../today/model";
-import { FocusLine, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
+import { CleanupRow, FocusLine, PlanSection, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
 import { AttentionSection } from "./attention-section";
 import { HomeComposer } from "./home-composer";
 import { awayRows, MAX_AWAY_ROWS, nextRoutine, readLastSeen, writeLastSeen } from "./model";
@@ -103,7 +104,21 @@ export function HomePage() {
       return false;
     }
   };
-  const composer = <HomeComposer projects={projects} size={smallUp ? "large" : "default"} autoFocus={false} onPark={agent && !agent.blocked ? park : undefined} />;
+  // With the personal agent on there is more to show: a second column on a wide window keeps the
+  // day (Komt eraan, dagplan, Je werkdag) beside the work instead of below it.
+  const wide = useMediaQuery(WIDE);
+  const desktop = useMediaQuery(DESKTOP);
+  const columns = Boolean(agent) && wide;
+  const composer = <HomeComposer projects={projects} size={smallUp && !agent ? "large" : "default"} autoFocus={false} onPark={agent && !agent.blocked ? park : undefined} />;
+  const cleanup = agent?.cleanup[0];
+  const day = (
+    <>
+      {agent ? <UpcomingSection rows={agent.upcoming} projects={everyProject} compact={!columns} /> : null}
+      {agent?.plan ? <PlanSection plan={agent.plan} open={columns} /> : null}
+      <WorkdaySection nextRoutine={next} projects={projectMap} />
+      {cleanup ? <CleanupRow candidate={cleanup} /> : null}
+    </>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -111,17 +126,30 @@ export function HomePage() {
         <PageTitle>{copy.home.title}</PageTitle>
       </TopBar>
       <main className="min-h-0 flex-1 overflow-y-auto" data-testid="home-page">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6 pb-12 sm:px-6 sm:pt-8">
-          {smallUp ? composer : null}
-          {agent?.focus ? <FocusLine focus={agent.focus} projects={everyProject} /> : null}
-          {agent?.blocked ? <TodayBlocked reason={agent.blocked} /> : null}
-          {agent && !agent.blocked ? <StartSection view={agent} projects={everyProject} isFocal={!decisionWaits} /> : null}
-          <AttentionSection items={attention.data ? items : undefined} loading={attention.isLoading} projects={projectMap} brains={brainMap} routines={routineMap} nextRoutine={next} focal={!agent?.start || decisionWaits} />
-          {agent ? <UpcomingSection rows={agent.upcoming} projects={everyProject} /> : null}
-          <BusySection chats={recent.data ?? []} projects={projectMap} />
-          <WhileAwaySection rows={away} projects={projectMap} lastSeenAt={lastSeenAt} onSeenAll={seenAll} />
-          <WorkdaySection nextRoutine={next} projects={projectMap} />
-          <ProjectsSection projects={projects} summaries={summaries} items={items} />
+        <div className={cn("mx-auto w-full px-4 pt-6 pb-12 sm:px-6", columns ? "grid max-w-6xl grid-cols-[minmax(0,1fr)_19rem] items-start gap-x-10" : "max-w-3xl sm:pt-8")}>
+          <div className={cn("flex min-w-0 flex-col", agent ? "gap-6" : "gap-8")}>
+            {smallUp ? composer : null}
+            {agent?.focus ? <FocusLine focus={agent.focus} projects={everyProject} /> : null}
+            {agent?.blocked ? <TodayBlocked reason={agent.blocked} /> : null}
+            {agent && !agent.blocked ? <StartSection view={agent} projects={everyProject} isFocal={!decisionWaits} /> : null}
+            <AttentionSection
+              items={attention.data ? items : undefined}
+              loading={attention.isLoading}
+              projects={projectMap}
+              brains={brainMap}
+              routines={routineMap}
+              nextRoutine={next}
+              focal={!agent?.start || decisionWaits}
+              maxCards={agent ? 3 : undefined}
+            />
+            {columns ? null : day}
+            <BusySection chats={recent.data ?? []} projects={projectMap} />
+            <WhileAwaySection rows={away} projects={projectMap} lastSeenAt={lastSeenAt} onSeenAll={seenAll} />
+            {/* With the agent on, the page keeps to the day: the sidebar already lists the projects on a desktop. */}
+            {agent && desktop ? null : <ProjectsSection projects={projects} summaries={summaries} items={items} />}
+          </div>
+          {/* The day stays in view while the work column scrolls. */}
+          {columns ? <aside className="sticky top-6 flex min-w-0 flex-col gap-6" data-testid="home-day">{day}</aside> : null}
         </div>
       </main>
       {smallUp ? null : <div className="shrink-0 border-t border-border bg-background px-3 pt-2 pb-[max(8px,env(safe-area-inset-bottom))]">{composer}</div>}

@@ -121,6 +121,7 @@ export const copy = {
     plan: {
       title: (count: number) => (count === 1 ? "Dagplan · 1 blok" : `Dagplan · ${count} blokken`),
       approve: "Goedkeuren",
+      waiting: "wacht op jou",
       approved: "Goedgekeurd",
       drop: "Weggooien",
       dropped: "Weggegooid",
@@ -142,6 +143,7 @@ export const copy = {
       sendsMail: (name: string) => `Stuurt dit antwoord per mail aan ${name} · niet terug te halen`,
       sendsSlack: (channel: string) => `Plaatst dit antwoord in ${channel} · zichtbaar voor iedereen daar`,
       reply: "Jouw antwoord",
+      review: "Antwoord bekijken",
       send: "Versturen",
       sent: "Verstuurd",
       later: "Later",
@@ -152,6 +154,7 @@ export const copy = {
     },
     meeting: {
       label: "Afspraak begint zo",
+      prep: "Voorbereiding",
       startsIn: (minutes: number) => (minutes <= 0 ? "is begonnen" : minutes === 1 ? "over 1 minuut" : `over ${minutes} minuten`),
       seen: "Gezien",
       open: "Openen in Outlook",
