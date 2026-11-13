@@ -982,6 +982,24 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       if (!host?.engineRequest) return 0;
       return answerBrainReads({ request: host.engineRequest, workspaceId, sessionId, allowed, brains: access.teamBrains, log: (message, fields) => log("info", message, fields) });
     },
+    /**
+     * Vandaag (docs/bonzaiwork/persoonlijke-agent-plan.md): every brain folder on this laptop, who
+     * writes here, and "BonzaiWork changed this folder outside a chat".
+     */
+    todayAccess: {
+      brains: async () => Promise.all([...syncs.values()].map(async (sync) => ({ ...(await describeBrain(sync)), kind: sync.snapshot.kind, excluded: sync.snapshot.excluded ?? [], readOnly: sync.snapshot.mode === "read_only" }))),
+      author,
+      /** Recorded now when no chat writes in the brain; otherwise the end of that chat's turn records it. */
+      changed: async (id: string): Promise<void> => {
+        const sync = syncs.get(id);
+        if (!sync) return;
+        if (chatsWriteIn(sync.snapshot)) {
+          if (sync.snapshot.kind === "personal") personalDirty = true;
+          return;
+        }
+        await sync.recordOwn().catch((error: unknown) => log("warn", "Brain change from Vandaag not recorded", { brain: id, error: String(error) }));
+      },
+    },
     /** Tests: the tools without the engine. */
     personalAccess: access,
     async start(next: BrainsHost) {

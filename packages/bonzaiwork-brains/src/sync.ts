@@ -793,6 +793,19 @@ export class BrainSync {
     });
   }
 
+  /**
+   * A change BonzaiWork made itself outside a chat (a to-do ticked on Vandaag): recorded now as the
+   * user's own, and shared only when this brain shares by itself.
+   */
+  recordOwn(): Promise<BrainStatus> {
+    return this.lock(async () => {
+      if (this.record.mode === "read_only" || !await this.guard()) return this.statusNow();
+      const own = await this.commitOwn();
+      if (!own.blockedBy && this.sharesByItself && this.problem?.kind !== "conflict") await this.push();
+      return this.statusNow();
+    });
+  }
+
   /** "Wijzigingen delen" (manual mode), "Opnieuw proberen", and the offline retry. */
   share(): Promise<BrainStatus> {
     return this.lock(async () => {

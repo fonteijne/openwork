@@ -19,7 +19,8 @@
     "@bonzaiwork/brains": "workspace:*",
     "@bonzaiwork/feedback": "workspace:*",
     "@bonzaiwork/litellm": "workspace:*",
-    "@bonzaiwork/routines": "workspace:*"
+    "@bonzaiwork/routines": "workspace:*",
+    "@bonzaiwork/today": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

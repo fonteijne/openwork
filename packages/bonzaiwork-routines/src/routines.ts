@@ -43,7 +43,15 @@ export type Routine = {
   updatedAt: number;
   /** Brains (workspace ids) this routine reads without asking. */
   brains: string[];
+  /**
+   * Set for a routine BonzaiWork keeps itself (the personal agent's rounds, "agent.ochtend"):
+   * its prompt and brains follow the app, its schedule, model and state stay the user's.
+   */
+  system: string | null;
 };
+
+/** What `ensureSystem` keeps up to date; the schedule and model only count when the routine is new. */
+export type SystemRoutineSpec = { system: string; workspaceId: string; name: string; prompt: string; schedule: RoutineSchedule; model: string | null; brains: string[] };
 
 type Activity = { workspaceId: string; sessionId: string; state: "running" | "idle"; outcome?: "succeeded" | "failed" | "interrupted" };
 
@@ -129,7 +137,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
       const brains = Array.isArray(value.brains) ? value.brains.filter((entry): entry is string => typeof entry === "string") : [];
       const state = STATES.find((entry) => entry === value.state) ?? "inactive";
       return [{
-        id, workspaceId, schedule, state, brains,
+        id, workspaceId, schedule, state, brains, system: text(value, "system"),
         name: text(value, "name") ?? "", prompt: text(value, "prompt") ?? "", model: text(value, "model"),
         needsAttentionReason: text(value, "needsAttentionReason"),
         nextRunAt: typeof value.nextRunAt === "number" ? value.nextRunAt : null, lastRun: null,
@@ -297,7 +305,7 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
     const state = SETTABLE.find((entry) => entry === body.state) ?? (current?.state === "needs_attention" ? "active" : current?.state ?? "active");
     const brains = Array.isArray(body.brains) ? [...new Set(body.brains.filter((entry): entry is string => typeof entry === "string"))] : current?.brains ?? [];
     const model = "model" in body ? text(body, "model") : current?.model ?? null;
-    return { ok: true, value: { workspaceId, name: name.slice(0, 120), prompt: prompt.slice(0, 20_000), model, schedule, state, brains } };
+    return { ok: true, value: { workspaceId, name: name.slice(0, 120), prompt: prompt.slice(0, 20_000), model, schedule, state, brains, system: current?.system ?? null } };
   }
 
   const find = (id: string) => routines.find((routine) => routine.id === id) ?? null;
@@ -380,6 +388,47 @@ export function createRoutinesHooks(options: RoutinesOptions = {}) {
     answerBrainQuestions,
     /** A chat a routine started (agenda plan §5.4): its turns are the planner's, not the user's. */
     isRoutineChat: (sessionId: string) => live.has(sessionId) || runs.some((run) => run.chatId === sessionId),
+    /** The running chats of routines BonzaiWork keeps itself, for the questions only they may skip. */
+    liveSystemRuns: () => [...live].flatMap(([sessionId, { routine }]) => (routine.system ? [{ sessionId, workspaceId: routine.workspaceId, system: routine.system }] : [])),
+    /**
+     * Creates a routine BonzaiWork keeps itself, or brings its prompt, name, brains and project up
+     * to date. An existing one keeps the schedule, model and on/off the user chose.
+     */
+    async ensureSystem(spec: SystemRoutineSpec): Promise<Routine> {
+      const existing = routines.find((routine) => routine.system === spec.system);
+      if (existing) {
+        const same = existing.prompt === spec.prompt && existing.name === spec.name && existing.workspaceId === spec.workspaceId && JSON.stringify(existing.brains) === JSON.stringify(spec.brains);
+        if (!same) {
+          Object.assign(existing, { prompt: spec.prompt, name: spec.name, workspaceId: spec.workspaceId, brains: [...spec.brains], updatedAt: now() });
+          await save();
+        }
+        return view(existing);
+      }
+      const routine: Routine = { ...spec, brains: [...spec.brains], id: `rtn_${randomBytes(6).toString("hex")}`, state: "active", needsAttentionReason: null, nextRunAt: null, lastRun: null, createdAt: now(), updatedAt: now() };
+      schedule(routine, now());
+      routines.push(routine);
+      await save();
+      return view(routine);
+    },
+    /** Removes the routines BonzaiWork keeps itself whose key starts with `prefix` (the feature was turned off). */
+    async removeSystem(prefix: string): Promise<void> {
+      const gone = new Set(routines.filter((routine) => routine.system?.startsWith(prefix)).map((routine) => routine.id));
+      if (!gone.size) return;
+      routines = routines.filter((routine) => !gone.has(routine.id));
+      runs = runs.filter((run) => !gone.has(run.routineId));
+      await save();
+    },
+    /** The model of the routines BonzaiWork keeps itself, when the person changes it in one place. */
+    async setSystemModel(prefix: string, model: string | null): Promise<void> {
+      for (const routine of routines) if (routine.system?.startsWith(prefix)) Object.assign(routine, { model, updatedAt: now() });
+      await save();
+    },
+    /** Runs a routine BonzaiWork keeps itself now ("Nu bijwerken"). */
+    async runSystem(system: string): Promise<RoutineRun | null> {
+      const routine = routines.find((entry) => entry.system === system);
+      return routine ? start(routine, "manual", now()) : null;
+    },
+    systemRoutines: (prefix: string) => routines.filter((routine) => routine.system?.startsWith(prefix)).map(view),
     async start(next: RoutinesHost) {
       host = next;
       await load();
