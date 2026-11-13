@@ -35,6 +35,7 @@ docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per k
 docs/bonzaiwork/agenda-manager-plan.md         implementatieplan van die agenda-agent: regels, bestanden, routes, prompts, fasen
 docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt en stand per fase
 docs/bonzaiwork/agenda.md                      de agenda zoals gebouwd: bediening, demo, headless testen, eerste test na de MVP
+docs/bonzaiwork/persoonlijke-agent-plan.md     ontwerp: taken, deadlines, mail en Slack op Vandaag via een persoonlijke agent
 packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
 packages/bonzaiwork-agenda/      agenda: meting per kwartier (beurten, aanwezigheid), correcties, boekdocument voor Bridge; ./model voor de UI
 packages/bonzaiwork-server-hooks/  combineert de server-hooks van litellm, brains, routines, agenda en feedback
