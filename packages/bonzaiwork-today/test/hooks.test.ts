@@ -24,6 +24,7 @@ let mcpEntries: Array<Record<string, Record<string, unknown> | null>>;
 let engineCalls: Array<{ method: string; path: string; body: unknown }>;
 let pendingQuestions: Array<{ id: string; action: string }>;
 let readOnly = false;
+let personal: boolean | null = true;
 /** The clock of Vandaag; a test moves it to the end of the day. */
 let clock = NOW;
 
@@ -75,6 +76,7 @@ const first = async (): Promise<Todo> => {
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "bonzaiwork-today-"));
   changed = []; mcpEntries = []; engineCalls = []; pendingQuestions = []; readOnly = false; clock = NOW;
+  personal = true;
   await write("mijn/AGENTS.md", "# Mijn brein\n");
   await write("mijn/taken.md", "# Taken\n\n- [ ] Belasting regelen 📅 2026-11-13\n- [ ] Boek uitlezen\n");
   await write("sales/team.md", "- @sam: Sam Jansen <sam@example.invalid>\n- @robin: Robin de Vries <robin@example.invalid>\n");
@@ -105,9 +107,10 @@ beforeEach(async () => {
     routines,
     brains: {
       brains: async () => [
-        { id: "ws-mijn", name: "Mijn brein", root: join(root, "mijn"), kind: "personal", excluded: [], readOnly: false },
-        { id: "ws-sales", name: "Sales", root: join(root, "sales"), kind: "project", excluded: [], readOnly: false },
+        ...(personal === true ? [{ id: "ws-mijn", name: "Mijn brein", root: join(root, "mijn"), kind: "personal" as const, excluded: [], readOnly: false }] : []),
+        { id: "ws-sales", name: "Sales", root: join(root, "sales"), kind: "project" as const, excluded: [], readOnly: false },
       ],
+      personalConnected: () => personal,
       author: () => ({ name: "Sam Jansen", email: "sam@example.invalid" }),
       changed: async (id) => { changed.push(id); },
     },
@@ -155,6 +158,21 @@ describe("uit tot je het aanzet (T10)", () => {
     const killed = createTodayHooks({ stateDirectory: join(root, "state"), environment: { BONZAIWORK_TODAY: "0" } });
     await killed.service.setSettings({ enabled: true });
     expect(killed.service.enabled()).toBe(false);
+  });
+
+  test("het persoonlijke brein losgekoppeld: de rondes gaan weg en komen terug met een brein; zolang de breinen starten blijft alles staan", async () => {
+    await enable();
+    expect(routines.systemRoutines("agent.")).toHaveLength(3);
+    personal = null;
+    await hooks.reconcile();
+    expect(routines.systemRoutines("agent.")).toHaveLength(3);
+    personal = false;
+    await hooks.reconcile();
+    expect(routines.systemRoutines("agent.")).toEqual([]);
+    expect((await view()).blocked).toContain("persoonlijke brein");
+    personal = true;
+    await hooks.reconcile();
+    expect(routines.systemRoutines("agent.").map((round) => round.workspaceId)).toEqual(["ws-mijn", "ws-mijn", "ws-mijn"]);
   });
 
   test("een alleen-lezen apparaat verandert niets", async () => {

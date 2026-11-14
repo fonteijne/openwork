@@ -14,6 +14,11 @@ type RegistryFile = {
   brains: BrainRecord[];
   /** Per project (any project, brain or not): other brains it consults without asking (plan §5.2). */
   reads: Record<string, string[]>;
+  /**
+   * The personal brain that was disconnected last: connecting the same folder again picks up where
+   * it stopped (its private repository, excluded folders, what was shared).
+   */
+  formerPersonal: BrainRecord | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,7 +69,7 @@ function readAuthor(value: unknown): Author | null {
 }
 
 export class BrainRegistry {
-  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {} };
+  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {}, formerPersonal: null };
   private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly file: string) {}
@@ -80,6 +85,7 @@ export class BrainRegistry {
       author: readAuthor(parsed.author),
       brains: Array.isArray(parsed.brains) ? parsed.brains.flatMap((entry) => readRecord(entry) ?? []) : [],
       reads: readReads(parsed.reads),
+      formerPersonal: readRecord(parsed.formerPersonal),
     };
   }
 
@@ -104,12 +110,22 @@ export class BrainRegistry {
   }
 
   upsert(record: BrainRecord): Promise<void> {
-    this.data = { ...this.data, brains: [...this.data.brains.filter((brain) => brain.id !== record.id), record] };
+    // A folder that is a brain again is no longer "the one that was disconnected".
+    const formerPersonal = this.data.formerPersonal?.id === record.id ? null : this.data.formerPersonal;
+    this.data = { ...this.data, formerPersonal, brains: [...this.data.brains.filter((brain) => brain.id !== record.id), record] };
     return this.flush();
   }
 
   remove(id: string): Promise<void> {
     this.data = { ...this.data, brains: this.data.brains.filter((brain) => brain.id !== id) };
+    return this.flush();
+  }
+
+  get formerPersonal(): BrainRecord | null { return this.data.formerPersonal; }
+
+  /** Disconnects the personal brain: no brain any more, remembered for when its folder is connected again. */
+  disconnectPersonal(record: BrainRecord): Promise<void> {
+    this.data = { ...this.data, brains: this.data.brains.filter((brain) => brain.id !== record.id), formerPersonal: record };
     return this.flush();
   }
 

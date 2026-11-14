@@ -32,6 +32,8 @@ export type TodayBrains = {
   brains(): Promise<Array<{ id: string; name: string; root: string; kind: BrainKind; excluded: readonly string[]; readOnly: boolean }>>;
   author(): Author | null;
   changed(brainId: string): Promise<void>;
+  /** Whether a personal brain is connected; null while the brains are still starting. */
+  personalConnected?(): boolean | null;
 };
 
 type RoutineView = { system: string | null; name: string; state: AgentRound["state"]; nextRunAt: number | null; model: string | null; lastRun: { status: string; finishedAt: number | null; startedAt: number | null } | null };
@@ -144,8 +146,15 @@ export function createTodayHooks(options: TodayOptions = {}) {
       roundsSignature = "off";
       return;
     }
-    // No personal brain (yet, or the brains are still starting): what exists stays as it is.
-    if (!personal) return;
+    if (!personal) {
+      // Disconnected: the rounds have no brain to work from, so they go; they come back with a brain.
+      // Not known yet (the brains are still starting): what exists stays as it is.
+      if (options.brains?.personalConnected?.() === false && roundsSignature !== "none") {
+        await routines.removeSystem(AGENT_PREFIX);
+        roundsSignature = "none";
+      }
+      return;
+    }
     const settings = service.settings();
     const shared = brains.filter((brain) => brain.kind === "project").map((brain) => brain.id).sort();
     const specs = roundSpecs(settings, timezone);
