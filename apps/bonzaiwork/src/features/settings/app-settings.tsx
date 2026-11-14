@@ -24,6 +24,7 @@ import { setTheme, useTheme, type ThemePreference } from "~/lib/theme";
 
 import { AgendaAppSection } from "../agenda/agenda-settings";
 import { BrainsAppSection } from "../brain/personal-setup";
+import { AgentAppSection } from "../today/agent-settings";
 import { DEFAULT_FOLDER_KEY, FALLBACK_FOLDER } from "../projects/new-project-dialog";
 import { attempt, InlineTextRow, KeyForm } from "./shared";
 import { MethodsSection } from "./werkwijzen";
@@ -352,6 +353,8 @@ function GroupContent(props: { group: AppSettingsGroup; anchorProjectId: string 
           <PostsSection />
         </>
       );
+    case "agent":
+      return <AgentAppSection />;
     case "breinen":
       return <BrainsAppSection />;
     case "alle":

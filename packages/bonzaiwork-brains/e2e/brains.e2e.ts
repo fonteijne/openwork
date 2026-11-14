@@ -68,7 +68,12 @@ async function startLiteLLM(): Promise<{ server: Server; url: string }> {
     const readPath = /LEESPAD\|([^|]+)\|/.exec(userText)?.[1];
     const writePath = /SCHRIJFPAD\|([^|]+)\|/.exec(userText)?.[1];
     const readTool = tools.find((name) => /(^|_)brein_lezen$/.test(name) && !name.includes("persoonlijk"));
-    if (readPath && tools.includes("read")) call("read", { path: readPath });
+    // Vandaag (docs/bonzaiwork/persoonlijke-agent-plan.md): the agent's own tools, and a round's first step.
+    const todoTool = tools.find((name) => /(^|_)taak_toevoegen$/.test(name));
+    const mailTool = tools.find((name) => /(^|_)mail_ongelezen$/.test(name));
+    if (userText.includes("VANDAAGTAAK") && todoTool) call(todoTool, { tekst: "E2E-taak nalopen", datum: "2026-12-01" });
+    else if ((userText.includes("VANDAAGMAIL") || userText.includes("tussenronde")) && mailTool) call(mailTool, {});
+    else if (readPath && tools.includes("read")) call("read", { path: readPath });
     else if (writePath && tools.includes("write")) call("write", { path: writePath, content: "VAN-BUITEN\n" });
     else if (userText.includes("ANDERBREIN") && readTool) call(readTool, { brein: "Sales", pad: "AGENTS.md" });
     else if (userText.includes("PERSOONLIJK") && personalTool) call(personalTool, { pad: "knowledge/geleerd.md", inhoud: "---\ntype: Analysis\ntitle: Geleerd\n---\n# Geleerd\n" });
@@ -313,6 +318,48 @@ async function main() {
     await fetch(`${personalEngineUrl}/api/session/${personalChatId}/prompt`, { method: "POST", headers: owner, body: JSON.stringify({ text: "ANDERBREIN kijk in Sales", delivery: "steer" }) });
     const readByProject = await waitFor("project read", async () => (toolResults.filter((result) => result.includes("Uit het brein Sales")).length > readsBeforeProject ? true : null), 30_000).catch(() => null);
     check("… and a chat there reads it without a click", readByProject !== null);
+
+    // 9. Vandaag: off until turned on; then the agent's tools reach every chat, reading mail asks
+    //    first in an ordinary chat, and the agent's own round reads without a click (plan T7, T10).
+    const fakeMs365 = join(repoRoot, "packages/bonzaiwork-today/test/fixtures/fake-ms365.mjs");
+    const offView = await api("/bonzaiwork/today");
+    check("Vandaag is off until it is turned on", offView.status === 200 && offView.body.enabled === false, JSON.stringify(offView.body).slice(0, 120));
+    const turnedOn = await api("/bonzaiwork/today/settings", { method: "PUT", headers: host, body: { enabled: true, mail: true, model: "e2e-model", ms365Command: `node ${fakeMs365}` } });
+    check("Vandaag turned on", turnedOn.status === 200 && record(turnedOn.body.settings).enabled === true, JSON.stringify(turnedOn.body).slice(0, 200));
+    const onView = await api("/bonzaiwork/today");
+    check("the three rounds exist in the personal brain's project", list(onView.body.rounds).length === 3, JSON.stringify(onView.body.rounds).slice(0, 300));
+
+    const todoSession = record(await (await fetch(`${engine}/api/session`, { method: "POST", headers: owner, body: JSON.stringify({ model: { providerID: "litellm", id: "e2e-model" }, title: "Taak", location: { directory: brain } }) })).json());
+    const todoChat = text(todoSession.id) || text(record(todoSession.data).id);
+    // The tools were added to an engine folder that is already open: they connect within moments.
+    const added = await waitFor("to-do added by a chat", async () => {
+      const found = toolResults.find((result) => result.includes("staat in"));
+      if (found) return found;
+      await fetch(`${engine}/api/session/${todoChat}/prompt`, { method: "POST", headers: owner, body: JSON.stringify({ text: "VANDAAGTAAK zet dit erbij", delivery: "steer" }) });
+      await new Promise((done) => setTimeout(done, 4_000));
+      return toolResults.find((result) => result.includes("staat in")) ?? null;
+    }, 60_000).catch(() => null);
+    check("a chat adds a to-do through the agent's tools", added !== null, toolResults.slice(-2).join(" | ").slice(0, 300));
+    const todoFile = await Bun.file(join(personalFolder, "taken.md")).text().catch(() => "");
+    check("the to-do stands in the personal brain, in the notation", todoFile.includes("- [ ] E2E-taak nalopen 📅 2026-12-01"), todoFile.slice(0, 200));
+    const indexed = await api("/bonzaiwork/today");
+    check("Start hier offers it", text(record(record(indexed.body.start).todo).text) === "E2E-taak nalopen", JSON.stringify(indexed.body.start).slice(0, 300));
+
+    await fetch(`${engine}/api/session/${todoChat}/prompt`, { method: "POST", headers: owner, body: JSON.stringify({ text: "VANDAAGMAIL wat is er binnen", delivery: "steer" }) });
+    const mailAsked = await waitFor("permission to read mail", async () => {
+      const response = await fetch(`${engine}/api/session/${todoChat}/permission`, { headers: owner });
+      return list(record(await response.json()).data).map(record).find((item) => text(item.action) === "vandaag_mail_ongelezen") ?? null;
+    }, 30_000).catch(() => null);
+    check("reading mail asks first in an ordinary chat", mailAsked !== null, JSON.stringify(mailAsked).slice(0, 200));
+    if (mailAsked) {
+      await fetch(`${engine}/api/session/${todoChat}/permission/${text(mailAsked.id)}/reply`, { method: "POST", headers: owner, body: JSON.stringify({ decision: "once", reply: "once" }) });
+      const mailRead = await waitFor("mail read", async () => toolResults.find((result) => result.includes("mail-1")) ?? null, 30_000).catch(() => null);
+      check("after allowing, the mail comes through the local MS365 server", mailRead !== null, toolResults.slice(-1).join("").slice(0, 200));
+    }
+    const roundRun = await api("/bonzaiwork/today/rounds/run", { method: "POST", headers: host, body: { system: "agent.tussendoor" } });
+    check("a round starts", roundRun.status === 200, JSON.stringify(roundRun.body).slice(0, 200));
+    const roundRead = await waitFor("round read mail", async () => toolResults.find((result) => result.includes("Geen nieuwe ongelezen mail sinds de vorige ronde")) ?? null, 45_000).catch(() => null);
+    check("the agent's own round reads mail without a click, and only what is new", roundRead !== null, toolResults.slice(-2).join(" | ").slice(0, 300));
     await log.flush();
   } catch (error) {
     // A timeout is a failure too: keep the folder and show the server's side of it (CI keeps nothing).

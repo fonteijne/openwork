@@ -8,11 +8,12 @@ import { PAGE_TITLE } from "~/components/top-bar";
 import { Sheet } from "~/components/ui/overlay";
 import { copy } from "~/copy";
 import { goBack, goForward, navigate, type Route } from "~/lib/router";
-import { focusComposer, inOverlay, matchShortcut, PROJECT_SLOTS, SEEN_ALL_EVENT, type ShortcutId } from "~/lib/shortcuts";
+import { focusComposer, inOverlay, matchShortcut, PARK_EVENT, PROJECT_SLOTS, SEEN_ALL_EVENT, type ShortcutId } from "~/lib/shortcuts";
 import { DESKTOP, SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
 import { useOpenedOnce } from "~/lib/use-opened-once";
 
 import { useAgendaPresence } from "../agenda/presence";
+import { ParkDialog } from "../today/park-dialog";
 import { BottomTabs } from "./bottom-tabs";
 import { useSidebarProjects } from "../projects/use-listed-projects";
 import { Sidebar } from "./sidebar";
@@ -110,6 +111,10 @@ function useShortcuts(route: Route, projectId: string | null) {
           if (route.name !== "home") navigate({ name: "home" });
           window.dispatchEvent(new Event(SEEN_ALL_EVENT));
           return;
+        case "park":
+          // From anywhere: the thought is parked and the person stays on this page (plan T5).
+          window.dispatchEvent(new Event(PARK_EVENT));
+          return;
         default: {
           const slot = PROJECT_SLOTS.find((entry) => id === `project${entry}`);
           const project = slot ? pinned[slot - 1] : undefined;
@@ -204,6 +209,7 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
           <AgendaPanelHost projectId={props.projectId} />
         </Suspense>
       ) : null}
+      <ParkDialog />
       {paletteOpened ? (
         <Suspense fallback={null}>
           <CommandPalette route={props.route} projectId={props.projectId} />

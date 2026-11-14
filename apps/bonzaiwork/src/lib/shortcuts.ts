@@ -25,6 +25,7 @@ export type ShortcutId =
   | "forward"
   | "shortcuts"
   | "seenAll"
+  | "park"
   | `project${ProjectSlot}`;
 
 export type Shortcut = {
@@ -54,6 +55,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   define("forward", copy.shell.shortcuts.forward, "BracketRight", "]"),
   define("shortcuts", copy.shell.shortcuts.shortcuts, "Slash", "/", true),
   define("seenAll", copy.shell.shortcuts.seenAll, "KeyU", "U", true),
+  define("park", copy.shell.shortcuts.park, "KeyG", "G", true),
 ];
 
 export function shortcut(id: ShortcutId): Shortcut {
@@ -104,6 +106,12 @@ export function focusComposer(delay = 30): void {
 
 /** "Alles gezien" (⌘⇧U): the app shell fires it, the page that keeps `lastSeenAt` (Vandaag) listens. */
 export const SEEN_ALL_EVENT = "bonzaiwork:seen-all";
+
+/**
+ * "Gedachte parkeren" (⌘⇧G) from anywhere: the app shell fires it, the park dialog listens. The
+ * thought goes to the inbox of the personal brain and the person stays where they were.
+ */
+export const PARK_EVENT = "bonzaiwork:park";
 
 /**
  * Text for the open composer ("Vraag hierover" on a result row, brief §6): the Composer that is

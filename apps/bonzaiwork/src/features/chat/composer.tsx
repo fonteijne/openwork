@@ -84,6 +84,12 @@ export const Composer = forwardRef<
      * (brief §7, T5). Without it ⌘⏎ sends like ⏎.
      */
     onQueue?: (input: ComposerSubmit) => void;
+    /**
+     * "Parkeren" (docs/bonzaiwork/persoonlijke-agent-plan.md T5): the words go to the inbox of the
+     * personal brain instead of a chat, and the person stays where they were. ⌥⏎. Works without a
+     * key or model: it starts nothing.
+     */
+    onPark?: (text: string) => Promise<boolean>;
   }
 >(function Composer(props, ref) {
   const status = useStatus();
@@ -100,6 +106,7 @@ export const Composer = forwardRef<
   const listId = useId();
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [sending, setSending] = useState(false);
+  const [parking, setParking] = useState(false);
   const models = projectModels(status.data, props.project);
 
   // Drafts survive switching chats and reloads (per device).
@@ -229,6 +236,16 @@ export const Composer = forwardRef<
     }
   };
 
+  const canPark = Boolean(props.onPark) && text.trim().length > 0 && command === null && !sending && !parking;
+  const park = async () => {
+    if (!canPark || !props.onPark) return;
+    setParking(true);
+    const ok = await props.onPark(text.trim()).catch(() => false);
+    setParking(false);
+    if (ok) clear();
+    textarea.current?.focus();
+  };
+
   const showStop = props.running && !text.trim() && !command && !waiting;
   const large = props.size === "large";
   const placeholder = props.placeholder ?? (waiting ? (props.decisionPending === "permission" ? copy.chat.composer.permissionPending : copy.chat.composer.decisionPending) : props.running ? copy.chat.composer.steer : copy.chat.composerPlaceholder);
@@ -323,6 +340,11 @@ export const Composer = forwardRef<
             else setSkills((current) => current.slice(0, -1));
             return;
           }
+          if (event.key === "Enter" && event.altKey && props.onPark) {
+            event.preventDefault();
+            void park();
+            return;
+          }
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             if ((event.metaKey || event.ctrlKey) && queue()) return;
@@ -398,6 +420,13 @@ export const Composer = forwardRef<
           ) : null}
           <RunModePill projectId={props.project.id} />
         </div>
+        {props.onPark && text.trim() && command === null ? (
+          <Tooltip label={copy.today.park} shortcut="⌥⏎">
+            <Button variant="quiet" size="sm" onClick={() => void park()} disabled={!canPark} data-testid="composer-park">
+              {copy.today.park}
+            </Button>
+          </Tooltip>
+        ) : null}
         {showStop ? (
           <Tooltip label={copy.chat.stop} shortcut="esc">
             <Button variant="primary" size="icon" className="rounded-full" aria-label={copy.chat.stop} onClick={props.onStop}>

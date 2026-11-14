@@ -40,6 +40,10 @@ export function AttentionSection(props: {
   brains: ReadonlyMap<string, Brain>;
   routines: ReadonlyMap<string, Routine>;
   nextRoutine: Routine | null;
+  /** False when another element on the page is the focal one ("Start hier"): then no card gets the filled primary by weight (P7). */
+  focal?: boolean;
+  /** How many cards before "Nog n"; fewer when the page has more to show beside them. */
+  maxCards?: number;
 }) {
   const refs = useRef(new Map<string, HTMLElement>());
   const [hidden, setHidden] = useState<Map<string, number>>(() => new Map());
@@ -96,7 +100,7 @@ export function AttentionSection(props: {
         project={projectId ? (props.projects.get(projectId) ?? null) : null}
         brain={projectId ? (props.brains.get(projectId) ?? null) : null}
         routine={item.kind === "routine" ? (props.routines.get(item.routineId) ?? null) : null}
-        isFocal={index === 0}
+        isFocal={index === 0 && props.focal !== false}
         onResolved={() => resolve(key)}
         cardRef={(element) => {
           if (element) refs.current.set(key, element);
@@ -115,8 +119,9 @@ export function AttentionSection(props: {
     );
   }
 
-  const shown = visible.slice(0, MAX_CARDS);
-  const more = visible.slice(MAX_CARDS);
+  const maxCards = props.maxCards ?? MAX_CARDS;
+  const shown = visible.slice(0, maxCards);
+  const more = visible.slice(maxCards);
 
   return (
     <section aria-labelledby="home-for-you" data-testid="home-for-you">
@@ -126,7 +131,7 @@ export function AttentionSection(props: {
           {shown.map(card)}
           {more.length ? (
             <Disclosure label={copy.home.more(more.length)} panelClassName="flex flex-col gap-3 ps-0 pt-2">
-              {more.map((item) => card(item, MAX_CARDS))}
+              {more.map((item) => card(item, maxCards))}
             </Disclosure>
           ) : null}
         </div>

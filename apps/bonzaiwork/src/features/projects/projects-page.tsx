@@ -32,7 +32,7 @@ const SEARCHABLE_FROM = 8;
 
 /** The first thing in a project that needs the person; the list is already sorted by urgency. */
 function needOf(projectId: string, items: readonly AttentionItem[]): AttentionItem | null {
-  return items.find((item) => item.kind !== "proposal" && item.projectId === projectId) ?? null;
+  return items.find((item) => item.kind !== "proposal" && item.kind !== "world" && item.projectId === projectId) ?? null;
 }
 
 /** The chats of a project that wait for a decision, for the row's destination. */

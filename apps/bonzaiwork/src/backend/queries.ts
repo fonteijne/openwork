@@ -44,6 +44,9 @@ export const keys = {
   summaries: ["summary"] as const,
   /** "Voor jou": everything that waits on the person, across projects (ui-ux-overhaul §5). */
   attention: ["attention"] as const,
+  /** The personal agent's view of the day: Start hier, Komt eraan, the world's cards. */
+  today: ["today"] as const,
+  todaySettings: ["today", "settings"] as const,
   /** Recent chats across projects; the limit is appended, so this prefix refreshes every size. */
   recent: ["recent-chats"] as const,
 };
@@ -249,4 +252,32 @@ export const ATTENTION_KEYS: readonly (readonly unknown[])[] = [keys.attention, 
 export function useRefreshAttention() {
   const refresh = useRefresh();
   return () => refresh(...ATTENTION_KEYS);
+}
+
+/**
+ * What the personal agent has for Vandaag: one 15 s poll (the to-dos are files, read on the
+ * server each time). Off where the server has no such routes.
+ */
+export function useToday() {
+  const backend = useBackend();
+  return useQuery({
+    queryKey: keys.today,
+    queryFn: () => backend.today.view(),
+    enabled: backend.capabilities.today,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    staleTime: 5_000,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useTodaySettings() {
+  const backend = useBackend();
+  return useQuery({ queryKey: keys.todaySettings, queryFn: () => backend.today.settings(), enabled: backend.capabilities.today, staleTime: 30_000 });
+}
+
+/** After an action on Vandaag: the view, and what a new to-do or a sent reply can change elsewhere. */
+export function useRefreshToday() {
+  const refresh = useRefresh();
+  return () => refresh(keys.today, keys.brains);
 }

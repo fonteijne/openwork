@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
-import { keys, useAttention, usePersonalBrain, useProjects } from "~/backend/queries";
+import { keys, useAttention, usePersonalBrain, useProjects, useToday } from "~/backend/queries";
 import type { Project, ProjectSummary } from "~/backend/types";
 import type { ChipStatus } from "~/components/ui/chip";
 
@@ -74,8 +74,11 @@ export function useSidebarProjects() {
  */
 export function useAttentionCounts(): { today: number; routines: number } {
   const attention = useAttention();
+  const today = useToday();
   return useMemo(() => {
     const items = attention.data ?? [];
-    return { today: items.length, routines: items.filter((item) => item.kind === "routine").length };
-  }, [attention.data]);
+    // The world's cards (a mail with a draft, a promise, an appointment that starts soon) wait on the person too.
+    const world = today.data?.enabled ? today.data.items.length : 0;
+    return { today: items.length + world, routines: items.filter((item) => item.kind === "routine").length };
+  }, [attention.data, today.data]);
 }

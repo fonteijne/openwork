@@ -68,7 +68,7 @@ function ProjectAttention(props: { project: Project }) {
   const items = useMemo(
     () =>
       (attention.data ?? []).filter((item) => {
-        if (item.kind === "proposal" || item.projectId !== props.project.id || hidden.has(attentionKey(item))) return false;
+        if (item.kind === "proposal" || item.kind === "world" || item.projectId !== props.project.id || hidden.has(attentionKey(item))) return false;
         // A remembered "Nu niet" keeps the trust card away (brief §8).
         return !(item.kind === "brain" && item.state === "needs_trust" && brain && trustDismissed(props.project.id, brain.status));
       }),

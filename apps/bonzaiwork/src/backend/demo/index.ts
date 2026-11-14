@@ -25,6 +25,7 @@ import { missedOccurrence, nextOccurrence } from "~/lib/schedule";
 import { readLocalJson, writeLocalJson, writeLocal } from "~/lib/storage";
 
 import { createDemoAgenda } from "./agenda";
+import { createDemoToday } from "./today";
 import { createDemoBrains } from "./brains";
 import { planReply, titleFrom, type Step } from "./replies";
 import { createSeed, type DemoState } from "./seed";
@@ -52,6 +53,7 @@ const CAPABILITIES: Capabilities = {
   globalConfig: true,
   brains: true,
   agenda: true,
+  today: true,
 };
 
 const MIN = 60_000;
@@ -143,6 +145,10 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
   const alwaysAllowed = new Map<string, Set<string>>();
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   const agenda = createDemoAgenda({ storageKey, withProjects: !options.empty, projects: () => state.projects.map((project) => ({ id: project.id, name: project.name })) });
+  const today = createDemoToday({
+    storageKey, search: typeof window === "undefined" ? "" : window.location.search,
+    projects: () => state.projects.filter((project) => project.archivedAt === null).map((project) => ({ id: project.id, name: project.name })),
+  });
 
   // -------------------------------------------------------------------------
   // Persistence and events
@@ -613,6 +619,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       writeLocal(storageKey, null);
       state = createSeed(Date.now(), options);
       agenda.reset();
+      today.reset();
       flush();
     },
 
@@ -1312,6 +1319,7 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
     },
 
     agenda,
+    today,
 
     feedback: {
       // No window to capture and no logs in the browser: the dialog only opens GitHub.

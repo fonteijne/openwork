@@ -94,7 +94,7 @@ function KeyRow(props: { project: Project }) {
  * message and opens the chat with the message already on its way (P11: the person's words stay in
  * the composer until the chat exists).
  */
-export function HomeComposer(props: { projects: readonly Project[]; size: "default" | "large"; autoFocus: boolean; className?: string }) {
+export function HomeComposer(props: { projects: readonly Project[]; size: "default" | "large"; autoFocus: boolean; className?: string; onPark?: (text: string) => Promise<boolean> }) {
   const backend = useBackend();
   const status = useStatus();
   const lastProjectId = useUi((state) => state.lastProjectId);
@@ -161,6 +161,7 @@ export function HomeComposer(props: { projects: readonly Project[]; size: "defau
         size={props.size}
         placeholder={copy.home.composerPlaceholder}
         keepUntilSent
+        onPark={props.onPark}
         leading={<ProjectPill projects={props.projects} selected={project} onSelect={select} />}
       />
     </div>
