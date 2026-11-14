@@ -44,6 +44,9 @@ final class MacInput {
     /// Set for one action in an app that takes only hardware input: events go
     /// through the system input stream and move the real pointer, as a person's do.
     private var realInput = false
+    /// What each way of opening a panel's Go To field found, for a file panel step's receipt:
+    /// the way, and the role, identifier and process of the field that had the keyboard after it.
+    private(set) var goToTrace: [[String: Any]] = []
     /// Where the person's pointer was before the agent moved it.
     private var personPointer: CGPoint?
     /// The current step runs in the background, so keys to Chromium-class apps are signed.
@@ -296,11 +299,20 @@ final class MacInput {
                 report(.dispatched)
                 path = "open_pressed"
             case .menu(let names):
+                // An app in the background keeps its menus from when it was last active: make the
+                // selected window its key window first, without bringing it forward.
+                if !app.app.isActive, !access.isFocusedWindow(target, app: app) { await MenuFocus.prime(app: app, window: target.id) }
                 // Menu commands go to the app's focused window: never to another document.
                 guard access.isFocusedWindow(target, app: app) else {
                     throw UseError("menu_needs_focus", "This app's menus act on another of its windows. Bring the selected window forward, then try again.", next: "observe")
                 }
-                let menu = try access.menuTarget(names, app: app)
+                let menu: MenuTarget
+                do { menu = try access.menuTarget(names, app: app) }
+                catch let error as UseError where MenuFocus.stale(error.code) && !app.app.isActive {
+                    // Disabled or missing only because the app has not refreshed its menus since it was active.
+                    await MenuFocus.prime(app: app, window: target.id)
+                    menu = try access.menuTarget(names, app: app)
+                }
                 try check()
                 let result = AXUIElementPerformAction(menu.item, kAXPressAction as CFString)
                 let aim = menu.titleFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
@@ -424,10 +436,12 @@ final class MacInput {
                     try access.checkKeyWindow(target: target, app: app, requireFront: true)
                 }, send: { character in
                     // These apps read key codes, not only text: each character goes out as its
-                    // own key on this layout (with Shift where it needs it), else as text.
+                    // own key on this layout (with Shift where it needs it), as a physical keyboard
+                    // sends it, with no text attached, which an app such as Blender reads as text
+                    // entry rather than a key (a number typed during a transform). Else as text.
                     if let key = self.realKey(for: character) {
                         try self.modifiers(key.flags, pid: app.pid, check: check)
-                        try self.keyboard(key.code, flags: key.flags, text: character, pid: app.pid, check: check)
+                        try self.keyboard(key.code, flags: key.flags, text: nil, typed: true, pid: app.pid, check: check)
                         self.releaseModifiers()
                     } else {
                         try self.keyboard(0, flags: [], text: character, pid: app.pid, check: check)
@@ -675,10 +689,27 @@ final class MacInput {
                       check: () throws -> Void) async throws -> PanelGoTo.Failure? {
         let name = field.flatMap { access.attribute($0, kAXValueAttribute) as? String }
         var typedSlash = false
+        goToTrace = []
+        func describe(_ element: AXUIElement?) -> String {
+            guard let element else { return "none" }
+            var owner: pid_t = 0
+            AXUIElementGetPid(element, &owner)
+            let role = access.attribute(element, kAXRoleAttribute) as? String ?? "?"
+            let identifier = access.attribute(element, kAXIdentifierAttribute) as? String ?? ""
+            let process = owner == app.pid ? "app" : NSRunningApplication(processIdentifier: owner)?.bundleIdentifier ?? "another process"
+            return "\(role) \(identifier) (\(process))"
+        }
+        // A sandboxed app's panel is drawn by macOS's panel process, which may report its Go To field itself.
+        let service = AppIdentity.filePanelService(for: app.pid)
+        func focusedField() -> AXUIElement? {
+            guard let live = access.focusedTextField(app.pid) ?? service.flatMap(access.focusedTextField) else { return nil }
+            // Never the panel's name or search field, whichever process reports it.
+            return access.isGoToCandidate(live) ? live : nil
+        }
         return try await PanelGoTo.enter(path, open: { () async throws -> AXUIElement? in
-            let earlier = access.focusedTextField(app.pid)
+            let earlier = focusedField()
             @MainActor func opened() async throws -> AXUIElement? {
-                try await until(2, check: check, { access.focusedTextField(app.pid).flatMap { live in
+                try await until(2, check: check, { focusedField().flatMap { live in
                     field.map { CFEqual(live, $0) } == true || earlier.map { CFEqual(live, $0) } == true ? nil : live } })
             }
             let goTo: CGEventFlags = [.maskCommand, .maskShift]
@@ -695,12 +726,20 @@ final class MacInput {
                           access.focusedTextField(app.pid).map({ CFEqual($0, field) }) == true else { return nil }
                     try keyboard(0, flags: [], text: "/", pid: app.pid, check: check)
                     typedSlash = true
-                    return try await opened()
+                    let found = try await opened()
+                    goToTrace.append(["way": "slash_in_name", "opened": found != nil,
+                                      "keyboard": describe(access.focusedTextField(app.pid) ?? service.flatMap(access.focusedTextField)),
+                                      "front": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none"])
+                    return found
                 }
                 try modifiers(goTo, pid: app.pid, check: check)
                 try keyboard(try keyCode("g", flags: goTo), flags: goTo, text: nil, pid: app.pid, check: check)
                 releaseModifiers()
-                return try await opened()
+                let found = try await opened()
+                goToTrace.append(["way": way == .shortcut ? "shortcut" : "expanded", "opened": found != nil,
+                                  "keyboard": describe(access.focusedTextField(app.pid) ?? service.flatMap(access.focusedTextField)),
+                                  "front": NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none"])
+                return found
             }
             // The "/" stayed in the name field: put the name back as it was.
             if found == nil, typedSlash, let field, let name { _ = AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, name as CFString) }
@@ -709,7 +748,7 @@ final class MacInput {
         value: { access.attribute($0, kAXValueAttribute) as? String },
         submit: { goToField in
             try keyboard(NativeKey.navigation["enter"]!, flags: [], text: nil, pid: app.pid, check: check)
-            _ = try await until(2, check: check, { access.focusedTextField(app.pid).map { CFEqual($0, goToField) } == true ? nil : true })
+            _ = try await until(2, check: check, { focusedField().map { CFEqual($0, goToField) } == true ? nil : true })
         })
     }
     /// `target: "focused"` (`FocusedTarget`): raw keys to the app's key window, checked before each one.
@@ -802,16 +841,31 @@ final class MacInput {
         guard realInput else { return }
         try RealInputGate.shared.check()
         let windows = ((CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? [])
-            .compactMap { value -> (id: CGWindowID, pid: pid_t, bounds: CGRect)? in
+            .compactMap { value -> (id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int)? in
                 guard let number = value[kCGWindowNumber as String] as? NSNumber,
                       let owner = value[kCGWindowOwnerPID as String] as? NSNumber,
                       (value[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1 > 0,
                       let bounds = value[kCGWindowBounds as String] as? [String: Any],
                       let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
-                return (number.uint32Value, owner.int32Value, rect)
+                return (number.uint32Value, owner.int32Value, rect, (value[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0)
             }
-        guard RealInput.reachesTarget(pid, window: window, front: NSWorkspace.shared.frontmostApplication?.processIdentifier, at: point,
-            windows: windows, passThrough: AgentCursor.shared.passThroughWindows) else { throw RealInput.targetChanged }
+        // What macOS finds at the point, through the Dock's and menu bar's empty space.
+        var hit: pid_t?
+        if let point {
+            var element: AXUIElement?
+            let systemWide = AXUIElementCreateSystemWide()
+            AXUIElementSetMessagingTimeout(systemWide, 0.2)
+            if AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y), &element) == .success, let element {
+                var owner: pid_t = 0
+                // The agent's own cursor overlay lets the pointer through: it never decides.
+                if AXUIElementGetPid(element, &owner) == .success, owner != ProcessInfo.processInfo.processIdentifier { hit = owner }
+            }
+        }
+        let front = NSWorkspace.shared.frontmostApplication
+        guard RealInput.reachesTarget(pid, window: window, front: front?.processIdentifier, at: point,
+            windows: windows, passThrough: AgentCursor.shared.passThroughWindows, hit: hit) else {
+            throw RealInput.stopped(RealInput.blockedReason(front: front?.processIdentifier, frontName: front?.localizedName, pid: pid, point: point, hit: hit))
+        }
     }
     /// Puts the keyboard on an observed control, as `focus` and `enter_value` do: accessibility
     /// focus first, then (only when `click` is allowed) a click on its middle, as a person would.
@@ -892,7 +946,9 @@ final class MacInput {
         }
         throw UseError("unsupported_keyboard_layout", "The named shortcut is unavailable in this keyboard layout.", next: "observe")
     }
-    private func keyboard(_ code: CGKeyCode, flags: CGEventFlags, text: String?, pid: pid_t, check: () throws -> Void) throws {
+    /// `typed`: a character sent as its bare key, counted and reported as typing.
+    private func keyboard(_ code: CGKeyCode, flags: CGEventFlags, text: String?, typed: Bool = false, pid: pid_t, check: () throws -> Void) throws {
+        let typing = text != nil || typed
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false) else {
             throw UseError("input_failed", "Could not create a keyboard event.")
@@ -911,11 +967,11 @@ final class MacInput {
             self.post(down, pid)
             self.feedback?.didDispatch = true
             // Counted as it goes out: its key-up always follows, even if a check then stops the step.
-            if text != nil { self.typedCharacters += 1 }
-            if text == nil { self.report(.down) }
+            if typing { self.typedCharacters += 1 }
+            if !typing { self.report(.down) }
         }, up: {
             self.post(up, pid)
-            self.report(text == nil ? .up : .dispatched)
+            self.report(typing ? .dispatched : .up)
         })
     }
 }

@@ -26,8 +26,13 @@ import {
   ConnectorSourceBindingTable,
   ConnectorSourceTombstoneTable,
   ConnectorSyncEventTable,
+  ConnectorTargetReconcileTable,
   ConnectorTargetTable,
   CloudRuntimeInstanceTable,
+  ConfigApplyRunTable,
+  ConfigBlobAliasTable,
+  ConfigBlobExportTable,
+  ConfigChangeRequestTable,
   DaytonaSandboxTable,
   DesktopConnectGrantTable,
   DesktopPolicyMemberTable,
@@ -42,6 +47,7 @@ import {
   InferenceOrgLimitPolicyTable,
   InferenceOrgUpstreamProviderKeyTable,
   InferenceOrgUsageBucketTable,
+  GatewayApiKeyTable,
   GatewayKeyTable,
   GatewayCredentialSetTable,
   GatewayLiteLlmIssuedKeyTable,
@@ -109,6 +115,7 @@ import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { deleteOrganizationAgentPermissions } from "../../agent-permissions.js"
 import { deleteOrganizationDefaultModels } from "../../default-model.js"
+import { deleteOrganizationWorkbotTeamSettings } from "../../workbot/team-settings.js"
 import { deleteOrganizationFeatureIntroStates } from "../../feature-intros.js"
 import { deleteOrganizationPrompts } from "../../prompts.js"
 import { deleteOrganizationAutoRouters } from "../../auto-router.js"
@@ -578,6 +585,7 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(GatewayUsageRollupTable).where(eq(GatewayUsageRollupTable.organization_id, organizationId))
         await tx.delete(GatewayProviderTable).where(eq(GatewayProviderTable.organization_id, organizationId))
         await tx.delete(GatewayKeyTable).where(eq(GatewayKeyTable.organization_id, organizationId))
+        await tx.delete(GatewayApiKeyTable).where(eq(GatewayApiKeyTable.organization_id, organizationId))
 
         const llmProviderIds = (await tx
           .select({ id: LlmProviderTable.id })
@@ -657,6 +665,7 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(DesktopPolicyMemberTable).where(eq(DesktopPolicyMemberTable.organizationId, organizationId))
         await deleteOrganizationAgentPermissions(tx, organizationId)
         await deleteOrganizationDefaultModels(tx, organizationId)
+        await deleteOrganizationWorkbotTeamSettings(tx, organizationId)
         await deleteOrganizationPrompts(tx, organizationId)
         await deleteOrganizationAutoRouters(tx, organizationId)
         await tx.delete(DesktopPolicyTable).where(eq(DesktopPolicyTable.organizationId, organizationId))
@@ -684,6 +693,7 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(MarketplacePluginTable).where(eq(MarketplacePluginTable.organizationId, organizationId))
         await tx.delete(ConnectorSyncEventTable).where(eq(ConnectorSyncEventTable.organizationId, organizationId))
         await tx.delete(ConnectorMappingTable).where(eq(ConnectorMappingTable.organizationId, organizationId))
+        await tx.delete(ConnectorTargetReconcileTable).where(eq(ConnectorTargetReconcileTable.organizationId, organizationId))
         await tx.delete(ConnectorTargetTable).where(eq(ConnectorTargetTable.organizationId, organizationId))
         await tx.delete(ConnectorInstanceAccessGrantTable).where(eq(ConnectorInstanceAccessGrantTable.organizationId, organizationId))
         await tx.delete(ConnectorInstanceTable).where(eq(ConnectorInstanceTable.organizationId, organizationId))
@@ -691,6 +701,11 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(MarketplaceTable).where(eq(MarketplaceTable.organizationId, organizationId))
         await tx.delete(PluginTable).where(eq(PluginTable.organizationId, organizationId))
         await tx.delete(ConfigObjectTable).where(eq(ConfigObjectTable.organizationId, organizationId))
+
+        await tx.delete(ConfigApplyRunTable).where(eq(ConfigApplyRunTable.organizationId, organizationId))
+        await tx.delete(ConfigChangeRequestTable).where(eq(ConfigChangeRequestTable.organizationId, organizationId))
+        await tx.delete(ConfigBlobAliasTable).where(eq(ConfigBlobAliasTable.organizationId, organizationId))
+        await tx.delete(ConfigBlobExportTable).where(eq(ConfigBlobExportTable.organizationId, organizationId))
 
         await tx.delete(InvitationTable).where(eq(InvitationTable.organizationId, organizationId))
         await tx.delete(MemberTable).where(eq(MemberTable.organizationId, organizationId))

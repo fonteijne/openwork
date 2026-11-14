@@ -14,7 +14,9 @@ import { useCheckDesktopRestriction } from "../../cloud/desktop-config-provider"
 import { useDenAuth } from "../../cloud/den-auth-provider";
 import { filterEntitledModelOptions } from "../../connections/provider-auth/provider-policy";
 import { filterCloudManagedModelOptions } from "../../connections/provider-auth/assigned-model-options";
+import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import { useSessionManagementStore } from "../sidebar/session-management-store";
+import { isActiveWorkSessionStatus, isNeedsAttentionSessionStatus } from "../sidebar/utils";
 import { useSessionModelStore } from "../surface/session-model-store";
 import type { ArchiveSessionOptions, ArchiveSessionOutcome } from "../sidebar/use-session-archive";
 import { useSessionActivityStore } from "../status/session-activity-store";
@@ -36,6 +38,8 @@ type UseSessionControlActionsInput = {
   openworkClient: OpenworkServerClient | null;
   opencodeClient: ReturnType<typeof createClient> | null;
   archiveDisabledReason?: string;
+  /** The sidebar's session status, including background work and pending requests. */
+  sessionStatusById?: Readonly<Record<string, string>>;
   endpointForWorkspace: (workspace: SessionControlWorkspace | null | undefined) => ResolvedWorkspaceEndpoint | null;
   navigateToSession: (sessionId: string) => void;
   navigateToSessionRoot: () => void;
@@ -83,6 +87,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
     openworkClient,
     opencodeClient,
     archiveDisabledReason,
+    sessionStatusById,
     refreshRouteState,
     reloadWorkspaceSessions,
     selectedSessionId,
@@ -187,7 +192,7 @@ export function useSessionControlActions(input: UseSessionControlActionsInput) {
         },
       });
     },
-  }), [endpointForWorkspace, pinnedIds, sessionsByWorkspaceId, workspaceModels, workspaces]);
+  }), [endpointForWorkspace, pinnedIds, sessionStatusById, sessionsByWorkspaceId, workspaceModels, workspaces]);
   useControlAction(listSessionsControlAction);
 
   const openSessionControlAction = useMemo<OpenworkControlAction>(() => ({

@@ -56,6 +56,7 @@ Alles hieronder is dus niet getest.
 | W21 | `gh` starten | Een eigen, kleine omgeving (geen `GIT_*`); of `gh` zo zijn login vindt (Windows Credential Manager) is niet bekend | `src/proposals.ts` `ghEnvironment` | Idem |
 | W22 | Routines en tijdzones | Tijdzone van het apparaat via `Intl`; Windows-zonenamen worden IANA | `apps/bonzaiwork/src/lib/schedule.ts` | Routine op het verkeerde uur |
 | W23 | Paden in de UI | De kennisnotitie en `fileName()` gaan uit van `/`; een pad met `\` vindt het concept niet | `apps/bonzaiwork/src/features/brain/concept-facts.tsx` | "Klopt" en de vertrouwensregel ontbreken bij een notitie |
+| W24 | Claude Code nooit starten | `OPENCODE_CLAUDE_PATH` is `/nonexistent/bonzaiwork/claude-code-disabled`; op Windows wordt dat `<schijf>:\nonexistent\…`. Een gebruiker kan die map zonder beheerdersrechten in de schijfroot aanmaken (alleen met eigen rechten, dus geen escalatie) | `packages/bonzaiwork-policy/src/index.ts` `NO_CLAUDE_CODE_PATH` | De engine start een `claude` die daar staat; `claude-agent` blijft door de engine-policy wel onbruikbaar (README, "Claude Code") |
 
 ## 3. Handmatige test
 

@@ -23,11 +23,22 @@ export const LOCAL_ROUTE_PREFIX = "/bonzaiwork/litellm";
 export const OFFLINE_MODELS_URL = "http://127.0.0.1:9/";
 
 /**
+ * Where engine v2 looks for Claude Code (upstream #7171, provider
+ * `claude-agent`): an absolute path that does not exist. Without it the
+ * engine falls back to `claude` on PATH and starts it to check the person's
+ * Anthropic login whenever it loads a folder, outside LiteLLM. The engine
+ * policy (`provider.use`) keeps `claude-agent` unusable either way; this keeps
+ * Claude Code from being started at all. Empty would mean "search PATH".
+ */
+export const NO_CLAUDE_CODE_PATH = "/nonexistent/bonzaiwork/claude-code-disabled";
+
+/**
  * Server environment that turns off OpenWork's hosted and free models (see
  * apps/server/src/free-auto/settings.ts) and the engines' model-catalog
  * download, which upstream points at models.openworklabs.com
  * (apps/server/src/opencode-models-url.ts). The v1 engine inherits the whole
- * environment; the v2 engine reads only OPENCODE_MODELS_URL from it.
+ * environment; the v2 engine reads only OPENCODE_MODELS_URL and
+ * OPENCODE_CLAUDE_PATH from it (apps/server/src/managed-opencode-v2.ts).
  */
 export const SERVER_ENVIRONMENT_DEFAULTS: Readonly<Record<string, string>> = {
   OPENWORK_DISABLE_FREE_INFERENCE: "1",
@@ -35,6 +46,7 @@ export const SERVER_ENVIRONMENT_DEFAULTS: Readonly<Record<string, string>> = {
   VITE_DISABLE_OPENWORK_MODELS: "1",
   OPENCODE_DISABLE_MODELS_FETCH: "1",
   OPENCODE_MODELS_URL: OFFLINE_MODELS_URL,
+  OPENCODE_CLAUDE_PATH: NO_CLAUDE_CODE_PATH,
 };
 
 /** Drops trailing slashes without a regex, which backtracks quadratically on long runs of "/" (CodeQL js/polynomial-redos). */

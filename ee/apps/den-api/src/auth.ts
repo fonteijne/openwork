@@ -44,6 +44,7 @@ import {
   DEN_SESSION_EXPIRES_IN_SECONDS,
   DEN_SESSION_UPDATE_AGE_IN_SECONDS,
 } from "./session-lifetime.js";
+import { userSessionExpiresAt } from "./session-security-lifetime.js";
 import { DEN_ACCOUNT_CONFIG, DEN_USER_CONFIG } from "./account-linking-policy.js";
 import { cache } from "./cache.js";
 import { lastSignInCookieChange, lastSignInCookieWrites } from "./last-sign-in-method.js";
@@ -53,6 +54,7 @@ import { auditUserUpdateAfter, auditUserUpdateBefore, recordAccountDeleted, reco
 import { auditSessionMethod, auditSessionRevokeReason, recordSessionCreated, recordSessionRevoked } from "./audit/domain/sessions.js";
 import { SCIM_TOKEN_STORAGE_STRATEGY } from "./scim-token-storage.js";
 import { createScimExistingUserLinkCheck } from "./scim-existing-user-linking.js";
+import { isUserKnownToScimOrganization, releaseStaleScimAccountForCreate } from "./scim-reprovisioning.js";
 import { fetchCimdMetadataResource, isCimdClientIdUrlAllowed } from "./mcp/cimd-policy.js";
 import { withLoopbackRedirectRelaxation } from "./mcp/cimd-loopback-redirects.js";
 import { syncDenSignupContact } from "./loops.js";
@@ -443,6 +445,22 @@ export function getRawBetterAuthMutationDenial(path: string) {
 
 async function denyBetterAuthTeamMutation() {
   throw new APIError("FORBIDDEN", { message: "Use the Den teams API to manage teams and their membership." });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The earlier of `expiresAt` and the end of the person's session limits (sessionSecuritySettings). */
+async function clampSessionExpiresAt(userId: string, expiresAt: Date, createdAt: Date) {
+  try {
+    const latest = await userSessionExpiresAt(userId, new Date(), createdAt);
+    return latest < expiresAt ? latest : expiresAt;
+  } catch (error) {
+    // Never block a sign-in on this read; the next extension applies the length.
+    logger.error("session length could not be read", { user_id: userId, error });
+    return expiresAt;
+  }
 }
 
 function readStringProperty(value: unknown, propertyName: string) {
@@ -1041,6 +1059,8 @@ export const auth = betterAuth({
             data: {
               ...session,
               activeOrganizationId,
+              // sessionSecuritySettings: the strictest session limits of the person's organizations.
+              expiresAt: await clampSessionExpiresAt(userId, session.expiresAt, session.createdAt instanceof Date ? session.createdAt : new Date()),
             },
           };
         },
@@ -1074,6 +1094,13 @@ export const auth = betterAuth({
         },
       },
       update: {
+        // Better Auth extends a session by 7 days on /get-session; keep it to
+        // the person's session limits (sessionSecuritySettings).
+        before: async (session, context) => {
+          const current = context?.context.session?.session;
+          if (!(session.expiresAt instanceof Date) || !current || typeof current.userId !== "string") return;
+          return { data: { ...session, expiresAt: await clampSessionExpiresAt(current.userId, session.expiresAt, new Date(current.createdAt)) } };
+        },
         after: async (session) => {
           if (typeof session.token === "string") {
             // Better Auth session updates are the explicit invalidation point for cached sessions.
@@ -1123,6 +1150,11 @@ export const auth = betterAuth({
         const organizationId = await scimRequestOrganizationId(ctx.headers?.get("authorization"));
         if (organizationId && !await organizationAllowsProvisioning(organizationId, "scim")) {
           throw new APIError("FORBIDDEN", { message: SCIM_ENTERPRISE_REQUIRED_MESSAGE });
+        }
+        // Someone an admin removed in Den but still assigned in the IdP: their
+        // leftover SCIM account would make this create a 409 duplicate.
+        if (organizationId) {
+          await releaseStaleScimAccountForCreate({ organizationId, body: ctx.body });
         }
       }
 
@@ -1309,6 +1341,12 @@ export const auth = betterAuth({
           });
           if (!authorization.ok) {
             throw new APIError("FORBIDDEN", { message: authorization.message });
+          }
+          // An organization or domain can match several connections
+          // (multipleSsoConnections). Better Auth would take any one of them,
+          // so name the provider Den chose: the ready one.
+          if (authorization.providerId && !readStringProperty(ctx.body, "providerId") && isRecord(ctx.body)) {
+            return { context: { body: { ...ctx.body, providerId: authorization.providerId } } };
           }
         }
       }
@@ -1928,12 +1966,9 @@ export const auth = betterAuth({
     },
     scim({
       linkExistingUsers: {
-        requireExistingOrgMembership: true,
-        shouldLinkUser: createScimExistingUserLinkCheck((where) => db
-          .select({ id: schema.MemberTable.id })
-          .from(schema.MemberTable)
-          .where(where)
-          .limit(1)),
+        // Not requireExistingOrgMembership: someone an admin removed in Den
+        // may have no member row left, and the IdP must still reprovision them.
+        shouldLinkUser: createScimExistingUserLinkCheck(isUserKnownToScimOrganization),
       },
       // Group names are metadata, never organization role assignments.
       mapGroupToRoles: () => [],

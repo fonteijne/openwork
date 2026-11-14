@@ -111,6 +111,7 @@ export const idTypesMapNameToPrefix = {
   inferenceRequestLog: "irl",
   inferenceUsageRollup: "iur",
   gatewayKey: "gky",
+  gatewayApiKey: "gak",
   gatewayModelGroup: "gmg",
   gatewayModelGroupModel: "gmm",
   gatewayCredentialSet: "gcs",
@@ -142,6 +143,12 @@ export const idTypesMapNameToPrefix = {
   mcpRegistrationStatus: "mrs",
   mcpRegistrationEvent: "mre",
   featureIntroState: "fis",
+  configChangeRequest: "ccr",
+  configBlobAlias: "cba",
+  configBlobExport: "cbe",
+  configApplyRun: "car",
+  denInstance: "dni",
+  workbotTeamSetting: "wts",
 } as const
 
 export const denTypeIdPrefixes = idTypesMapNameToPrefix

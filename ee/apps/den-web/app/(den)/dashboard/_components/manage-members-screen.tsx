@@ -25,6 +25,7 @@ import {
   getTeamRoute,
   splitRoleString,
   type DenOrgMember,
+  orgFeatureEnabled,
   permissionLockReason,
 } from "../../_lib/den-org";
 import { type OrgLimitError, type OrgPaymentRequiredError, getOrgLimitError, getOrgPaymentRequiredError } from "../../_lib/den-flow";
@@ -42,6 +43,7 @@ import { DenInput } from "../../_components/ui/input";
 import { DenNotice } from "../../_components/ui/notice";
 import { DenSelect } from "../../_components/ui/select";
 import { DenSkeleton } from "../../_components/ui/skeleton";
+import { DenSwitch } from "../../_components/ui/switch";
 import { installPageUrl } from "../../_lib/install-download";
 import { OrgMemberIdentity } from "./org-member-identity";
 import { MemberEffectivePermissions, canViewMemberPermissions } from "./member-effective-permissions";
@@ -53,6 +55,7 @@ import { formatAddedDate } from "./item-dates";
 import { TeamsListHeader, TeamsListLane, TeamsListLocked, TeamsListOpenLink, TeamsListRow, teamsListColumns } from "./teams-list-row";
 import { teamOverrideSummary, useAgentPermissions } from "./agent-permissions-data";
 import { useCustomRoleTeams, usePermissionSets, useRoleGrantLocks } from "./permissions-data";
+import { BUILT_IN_ROLES, customRoleSetId, roleList, roleSetTeams } from "../../_lib/role-catalog";
 import { SUPER_ADMIN_ROLE_LOCK_REASON, TEAM_ROLE_LABELS, memberRoleOptions, parseRoleChoice, teamRole, teamRoleLabels } from "./team-roles";
 import { MemberRoleEditor, MemberRoleSelect } from "./member-role-select";
 
@@ -116,6 +119,7 @@ export function ManageMembersScreen() {
     getInvitationLink,
     updateMemberRole,
     removeMember,
+    setMemberOpenWorkWeb,
     transferOwnership,
     createTeam,
     updateTeam,
@@ -125,6 +129,10 @@ export function ManageMembersScreen() {
   const [memberFilter, setMemberFilter] = useState("");
   const [teamFilter, setTeamFilter] = useState("");
 
+  // Admins choose who gets OpenWork Web (and is billed for it) where the organization has Web.
+  const webPerMember = orgFeatureEnabled(orgContext, "webPerMember") && (orgContext?.capabilities.openworkWeb ?? false);
+  const webMemberCount = (orgContext?.members ?? []).filter((member) => member.openworkWeb).length;
+  const memberGridColumns = webPerMember ? "lg:grid-cols-[minmax(0,1fr)_180px_140px_112px_28px]" : "lg:grid-cols-[minmax(0,1fr)_180px_140px_28px]";
   const visibleMembers = (orgContext?.members ?? []).filter((member) => `${member.user.name} ${member.user.email}`.toLocaleLowerCase().includes(memberFilter.trim().toLocaleLowerCase()));
   const visibleTeams = (orgContext?.teams ?? []).filter((team) => team.name.toLocaleLowerCase().includes(teamFilter.trim().toLocaleLowerCase()));
   const [pageError, setPageError] = useState<string | null>(null);
@@ -186,7 +194,7 @@ export function ManageMembersScreen() {
   const grantLocks = useRoleGrantLocks(orgContext?.organization.id ?? null, access.canViewPermissions ? roleSets.data ?? [] : [], orgContext?.currentMember.permissions ?? [], orgContext?.currentMember.isOwner ?? false);
   const roleTeams = (setId: string) => {
     const set = customSets.find((entry) => entry.id === setId);
-    const ids = (set?.teams.length ? set.teams : set?.team ? [set.team] : []).map((team) => team.id);
+    const ids = (set ? roleSetTeams(set) : []).map((team) => team.id);
     return (orgContext?.teams ?? []).filter((team) => ids.includes(team.id));
   };
   const roleLocks = new Map(grantLocks);
@@ -194,16 +202,25 @@ export function ManageMembersScreen() {
     const teams = roleTeams(set.id);
     if (teams.length && teams.every((team) => team.managedByScim || team.grantsOrganizationAdmin && !access.canManageAdminTeams)) roleLocks.set(set.id, "This role’s teams are managed by your identity provider or need Manage Admin teams. Ask the organization owner.");
   }
-  const memberRoles = memberRoleOptions({ canManageTeams: access.canManageTeams, customRoles: customSets.map((set) => ({ ...set, teams: set.teams.length ? set.teams : set.team ? [set.team] : [] })), lockReasons: roleLocks, adminLockReason: !access.canManageRoles ? permissionLockReason("members.update") : grantLocks.get(roleSets.data?.find((set) => set.kind === "admin_default")?.id ?? ""), superAdminLockReason: !access.canManageRoles ? permissionLockReason("members.update") : access.isOwner || access.isSuperAdmin ? null : SUPER_ADMIN_ROLE_LOCK_REASON });
+  const memberRoles = memberRoleOptions({
+    // The same list the Roles tab and the team picker show.
+    roles: roleList({ sets: access.canViewPermissions ? roleSets.data ?? [] : [], readyMade: false }),
+    showUnavailable: orgFeatureEnabled(orgContext, "readyMadeRoles"),
+    canManageTeams: access.canManageTeams,
+    lockReasons: roleLocks,
+    adminLockReason: !access.canManageRoles ? permissionLockReason("members.update") : grantLocks.get(roleSets.data?.find((set) => set.kind === "admin_default")?.id ?? ""),
+    superAdminLockReason: !access.canManageRoles ? permissionLockReason("members.update") : access.isOwner || access.isSuperAdmin ? null : SUPER_ADMIN_ROLE_LOCK_REASON,
+  });
   const inviteTeamPicker = access.canManageTeams && (orgContext?.teams.length ?? 0) > 0;
   const [inviteTeamId, setInviteTeamId] = useState("");
   const [memberRoleTeamId, setMemberRoleTeamId] = useState("");
   function chosenRole(value: string, teamId: string) {
-    const set = value.startsWith("role:") ? customSets.find((entry) => entry.id === value.slice(5)) : null;
+    const setId = customRoleSetId(value);
+    const set = setId ? customSets.find((entry) => entry.id === setId) : null;
     const teams = set ? roleTeams(set.id) : [];
     const grantable = teams.filter((team) => !team.managedByScim && (!team.grantsOrganizationAdmin || access.canManageAdminTeams));
     const selected = grantable.find((team) => team.id === teamId) ?? (teams.length === 1 ? grantable[0] : undefined);
-    return { set, teams, grantable, selected, blocked: value.startsWith("role:") && (!set || !selected || Boolean(roleLocks.get(set.id)) || !access.canManageTeams) };
+    return { set, teams, grantable, selected, blocked: setId !== null && (!set || !selected || Boolean(roleLocks.get(set.id)) || !access.canManageTeams) };
   }
   const inviteChoice = chosenRole(inviteRole, inviteTeamId);
   const editChoice = chosenRole(memberRoleDraft, memberRoleTeamId);
@@ -466,7 +483,7 @@ export function ManageMembersScreen() {
           ) : (
             <div className="grid gap-3">
               <span className="text-[14px] font-medium text-gray-700">Role</span>
-              <DenInput value="Member" readOnly disabled aria-describedby="invite-role-locked" />
+              <DenInput value={BUILT_IN_ROLES.member.label} readOnly disabled aria-describedby="invite-role-locked" />
             </div>
           )}
           {customTeamChoice(inviteRole, inviteTeamId, setInviteTeamId)}
@@ -479,7 +496,7 @@ export function ManageMembersScreen() {
                 {orgContext.teams.filter((team) => !team.managedByScim && (!team.grantsOrganizationAdmin || access.canManageAdminTeams)).map((team) => (
                   <option key={team.id} value={team.id} title={team.name}>
                     {team.name}
-                    <span className="ml-1.5 font-normal text-gray-500">{team.grantsOrganizationAdmin ? "Admin" : access.canViewPermissions ? customRoles.nameByTeam.get(team.id) ?? "Member" : ""}</span>
+                    <span className="ml-1.5 font-normal text-gray-500">{team.grantsOrganizationAdmin ? BUILT_IN_ROLES.admin.label : access.canViewPermissions ? customRoles.nameByTeam.get(team.id) ?? BUILT_IN_ROLES.member.label : ""}</span>
                   </option>
                 ))}
               </DenSelect>
@@ -791,11 +808,18 @@ export function ManageMembersScreen() {
             </div>
           ) : null}
 
+          {webPerMember ? (
+            <p data-testid="members-openwork-web-summary" className="text-[13px] text-gray-500">
+              {`${webMemberCount} of ${orgContext.members.length} ${orgContext.members.length === 1 ? "person has" : "people have"} OpenWork Web. Web is billed only for them; turning it on or off changes your next invoice.`}
+            </p>
+          ) : null}
+
           <div className="overflow-visible rounded-2xl border border-gray-100 bg-white">
-            <div data-testid="members-column-header" className={`grid grid-cols-[minmax(0,1fr)_auto] gap-4 border-b border-gray-100 py-3 text-[12px] font-medium text-gray-500 px-5 lg:grid-cols-[minmax(0,1fr)_180px_140px_28px]`}>
+            <div data-testid="members-column-header" className={`grid grid-cols-[minmax(0,1fr)_auto] gap-4 border-b border-gray-100 py-3 text-[12px] font-medium text-gray-500 px-5 ${memberGridColumns}`}>
               <span>Member</span>
               <span className="hidden lg:block">Role</span>
               <span className="hidden lg:block">Joined</span>
+              {webPerMember ? <span className="hidden lg:block">OpenWork Web</span> : null}
               <span />
             </div>
 
@@ -833,7 +857,7 @@ export function ManageMembersScreen() {
                 <div key={member.id}>
                 <div
                   data-testid="member-row"
-                  className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-gray-100 transition hover:bg-gray-50/60 last:border-b-0 lg:gap-4 min-h-16 px-5 py-3 lg:grid-cols-[minmax(0,1fr)_180px_140px_28px]`}
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-gray-100 transition hover:bg-gray-50/60 last:border-b-0 lg:gap-4 min-h-16 px-5 py-3 ${memberGridColumns}`}
                 >
                   <OrgMemberIdentity member={member} compact />
                   <span title={roleLabel} className={`col-start-1 row-start-2 min-w-0 pl-11 text-[13px] text-gray-500 lg:col-auto lg:row-auto lg:pl-0 truncate`} data-testid="member-role">
@@ -846,6 +870,28 @@ export function ManageMembersScreen() {
                       ? formatAddedDate(member.joinedAt)
                       : "Pending"}
                   </span>
+                  {webPerMember ? (
+                    <span
+                      data-testid="member-openwork-web"
+                      title={access.canStartSeatCheckout ? undefined : permissionLockReason("billing.manage")}
+                      className="col-start-1 row-start-4 flex items-center gap-2 pl-11 text-[13px] text-gray-500 lg:col-auto lg:row-auto lg:pl-0"
+                    >
+                      <span className="lg:hidden">OpenWork Web</span>
+                      <DenSwitch
+                        size="sm"
+                        checked={member.openworkWeb}
+                        disabled={!access.canStartSeatCheckout || mutationBusy === "member-openwork-web"}
+                        aria-label={`OpenWork Web for ${member.user.name || member.user.email}`}
+                        testId="member-openwork-web-switch"
+                        onChange={(enabled) => {
+                          setPageError(null);
+                          void setMemberOpenWorkWeb(member.id, enabled).catch((error) => {
+                            setPageError(error instanceof Error ? error.message : "Could not update OpenWork Web.");
+                          });
+                        }}
+                      />
+                    </span>
+                  ) : null}
                   <div data-testid="member-actions" className="relative col-start-2 row-span-3 row-start-1 flex items-center justify-end gap-2 lg:col-auto lg:row-span-1 lg:row-auto">
                     {(
                       member.isOwner ? <span data-testid="member-owner-locked"><TeamsListLocked reason="The owner cannot be edited here. Only the owner can transfer ownership to an admin." /></span> : canOpenActions ? <ItemMenu label={`Open actions for ${member.user.name || member.user.email}`} entries={memberActions} /> : <TeamsListLocked reason="You cannot change this member. Ask an organization admin for access." />
@@ -1065,7 +1111,7 @@ function MembersTeamsIntroSlot({ facts, children }: { facts: Pick<MembersFacts, 
   return <>{children(useFeatureIntro("members.teams", facts))}</>;
 }
 
-/** A team's agent permissions in the Teams list: its own overrides, or that it follows Everyone. */
+/** A team's agent permissions in the Teams list: its own changes, or that it follows Everyone. */
 function TeamAgentPermissionsCell({ summary, failed }: { summary: string | null | undefined; failed: boolean }) {
   if (failed) return <TeamsListLane testId="team-row-agent-permissions" title="Couldn't load agent permissions" tone="muted">—</TeamsListLane>;
   if (summary === undefined) return <span role="status" aria-label="Loading agent permissions" data-testid="team-row-agent-permissions" className="hidden lg:block"><DenSkeleton className="h-3 w-24" /></span>;

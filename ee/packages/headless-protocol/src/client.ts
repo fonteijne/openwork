@@ -259,6 +259,8 @@ export type RunnerCapabilities = {
   documentNavigation?: boolean
   /** The computer runs through the runner's sandbox gateway (its SANDBOX_GATEWAY) instead of the runner's own provider. */
   sandboxGateway?: boolean
+  /** Trusted host rollout, not a model argument. */
+  browserRecovery?: boolean
 }
 export const RUNNER_DESKTOP_VIEWS = ["browser", "computer"] as const
 export type RunnerDesktopView = (typeof RUNNER_DESKTOP_VIEWS)[number]
@@ -268,8 +270,9 @@ export type RunnerDesktopView = (typeof RUNNER_DESKTOP_VIEWS)[number]
  * (the caller's id for the conversation) list a person's conversations; `timeZone` dates their messages; `autoTitle`
  * names it after its first answer; `memoryOf` shares memory/ with another of their conversations (legacy chats);
  * `memoryScope: "owner"` keeps memory/ with the owner, shared by all their chats (per-chat session cells).
+ * `maxSteps` is the conversation's own limit on model calls per turn: 0 for no limit, null to go back to the runner's.
  */
-export type RunnerSessionSettings = { owner?: string; ref?: string; timeZone?: string; autoTitle?: boolean; memoryOf?: string; memoryScope?: "owner" }
+export type RunnerSessionSettings = { owner?: string; ref?: string; timeZone?: string; autoTitle?: boolean; memoryOf?: string; memoryScope?: "owner"; maxSteps?: number | null }
 
 const capabilityFields = (input: RunnerCapabilities & RunnerSessionSettings) => ({
   ...(input.files !== undefined ? { files: input.files } : {}),
@@ -280,12 +283,14 @@ const capabilityFields = (input: RunnerCapabilities & RunnerSessionSettings) => 
   ...(input.tasks !== undefined ? { tasks: input.tasks } : {}),
   ...(input.documentNavigation !== undefined ? { documentNavigation: input.documentNavigation } : {}),
   ...(input.sandboxGateway !== undefined ? { sandboxGateway: input.sandboxGateway } : {}),
+  ...(input.browserRecovery !== undefined ? { browserRecovery: input.browserRecovery } : {}),
   ...(input.owner ? { owner: input.owner } : {}),
   ...(input.ref ? { ref: input.ref } : {}),
   ...(input.timeZone ? { timeZone: input.timeZone } : {}),
   ...(input.autoTitle !== undefined ? { autoTitle: input.autoTitle } : {}),
   ...(input.memoryOf ? { memoryOf: input.memoryOf } : {}),
   ...(input.memoryScope ? { memoryScope: input.memoryScope } : {}),
+  ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
 })
 
 /** A runner older than a setting refuses it as an invalid request; any other refusal is real. */
@@ -370,7 +375,19 @@ export function createHeadlessRunnerClient(deps: HeadlessRunnerDeps) {
       const extras = { ...(input.repeats ? { repeats: input.repeats } : {}), ...capabilityFields(input) }
       let { status, payload } = await request(deps, "PUT", sessionPath(id), { ...base, ...extras })
       let compatible: Record<string, unknown> = extras
-      // The newest setting first. An older runner has no sandbox gateway: the computer stays on the runner's own provider.
+      // An older runner has no per-conversation step limit: the conversation keeps the runner's own, and its other settings.
+      if (unknownSetting(status, payload) && input.maxSteps !== undefined) {
+        const { maxSteps: _steps, ...rest } = compatible
+        compatible = rest
+        ;({ status, payload } = await request(deps, "PUT", sessionPath(id), { ...base, ...compatible }))
+      }
+      // Older runners keep all other settings, without the new read-only recovery behavior.
+      if (unknownSetting(status, payload) && input.browserRecovery !== undefined) {
+        const { browserRecovery: _recovery, ...rest } = compatible
+        compatible = rest
+        ;({ status, payload } = await request(deps, "PUT", sessionPath(id), { ...base, ...compatible }))
+      }
+      // An older runner has no sandbox gateway: the computer stays on the runner's own provider.
       if (unknownSetting(status, payload) && input.sandboxGateway !== undefined) {
         const { sandboxGateway: _gateway, ...rest } = compatible
         compatible = rest
@@ -430,6 +447,14 @@ export function createHeadlessRunnerClient(deps: HeadlessRunnerDeps) {
       const { status, payload } = await request(deps, "DELETE", sessionPath(id))
       if (status !== 204) return { ok: false, status, error: errorCode(payload, `headless_delete_${status}`) }
       return { ok: true, value: { deleted: true } }
+    },
+
+    /** The scratch files the agent wrote in the session (memory/ included, wherever it is kept): paths and sizes only. */
+    async listScratchFiles(sessionId: string): Promise<RunnerResult<Array<{ path: string; size: number; updatedAt: number }>>> {
+      const { status, payload } = await request(deps, "GET", `${sessionPath(sessionId)}/files`)
+      const parsed = z.object({ files: z.array(z.object({ path: z.string(), size: z.number(), updatedAt: z.number() })) }).safeParse(payload)
+      if (status !== 200 || !parsed.success) return { ok: false, status, error: errorCode(payload, `headless_scratch_${status}`) }
+      return { ok: true, value: parsed.data.files }
     },
 
     /** Reads one scratch file the agent wrote in the session. */

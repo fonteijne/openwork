@@ -33,6 +33,7 @@ import { createNativeContextMenus } from "./context-menu.mjs";
 import { createNativeDictation, createSpeechDictation } from "./native-dictation.mjs";
 import { applyBrandAppName } from "./brand-app-name.mjs";
 import { createBrowserPanel } from "./browser-panel.mjs";
+import { deferBrowserStop } from "@openwork/computer-use/browser-navigation";
 import { createComputerControl } from "@openwork/computer-use/computer-control";
 import { createComputerAgentPermissions } from "./computer-agent-permissions.mjs";
 import { createBrowserUploadGrantStore, createBrowserUploadPermissions } from "./browser-upload-permissions.mjs";
@@ -60,7 +61,7 @@ import {
 } from "./connect-link-branding.mjs";
 import { resolveConnectLinkPublicKeys } from "./connect-link-keys.mjs";
 import { openExternalUrl } from "./open-external.mjs";
-import { chatOutputFolder, listChatOutputFiles, openChatWorkspaceFile, opensFromChatOutput, resolveChatFilePath, resolveWorkspaceFileLaunch } from "./workspace-file-access.mjs";
+import { chatOutputFolder, listChatOutputFiles, openChatWorkspaceFile, opensFromChatOutput, readChatOutputImage, resolveChatFilePath, resolveWorkspaceFileLaunch } from "./workspace-file-access.mjs";
 import { createOpenWithApplications, installedApplicationCommand } from "./open-with-applications.mjs";
 const openWithApplications = createOpenWithApplications();
 import { resolveAppIdentifier, resolveUserDataPath } from "./dev-profile.mjs";
@@ -224,6 +225,8 @@ let browserPanel = null;
 const COMPUTER_POPOUT_NAME = /^openwork-computer-view-\d+$/;
 
 // Keep each chat's chosen computer in app data outside the workspace.
+// Advanced settings switch for demos; lasts until OpenWork quits. The launch variable turns it on at start.
+let computerRecordableOverlay = process.env.OPENWORK_COMPUTER_USE_RECORDABLE_OVERLAY === "1";
 const computerTargetsPath = () => path.join(app.getPath("userData"), "computer-use-targets.json");
 // The System Settings entry macOS lists for computer use: the helper's own
 // bundle, which takes responsibility for itself so grants never restart OpenWork.
@@ -275,6 +278,7 @@ const computerControl = createComputerControl({
       directory: path.join(app.getPath("userData"), "computer-use"),
     }),
     permissionEntry: async () => (await readComputerPermissionEntry()).name,
+    recordableOverlay: () => computerRecordableOverlay,
     onSetupReturn: async () => {
       const window = await createMainWindow();
       if (window.isMinimized()) window.restore();
@@ -2235,6 +2239,12 @@ const desktopCommandHandlers = {
       const folder = chatOutputFolder(app.getPath("downloads"), computerControl.chatOf({ sessionId: String(input?.sessionId ?? "") }));
       return { files: folder ? await listChatOutputFiles(folder) : [] };
   },
+  "computerChatImage": async (event, input) => {
+      assertComputerSender(event);
+      // An image the chat shows in its reply: only one saved in this chat's own output folder.
+      const folder = chatOutputFolder(app.getPath("downloads"), computerControl.chatOf({ sessionId: String(input?.sessionId ?? "") }));
+      return readChatOutputImage(folder, String(input?.path ?? ""), { home: app.getPath("home") });
+  },
   "computerListFileGrants": async (event) => {
       assertComputerSender(event);
       return browserUploadPermissions.list();
@@ -2264,6 +2274,15 @@ const desktopCommandHandlers = {
   "computerSetParallelAgents": async (event, enabled) => {
       assertComputerSender(event);
       return computerControl.setParallelAgents(enabled === true);
+  },
+  "computerRecordableOverlay": async (event) => {
+      assertComputerSender(event);
+      return computerRecordableOverlay;
+  },
+  "computerSetRecordableOverlay": async (event, enabled) => {
+      assertComputerSender(event);
+      computerRecordableOverlay = enabled === true;
+      return computerRecordableOverlay;
   },
   // Compatibility for older renderers; background delivery now follows computerUse.
   "computerSetBackgroundEnabled": async (event) => {
@@ -3045,19 +3064,17 @@ async function createMainWindowInner() {
   // to replace the entire workspace UI with the website, with no way back
   // (#2000). Catch those at `did-start-navigation`, cancel the load, and
   // reroute the URL into a built-in browser tab instead.
+  let mainNavigationRevision = 0;
   mainWindow.webContents.on("did-start-navigation", (_event, url, isInPlace, isMainFrame) => {
     if (!isMainFrame || isInPlace) return;
+    const revision = ++mainNavigationRevision;
     if (browserPanel.isMainWindowAllowedNavigation(url)) return;
-    // Stopping inside this event aborts the main process for navigations the
-    // PDF viewer starts (`chrome.tabs.update` on a link click), so cancel the
-    // load on the next tick instead.
-    setImmediate(() => {
-      try {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.stop();
-      } catch {
-        // best effort — routing below still gives the user a way back
-      }
-    });
+    // Capture the originating contents: the window may be replaced before
+    // Chromium has unwound its navigation callback. Never stop its successor.
+    const contents = mainWindow.webContents;
+    const previousUrl = contents.getURL();
+    deferBrowserStop(contents, () => mainWindow?.webContents === contents
+      && mainNavigationRevision === revision && contents.getURL() === previousUrl);
     routeBlockedNavigationOnce(url);
   });
 

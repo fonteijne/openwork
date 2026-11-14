@@ -49,6 +49,7 @@ const sessionRow = z.object({
 })
 const sessionOptions = z.object({
   repeats: repeatLimitsSchema.optional(),
+  maxSteps: z.number().int().min(0).nullable().optional(),
   files: z.boolean().optional(),
   computer: z.boolean().optional(),
   desktop: z.boolean().optional(),
@@ -57,6 +58,7 @@ const sessionOptions = z.object({
   tasks: z.boolean().optional(),
   documentNavigation: z.boolean().optional(),
   sandboxGateway: z.boolean().optional(),
+  browserRecovery: z.boolean().optional(),
   timeZone: z.string().optional(),
   autoTitle: z.boolean().optional(),
   memoryOf: z.string().optional(),
@@ -92,6 +94,8 @@ export type Session = {
   instructions: string
   /** The caller's limits for repeated steps; null uses the runner's defaults. */
   repeats: RepeatLimits | null
+  /** The caller's limit on model calls per turn (0 = no limit); null uses the runner's configured limit. */
+  maxSteps: number | null
   /**
    * Whether this conversation keeps files (uploads, files the agent hands back) and has a computer. Both are off
    * unless the caller asks for them, so turning a capability on for the runner changes nothing for callers that
@@ -111,6 +115,7 @@ export type Session = {
   documentNavigation: boolean
   /** Whether this conversation's computer runs through the runner's sandbox gateway (SANDBOX_GATEWAY) instead of its own provider. */
   sandboxGateway: boolean
+  browserRecovery: boolean
   /**
    * Who the conversation belongs to, in the caller's own terms (for example one person in one organization), and
    * the caller's id for it. A caller with several conversations per person lists them by owner (GET /v1/sessions).
@@ -133,6 +138,8 @@ export type SessionInput = {
   title?: string
   instructions?: string
   repeats?: RepeatLimits
+  /** Null goes back to the runner's configured limit. */
+  maxSteps?: number | null
   files?: boolean
   computer?: boolean
   desktop?: boolean
@@ -141,6 +148,7 @@ export type SessionInput = {
   tasks?: boolean
   documentNavigation?: boolean
   sandboxGateway?: boolean
+  browserRecovery?: boolean
   owner?: string
   ref?: string
   timeZone?: string
@@ -152,6 +160,7 @@ export type SessionInput = {
 /** The settings part of a session, leaving out what the caller didn't set. */
 function optionsOf(input: {
   repeats?: RepeatLimits | null
+  maxSteps?: number | null
   files?: boolean
   computer?: boolean
   desktop?: boolean
@@ -160,6 +169,7 @@ function optionsOf(input: {
   tasks?: boolean
   documentNavigation?: boolean
   sandboxGateway?: boolean
+  browserRecovery?: boolean
   timeZone?: string | null
   autoTitle?: boolean
   memoryOf?: string | null
@@ -167,6 +177,8 @@ function optionsOf(input: {
 }): SessionOptions {
   return {
     ...(input.repeats ? { repeats: input.repeats } : {}),
+    // Null is kept here so a put can clear an earlier limit; it is never stored (serializeOptions).
+    ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
     ...(input.files !== undefined ? { files: input.files } : {}),
     ...(input.computer !== undefined ? { computer: input.computer } : {}),
     ...(input.desktop !== undefined ? { desktop: input.desktop } : {}),
@@ -175,6 +187,7 @@ function optionsOf(input: {
     ...(input.tasks !== undefined ? { tasks: input.tasks } : {}),
     ...(input.documentNavigation !== undefined ? { documentNavigation: input.documentNavigation } : {}),
     ...(input.sandboxGateway !== undefined ? { sandboxGateway: input.sandboxGateway } : {}),
+    ...(input.browserRecovery !== undefined ? { browserRecovery: input.browserRecovery } : {}),
     ...(input.timeZone ? { timeZone: input.timeZone } : {}),
     ...(input.autoTitle !== undefined ? { autoTitle: input.autoTitle } : {}),
     ...(input.memoryOf ? { memoryOf: input.memoryOf } : {}),
@@ -189,6 +202,7 @@ const initialTitle = (input: SessionInput) => input.title ?? (input.autoTitle ? 
 function serializeOptions(options: SessionOptions) {
   const ordered = {
     ...(options.repeats ? { repeats: options.repeats } : {}),
+    ...(typeof options.maxSteps === "number" ? { maxSteps: options.maxSteps } : {}),
     ...(options.files ? { files: true } : {}),
     ...(options.computer ? { computer: true } : {}),
     ...(options.desktop ? { desktop: true } : {}),
@@ -198,6 +212,7 @@ function serializeOptions(options: SessionOptions) {
     ...(options.tasks ? { tasks: true } : {}),
     ...(options.documentNavigation ? { documentNavigation: true } : {}),
     ...(options.sandboxGateway ? { sandboxGateway: true } : {}),
+    ...(options.browserRecovery ? { browserRecovery: true } : {}),
     ...(options.timeZone ? { timeZone: options.timeZone } : {}),
     ...(options.autoTitle ? { autoTitle: true } : {}),
     // Owner-scoped memory replaces another conversation's: never both.
@@ -574,6 +589,7 @@ export class Store {
       title: value.title,
       instructions: value.instructions,
       repeats: options.repeats ?? null,
+      maxSteps: options.maxSteps ?? null,
       files: options.files ?? false,
       computer: options.computer ?? false,
       desktop: options.desktop ?? false,
@@ -582,6 +598,7 @@ export class Store {
       tasks: options.tasks ?? false,
       documentNavigation: options.documentNavigation ?? false,
       sandboxGateway: options.sandboxGateway ?? false,
+      browserRecovery: options.browserRecovery ?? false,
       owner: value.owner ?? null,
       ref: value.ref ?? null,
       timeZone: options.timeZone ?? null,

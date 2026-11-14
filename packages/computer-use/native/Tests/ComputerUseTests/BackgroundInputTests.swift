@@ -90,19 +90,44 @@ final class BackgroundInputTests: XCTestCase {
         let app: pid_t = 42, other: pid_t = 7, helper: pid_t = 99
         let selected: CGWindowID = 10, sibling: CGWindowID = 11, overlay: CGWindowID = 90, pill: CGWindowID = 91
         let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
-        func reaches(front: pid_t? = 42, at point: CGPoint? = CGPoint(x: 400, y: 300), _ windows: [(id: CGWindowID, pid: pid_t, bounds: CGRect)]) -> Bool {
-            RealInput.reachesTarget(app, window: selected, front: front, at: point, windows: windows, passThrough: [overlay])
+        func reaches(front: pid_t? = 42, at point: CGPoint? = CGPoint(x: 400, y: 300), hit: pid_t? = nil,
+                     _ windows: [(id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int)]) -> Bool {
+            RealInput.reachesTarget(app, window: selected, front: front, at: point, windows: windows, passThrough: [overlay], hit: hit, own: helper)
         }
         XCTAssertTrue(reaches(at: nil, []))
         XCTAssertFalse(reaches(front: other, at: nil, []), "keys go to whatever app is in front")
-        XCTAssertTrue(reaches([(overlay, helper, bounds), (selected, app, bounds)]), "the agent's see-through overlay is not in the way")
-        XCTAssertFalse(reaches([(pill, helper, CGRect(x: 350, y: 250, width: 100, height: 100)), (selected, app, bounds)]),
+        XCTAssertTrue(reaches([(overlay, helper, bounds, 3), (selected, app, bounds, 0)]), "the agent's see-through overlay is not in the way")
+        XCTAssertFalse(reaches([(pill, helper, CGRect(x: 350, y: 250, width: 100, height: 100), 3), (selected, app, bounds, 0)]),
             "the Take over pill takes clicks, so it is in the way")
-        XCTAssertFalse(reaches([(sibling, app, CGRect(x: 300, y: 200, width: 200, height: 200)), (selected, app, bounds)]),
+        XCTAssertFalse(reaches([(sibling, app, CGRect(x: 300, y: 200, width: 200, height: 200), 0), (selected, app, bounds, 0)]),
             "another window of the same app over the point")
-        XCTAssertFalse(reaches([(5, other, CGRect(x: 300, y: 200, width: 200, height: 200)), (selected, app, bounds)]), "another app's window over the point")
-        XCTAssertFalse(reaches(front: other, [(selected, app, bounds)]))
-        XCTAssertFalse(reaches(at: CGPoint(x: 900, y: 300), [(selected, app, bounds)]))
+        XCTAssertFalse(reaches([(5, other, CGRect(x: 300, y: 200, width: 200, height: 200), 0), (selected, app, bounds, 0)]), "another app's window over the point")
+        XCTAssertFalse(reaches(front: other, [(selected, app, bounds, 0)]))
+        XCTAssertFalse(reaches(at: CGPoint(x: 900, y: 300), [(selected, app, bounds, 0)]))
+    }
+
+    /// Blender refused every click with focus_lost while in front: the Dock's window spans the
+    /// whole display it sits on, above every app, and lets clicks through where it draws nothing.
+    func testTheDockAndMenuBarLayersAreNotInTheWayWhereTheyLetClicksThrough() {
+        let app: pid_t = 42, dock: pid_t = 3, menuBar: pid_t = 4, other: pid_t = 7
+        let selected: CGWindowID = 10
+        let display = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+        let windows: [(id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int)] = [
+            (50, menuBar, CGRect(x: 0, y: 0, width: 1728, height: 33), 24), (8, dock, display, 20), (selected, app, display, 0)]
+        func reaches(hit: pid_t?) -> Bool {
+            RealInput.reachesTarget(app, window: selected, front: app, at: CGPoint(x: 800, y: 500), windows: windows, passThrough: [], hit: hit, own: 99)
+        }
+        XCTAssertTrue(reaches(hit: app), "macOS finds Blender at the point, through the Dock's empty space")
+        XCTAssertTrue(reaches(hit: nil), "no answer from macOS: the window order decides, and the gate still checks the route")
+        XCTAssertFalse(reaches(hit: dock), "the Dock's own bar is at the point")
+        XCTAssertFalse(reaches(hit: other), "another app's floating panel is at the point")
+    }
+
+    func testAnAppsOwnFilePanelProcessTakesThatPanelsRealKeys() {
+        let app: pid_t = 42, panel: pid_t = 55, other: pid_t = 7, selected: CGWindowID = 10
+        XCTAssertTrue(RealInput.admits(release: false, target: app, window: selected, to: panel, under: 0, panels: [panel]), "Go To in TextEdit's Save sheet")
+        XCTAssertFalse(RealInput.admits(release: false, target: app, window: selected, to: panel, under: 0), "no panel open for the app")
+        XCTAssertFalse(RealInput.admits(release: false, target: app, window: selected, to: other, under: 0, panels: [panel]))
     }
 
     func testThePersonsInputStillPausesAStepWhileTheAgentSendsRealInput() {
@@ -294,5 +319,100 @@ final class BackgroundInputTests: XCTestCase {
         XCTAssertEqual(moved["front_app_changed"] as? Bool, true)
         XCTAssertEqual(moved["cursor_moved"] as? Bool, true)
         XCTAssertEqual(moved["space_changed"] as? Bool, true)
+    }
+
+    /// The first real click after taking the front was refused: macOS had not reported the new front app yet.
+    func testABatchThatTookTheFrontWaitsForMacOSToReportIt() async {
+        var reads = 0
+        let reported = await FrontReport.wait(for: 42, frontmost: { reads += 1; return reads < 4 ? 7 : 42 }, sleep: { _ in })
+        XCTAssertTrue(reported)
+        XCTAssertEqual(reads, 4, "it stops waiting as soon as the app is reported in front")
+        var slept = 0.0
+        let never = await FrontReport.wait(for: 42, frontmost: { 7 }, sleep: { slept += $0 })
+        XCTAssertFalse(never)
+        XCTAssertLessThanOrEqual(slept, FrontReport.limit + 0.001, "the wait is bounded; real input then says what was in front")
+    }
+
+    func testRealInputSaysWhatWasInTheWay() {
+        XCTAssertEqual(RealInput.blockedReason(front: 7, frontName: "Claude", pid: 42, point: nil, hit: nil), "Claude was in front")
+        XCTAssertEqual(RealInput.blockedReason(front: 42, frontName: "Live", pid: 42, point: CGPoint(x: 1, y: 1), hit: 3), "another app's window or the Dock was at that point")
+        XCTAssertEqual(RealInput.blockedReason(front: 42, frontName: "Live", pid: 42, point: CGPoint(x: 1, y: 1), hit: 42), "another window was over that point")
+        let lost = SharedDesktop.yielding(RealInput.stopped("Claude was in front"))
+        XCTAssertEqual(lost.code, "focus_lost")
+        XCTAssertTrue(lost.message.contains("Claude was in front"), "the receipt keeps the reason")
+        XCTAssertEqual(SharedDesktop.yielding(RealInput.targetChanged).code, "focus_lost")
+    }
+
+    func testMenusReadStaleOnlyForDisabledOrMissingCommands() {
+        XCTAssertTrue(MenuFocus.stale("menu_item_disabled"))
+        XCTAssertTrue(MenuFocus.stale("menu_item_unavailable"))
+        XCTAssertFalse(MenuFocus.stale("blocked_menu_item"), "a blocked command stays blocked")
+    }
+
+    /// A Save panel's process ignored keys swapped in for the stand-in; Blender missed a click's
+    /// release that went another way than its press. Both now become the stand-in macOS routed.
+    func testKeysPressesAndReleasesBecomeTheStandInMacOSRouted() throws {
+        let g = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: 5, keyDown: true))
+        g.flags = [.maskCommand, .maskShift]
+        let keyStandIn = try XCTUnwrap(RealInput.standIn(for: g))
+        keyStandIn.setIntegerValueField(.eventSourceUserData, value: 1234)
+        XCTAssertTrue(RealInput.becomes(keyStandIn, g))
+        XCTAssertEqual(keyStandIn.type, .keyDown)
+        XCTAssertEqual(keyStandIn.getIntegerValueField(.keyboardEventKeycode), 5)
+        XCTAssertTrue(keyStandIn.flags.contains(.maskCommand) && keyStandIn.flags.contains(.maskShift))
+        XCTAssertEqual(keyStandIn.getIntegerValueField(.eventSourceUserData), 1234, "it stays the agent's tagged event")
+
+        let point = CGPoint(x: 300, y: 600)
+        let up = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left))
+        up.setIntegerValueField(.mouseEventClickState, value: 1)
+        let upStandIn = try XCTUnwrap(RealInput.standIn(for: up))
+        XCTAssertTrue(RealInput.becomes(upStandIn, up))
+        XCTAssertEqual(upStandIn.type, .leftMouseUp)
+        XCTAssertEqual(upStandIn.getIntegerValueField(.mouseEventClickState), 1)
+        XCTAssertEqual(upStandIn.location, point)
+
+        let elsewhere = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: 1, y: 1), mouseButton: .left))
+        XCTAssertFalse(RealInput.becomes(elsewhere, up), "a press goes only where its stand-in was routed")
+        let move = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
+        XCTAssertFalse(RealInput.becomes(try XCTUnwrap(RealInput.standIn(for: move)), move), "moves, drags and scrolls are swapped as before")
+    }
+
+    func testAReleaseAlwaysGoesTheWayItsPressWent() {
+        XCTAssertEqual(RealInput.delivery(release: true, currentStep: true, held: true, admitted: false), .replace, "routed elsewhere, it still goes")
+        XCTAssertEqual(RealInput.delivery(release: true, currentStep: false, held: true, admitted: false), .replace, "from the step before")
+        XCTAssertEqual(RealInput.delivery(release: true, currentStep: false, held: false, admitted: false), .pass)
+    }
+
+    func testTheReceiptSaysWhereEachRealEventWentButNeverWhatWasTyped() {
+        let route = RealInputRoute.describe([(.keyDown, .replace, 42), (.keyUp, .replace, 55), (.leftMouseDown, .drop, 7), (.mouseMoved, .pass, 0)], app: 42,
+            bundle: { $0 == 55 ? "com.apple.appkit.xpc.openAndSavePanelService" : nil })
+        XCTAssertEqual(route.map { $0["event"] as? String }, ["key_down", "key_up", "press", "move"])
+        XCTAssertEqual(route.map { $0["gate"] as? String }, ["replace", "replace", "drop", "pass"])
+        XCTAssertEqual(route.map { $0["to"] as? String }, ["app", "com.apple.appkit.xpc.openAndSavePanelService", "another process", "none"])
+    }
+
+    /// Live's first click was refused while Blender's window still covered it after Live came forward.
+    func testAWindowIsOnTopOnlyOnceNoOtherAppWindowCoversItsMiddle() {
+        let live: (id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int) = (25317, 7031, CGRect(x: 0, y: 33, width: 1200, height: 778), 0)
+        let blender: (id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int) = (25487, 21662, CGRect(x: 0, y: 33, width: 1728, height: 1084), 0)
+        let dock: (id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int) = (8, 3, CGRect(x: 0, y: 0, width: 1728, height: 1117), 20)
+        XCTAssertFalse(FrontReport.onTop(live.id, pid: live.pid, windows: [dock, blender, live]))
+        XCTAssertTrue(FrontReport.onTop(live.id, pid: live.pid, windows: [dock, live, blender]), "the Dock's layer is not in the way")
+        XCTAssertTrue(FrontReport.onTop(99, pid: 1, windows: [live]), "a window not on screen is not waited for")
+    }
+
+    /// The first save_as after a Save panel opened stopped with focus_lost before sending anything:
+    /// macOS turned the tap off for a moment as the panel took the keyboard.
+    func testATapMacOSPausedIsWatchedAgainOnlyBeforeAnythingWasSent() {
+        XCTAssertTrue(RealInput.rearms(sentBefore: 0), "nothing went out unchecked")
+        XCTAssertFalse(RealInput.rearms(sentBefore: 1), "an event may have gone out while the tap was off: the step stops")
+    }
+
+    /// Live's first click waited for its window while the helper's overlay rode right above it.
+    func testTheHelpersOwnOverlayNeverCoversTheWindowItRidesAbove() {
+        let live: (id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int) = (25317, 7031, CGRect(x: 0, y: 33, width: 1200, height: 778), 0)
+        let overlay: (id: CGWindowID, pid: pid_t, bounds: CGRect, layer: Int) = (25941, 99, CGRect(x: 0, y: 0, width: 1728, height: 1117), 0)
+        XCTAssertTrue(FrontReport.onTop(live.id, pid: live.pid, windows: [overlay, live], helper: 99))
+        XCTAssertFalse(FrontReport.onTop(live.id, pid: live.pid, windows: [overlay, live], helper: 1), "another app's window there still covers it")
     }
 }

@@ -23,13 +23,14 @@ import {
   PERMISSION_DEFAULT_SET_KEYS,
   PERMISSION_KEYS,
   getPermissionDefinition,
+  isPermissionDefaultOn,
   isPermissionKey,
   isPermissionLockedOn,
   type PermissionAreaKey,
   type PermissionDefaultSetKey,
   type PermissionKey,
 } from "@openwork/types/den/permissions"
-import type { Hono } from "hono"
+import type { Context, Hono } from "hono"
 import { describeRoute, type DescribeRouteOptions } from "hono-openapi"
 import { z } from "zod"
 import { ORGANIZATION_AUDIT_ACTIONS } from "../../audit-events.js"
@@ -42,13 +43,14 @@ import {
   permissionSetTeamsChangedEvent,
   type PermissionSetAuditState,
 } from "../../audit/domain/permissions.js"
-import { auditChangeCapture } from "../../audit/request-capture.js"
+import { auditChangeCapture, type AuditChangeCapture } from "../../audit/request-capture.js"
 import { db } from "../../db.js"
 import { keysetAfter, keysetCursorQuerySchema, keysetPage, nextCursorSchema, type KeysetCursor } from "../../list-pagination.js"
 import { jsonValidator, orgMemberRoute, paramValidator, queryValidator, requireOrgPermission } from "../../middleware/index.js"
 import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { roleIncludesOwner } from "../../organization-member-guards.js"
-import { isEffectiveOrganizationAdmin } from "../../organization-role-hierarchy.js"
+import { isEffectiveOrganizationAdmin, isOrganizationSuperAdminRole } from "../../organization-role-hierarchy.js"
+import { organizationFeatureEnabled } from "../../features.js"
 import type { OrganizationContext } from "../../orgs.js"
 import { ensureCurrentDefaultPermissionSets } from "../../permissions/default-sets.js"
 import type { MemberPermissions } from "../../permissions/effective.js"
@@ -83,7 +85,7 @@ type PermissionSetId = typeof PermissionSetTable.$inferSelect.id
 type PermissionSetRow = typeof PermissionSetTable.$inferSelect
 type TeamId = typeof TeamTable.$inferSelect.id
 type MemberId = typeof MemberTable.$inferSelect.id
-type PermissionSetKind = "member_default" | "admin_default" | "team"
+type PermissionSetKind = "member_default" | "admin_default" | "super_admin_default" | "team"
 type NonMcpDescribeRouteOptions = DescribeRouteOptions & { "x-mcp": false }
 const describeNonMcpRoute = (options: NonMcpDescribeRouteOptions) => describeRoute(options)
 
@@ -96,7 +98,7 @@ const MAX_HISTORY_LIMIT = 200
 // ---------------------------------------------------------------------------
 
 const permissionStatusSchema = z.enum(["allow", "deny"])
-const permissionSetKindSchema = z.enum(["member_default", "admin_default", "team"])
+const permissionSetKindSchema = z.enum(["member_default", "admin_default", "super_admin_default", "team"])
 const permissionChangeSourceSchema = z.enum(["user", "seed", "reconcile", "migration"])
 const timestampSchema = z.string().datetime()
 
@@ -144,7 +146,7 @@ const permissionDefinitionSchema = z.object({
   description: z.string().nullable(),
   sensitive: z.boolean().describe("Using this permission requires a recent sign-in."),
   lockedOn: z.array(z.literal("admin")).describe("Default sets in which this permission can never be turned off."),
-  defaultOn: z.array(z.enum(PERMISSION_DEFAULT_SET_KEYS)).describe("Default sets this permission starts on in."),
+  defaultOn: z.array(z.enum(PERMISSION_DEFAULT_SET_KEYS)).describe("Default sets this permission starts on in. Super admin starts with every permission."),
 }).meta({ ref: "PermissionDefinition" })
 
 const permissionCatalogResponseSchema = z.object({
@@ -174,6 +176,7 @@ const adminTeamSummarySchema = z.object({ id: z.string(), name: z.string(), memb
 const appliesToSummarySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("everyone"), memberCount: z.number().int() }),
   z.object({ kind: z.literal("admins"), directAdminCount: z.number().int(), adminTeams: z.array(adminTeamSummarySchema) }),
+  z.object({ kind: z.literal("super_admins"), superAdminCount: z.number().int() }),
   z.object({ kind: z.literal("team"), team: teamReferenceSchema.nullable(), teams: z.array(teamReferenceSchema), memberCount: z.number().int().describe("People in any of the set's teams, each counted once.") }),
 ]).meta({ ref: "PermissionSetAppliesToSummary" })
 
@@ -184,6 +187,11 @@ const appliesToDetailSchema = z.discriminatedUnion("kind", [
     directAdminCount: z.number().int(),
     directAdmins: z.array(permissionPersonSchema).nullable().describe("Names and emails of members with the admin role. Null unless the caller holds teams.view; directAdminCount is always returned."),
     adminTeams: z.array(adminTeamSummarySchema),
+  }),
+  z.object({
+    kind: z.literal("super_admins"),
+    superAdminCount: z.number().int(),
+    superAdmins: z.array(permissionPersonSchema).nullable().describe("Names and emails of members with the super-admin role. Null unless the caller holds teams.view; superAdminCount is always returned."),
   }),
   z.object({
     kind: z.literal("team"),
@@ -265,7 +273,7 @@ const permissionKeyResponseSchema = z.object({
 
 const permissionSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("owner"), label: z.string() }),
-  z.object({ kind: z.literal("super_admin"), label: z.string() }),
+  z.object({ kind: z.literal("super_admin_default"), setId: z.string(), setName: z.string(), label: z.string() }),
   z.object({ kind: z.literal("member_default"), setId: z.string(), setName: z.string(), label: z.string() }),
   z.object({
     kind: z.literal("admin_default"),
@@ -307,7 +315,7 @@ const permissionsNotFoundSchema = z.object({
 }).meta({ ref: "PermissionsNotFoundError" })
 
 const permissionEditErrorSchema = z.object({
-  error: z.enum(["unknown_permission", "duplicate_permission", "admin_permissions_require_admin", "permission_locked", "permission_not_held"]),
+  error: z.enum(["unknown_permission", "duplicate_permission", "admin_permissions_require_admin", "super_admin_permissions_require_super_admin", "permission_locked", "permission_not_held"]),
   message: z.string(),
   keys: z.array(z.string()),
 }).meta({ ref: "PermissionEditError" })
@@ -331,7 +339,7 @@ const defaultPermissionSetErrorSchema = z.object({
 
 const forbiddenResponse = (description: string) => jsonResponse(description, z.union([forbiddenSchema, permissionDeniedSchema]))
 const editForbiddenResponse = jsonResponse(
-  "The caller lacks permissions.manage, needs a recent sign-in, tried to turn on a permission they don't have, or tried to change Admin permissions without being the owner or an admin.",
+  "The caller lacks permissions.manage, needs a recent sign-in, tried to turn on a permission they don't have, tried to change Admin permissions without being the owner or an admin, or tried to change Super admin permissions without being the owner or a super admin.",
   z.union([forbiddenSchema, permissionDeniedSchema, permissionEditErrorSchema]),
 )
 const unauthorizedResponse = jsonResponse("The caller must be signed in.", unauthorizedSchema)
@@ -344,10 +352,27 @@ const notFoundResponse = (description: string) => jsonResponse(description, perm
 function setKind(defaultKey: PermissionDefaultSetKey | null): PermissionSetKind {
   if (defaultKey === "member") return "member_default"
   if (defaultKey === "admin") return "admin_default"
+  if (defaultKey === "super-admin") return "super_admin_default"
   return "team"
 }
 
-function serializeDefinition(key: PermissionKey) {
+/**
+ * Default sets this organization shows: Super admin only with
+ * `superAdminPermissionSet` on. With it off the set still exists (seeded, so
+ * turning the feature on is instant) but is hidden and can't be read or edited.
+ */
+function visibleDefaultSetKeys(superAdminSetVisible: boolean): readonly PermissionDefaultSetKey[] {
+  return PERMISSION_DEFAULT_SET_KEYS.filter((defaultKey) => defaultKey !== "super-admin" || superAdminSetVisible)
+}
+
+/** `superAdminPermissionSet` for this organization; read through `database` when it is a transaction. */
+function superAdminSetVisible(organizationId: OrganizationId, database: PermissionDatabase = db): Promise<boolean> {
+  return database === db
+    ? organizationFeatureEnabled(organizationId, "superAdminPermissionSet")
+    : organizationFeatureEnabled(organizationId, "superAdminPermissionSet", { database, lock: "share" })
+}
+
+function serializeDefinition(key: PermissionKey, superAdminSetShown: boolean) {
   const definition = getPermissionDefinition(key)
   return {
     key,
@@ -356,7 +381,7 @@ function serializeDefinition(key: PermissionKey) {
     description: definition.description ?? null,
     sensitive: definition.sensitive === true,
     lockedOn: [...(definition.lockedOn ?? [])],
-    defaultOn: [...definition.defaultOn],
+    defaultOn: visibleDefaultSetKeys(superAdminSetShown).filter((set) => isPermissionDefaultOn(definition, set)),
   }
 }
 
@@ -373,7 +398,11 @@ function isAreaKey(value: string): value is PermissionAreaKey {
 }
 
 function problemStatus(problem: PermissionEditProblem): 400 | 403 {
-  return problem.error === "permission_not_held" || problem.error === "admin_permissions_require_admin" ? 403 : 400
+  return problem.error === "permission_not_held"
+    || problem.error === "admin_permissions_require_admin"
+    || problem.error === "super_admin_permissions_require_super_admin"
+    ? 403
+    : 400
 }
 
 function problemBody(problem: PermissionEditProblem) {
@@ -388,10 +417,12 @@ function joinKeys(keys: readonly string[]): string | null {
 // Data access
 // ---------------------------------------------------------------------------
 
+/** One set of the organization, or null. The Super admin set reads as missing while `superAdminPermissionSet` is off. */
 async function readPermissionSet(database: PermissionDatabase, organizationId: OrganizationId, permissionSetId: PermissionSetId): Promise<PermissionSetRow | null> {
   const [row] = await database.select().from(PermissionSetTable)
     .where(and(eq(PermissionSetTable.id, permissionSetId), eq(PermissionSetTable.organizationId, organizationId)))
     .limit(1)
+  if (row?.defaultKey === "super-admin" && !(await superAdminSetVisible(organizationId, database))) return null
   return row ?? null
 }
 
@@ -443,6 +474,11 @@ async function listActiveMembers(organizationId: OrganizationId): Promise<Organi
 
 function isDirectAdmin(person: { role: string }) {
   return !roleIncludesOwner(person.role) && isEffectiveOrganizationAdmin({ directRole: person.role, adminTeamIds: [] })
+}
+
+/** The stored role names super-admin and not owner: the Super admin set applies. */
+function isDirectSuperAdmin(person: { role: string }) {
+  return !roleIncludesOwner(person.role) && isOrganizationSuperAdminRole(person.role)
 }
 
 async function countTeamMembers(organizationId: OrganizationId, teamIds: readonly TeamId[]): Promise<Map<TeamId, number>> {
@@ -497,16 +533,23 @@ async function listAdminTeams(organizationId: OrganizationId) {
   return teams.map((team) => ({ id: team.id, name: team.name, memberCount: counts.get(team.id) ?? 0 }))
 }
 
-/** Active (non-archived) sets: Member defaults, Admin defaults, then team sets by name. */
+/**
+ * Active (non-archived) sets: Member, Admin and Super admin defaults (Super
+ * admin only with `superAdminPermissionSet` on), then team sets by name.
+ */
 async function listActiveSets(organizationId: OrganizationId): Promise<PermissionSetRow[]> {
-  const defaults = await ensureCurrentDefaultPermissionSets(organizationId)
+  const [defaults, showSuperAdmin] = await Promise.all([
+    ensureCurrentDefaultPermissionSets(organizationId),
+    superAdminSetVisible(organizationId),
+  ])
   // primary: the line above may have just created the default sets.
   const rows = await db.$primary.select().from(PermissionSetTable)
     .where(and(eq(PermissionSetTable.organizationId, organizationId), isNull(PermissionSetTable.archivedAt)))
     .orderBy(asc(PermissionSetTable.name), asc(PermissionSetTable.id))
-  const rank = (row: PermissionSetRow) => row.id === defaults.member.id ? 0 : row.id === defaults.admin.id ? 1 : 2
+  const defaultRank = new Map<string, number>(visibleDefaultSetKeys(showSuperAdmin).map((defaultKey, index) => [defaults[defaultKey].id, index]))
+  const rank = (row: PermissionSetRow) => defaultRank.get(row.id) ?? PERMISSION_DEFAULT_SET_KEYS.length
   return rows
-    .filter((row) => row.defaultKey === null || row.id === defaults.member.id || row.id === defaults.admin.id)
+    .filter((row) => row.defaultKey === null || defaultRank.has(row.id))
     .sort((left, right) => rank(left) - rank(right))
 }
 
@@ -578,6 +621,10 @@ async function loadPermissionSetDetail(organizationId: OrganizationId, set: Perm
       directAdmins: includeIdentities ? directAdmins : null,
       adminTeams,
     }
+  } else if (set.defaultKey === "super-admin") {
+    const members = await listActiveMembers(organizationId)
+    const superAdmins = members.filter(isDirectSuperAdmin).map(({ memberId, name, email }) => ({ memberId, name, email }))
+    appliesTo = { kind: "super_admins", superAdminCount: superAdmins.length, superAdmins: includeIdentities ? superAdmins : null }
   } else {
     const people = await listTeamsMembers(organizationId, teams.map((entry) => entry.id))
     appliesTo = { kind: "team", team, teams, memberCount: people.length, members: includeIdentities ? people : null }
@@ -767,114 +814,23 @@ function organizationContext(c: { get(key: "organizationContext"): OrganizationC
 }
 
 // ---------------------------------------------------------------------------
-// Routes
+// Write actions: the bodies of the write routes below, callable with an
+// in-process route context (config-blob imports,
+// src/config-blobs/areas/members-roles.ts). Routes pass their own context.
 // ---------------------------------------------------------------------------
 
-export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
-  app.get(
-    "/v1/permissions/catalog",
-    describeRoute({
-      tags: ["Permissions"],
-      summary: "List the permission catalog",
-      description: "Lists every permission area and permission key with its label, description and flags: sensitive (needs a recent sign-in), lockedOn (can never be turned off in those default sets) and defaultOn (default sets it starts on in). Available to every member, whether or not Permissions is turned on.",
-      responses: {
-        200: jsonResponse("Permission catalog returned successfully.", permissionCatalogResponseSchema),
-        401: unauthorizedResponse,
-        404: notFoundResponse("The organization was not found."),
-      },
-    }),
-    orgMemberRoute(),
-    async (c) => {
-      return c.json({
-        areas: areaEntries(),
-        permissions: PERMISSION_KEYS.map(serializeDefinition),
-      })
-    },
-  )
+export type CreatePermissionSetBody = z.infer<typeof createPermissionSetBodySchema>
+export type UpdatePermissionSetBody = z.infer<typeof updatePermissionSetBodySchema>
+type PermissionActionContext = Pick<Context, "json" | "body"> & PermissionRouteContext
 
-  app.get(
-    "/v1/permissions/sets",
-    describeRoute({
-      tags: ["Permissions"],
-      summary: "List permission sets",
-      description: "Lists Member permissions, Admin permissions and every active team permission set, with the linked team, how many permissions each allows and who it applies to. Creates the Member and Admin sets if they don't exist yet. Requires permissions.view.",
-      responses: {
-        200: jsonResponse("Permission sets returned successfully.", permissionSetListResponseSchema),
-        401: unauthorizedResponse,
-        403: forbiddenResponse("The caller lacks permissions.view."),
-        404: notFoundResponse("The organization was not found, or Permissions is turned off."),
-      },
-    }),
-    orgMemberRoute(),
-    requireOrgPermission("permissions.view"),
-    async (c) => {
-      const payload = c.get("organizationContext")
-      const organizationId = payload.organization.id
-      const sets = await listActiveSets(organizationId)
-      const setIds = sets.map((set) => set.id)
-      const [states, links, members, adminTeams] = await Promise.all([
-        readPermissionSetStates(db, setIds),
-        readTeamLinks(db, organizationId, setIds),
-        listActiveMembers(organizationId),
-        listAdminTeams(organizationId),
-      ])
-      const teamsBySet = new Map(sets.flatMap((set) => set.defaultKey === null ? [[set.id, activeTeams(links.get(set.id)).map((entry) => entry.id)] as const] : []))
-      const peopleCounts = await countPeoplePerSet(organizationId, teamsBySet)
-
-      return c.json({
-        sets: sets.map((set) => {
-          const team = currentTeam(links.get(set.id))
-          const teams = set.defaultKey === null ? activeTeams(links.get(set.id)) : []
-          const appliesTo: z.infer<typeof appliesToSummarySchema> = set.defaultKey === "member"
-            ? { kind: "everyone", memberCount: members.length }
-            : set.defaultKey === "admin"
-              ? { kind: "admins", directAdminCount: members.filter(isDirectAdmin).length, adminTeams }
-              : { kind: "team", team, teams, memberCount: peopleCounts.get(set.id) ?? 0 }
-          return {
-            id: set.id,
-            name: set.name,
-            kind: setKind(set.defaultKey),
-            team,
-            teams,
-            allowedCount: allowedKeys(states.get(set.id)).size,
-            createdAt: set.createdAt.toISOString(),
-            appliesTo,
-          }
-        }),
-      })
-    },
-  )
-
-  app.post(
-    "/v1/permissions/sets",
-    describeNonMcpRoute({
-      tags: ["Permissions"],
-      "x-mcp": false,
-      summary: "Create team permissions",
-      description: "Creates the permission set for one team, named \"<team name> Permissions\" (fixed from then on), links it to the team and stores its initial permissions. A team can have one active set. Send name (and optionally teamIds) instead of teamId to create a named role that can be given to any number of teams; each listed team's current custom role is replaced. You can only turn on permissions you have yourself. Requires permissions.manage (only the owner has it by default), and a recent sign-in.",
-      responses: {
-        201: jsonResponse("Team permission set created.", permissionSetResponseSchema),
-        400: jsonResponse("The body was invalid or named an unknown or repeated permission.", z.union([invalidRequestSchema, permissionEditErrorSchema])),
-        401: unauthorizedResponse,
-        403: editForbiddenResponse,
-        404: notFoundResponse("The organization or team was not found, or Permissions is turned off."),
-        409: jsonResponse("The team already has an active permission set.", permissionSetConflictSchema),
-      },
-    }),
-    orgMemberRoute(),
-    requireOrgPermission("permissions.manage"),
-    jsonValidator(createPermissionSetBodySchema),
-    async (c) => {
-      const payload = c.get("organizationContext")
+export async function createPermissionSetAction(c: PermissionActionContext, payload: OrganizationContext, body: CreatePermissionSetBody, capture: AuditChangeCapture | null, options: { permissionSetId?: PermissionSetId } = {}) {
       const organizationId = payload.organization.id
       const editor = await callerPermissions(c)
       if (!editor) return c.json({ error: "organization_not_found" as const }, 404)
 
-      const body = c.req.valid("json")
       const plan = planPermissionSetCreate({ permissions: body.permissions, editor })
       if (!plan.ok) return c.json(problemBody(plan.problem), problemStatus(plan.problem))
 
-      const capture = auditChangeCapture(c)
       const actorMemberId = payload.currentMember.id
       const allowed = plan.changes.map((change) => change.key)
 
@@ -899,7 +855,7 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
 
           const now = new Date()
           const set: PermissionSetRow = {
-            id: createDenTypeId("permissionSet"),
+            id: options.permissionSetId ?? createDenTypeId("permissionSet"),
             organizationId,
             defaultKey: null,
             name,
@@ -973,7 +929,7 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
 
         const now = new Date()
         const set: PermissionSetRow = {
-          id: createDenTypeId("permissionSet"),
+          id: options.permissionSetId ?? createDenTypeId("permissionSet"),
           organizationId,
           defaultKey: null,
           name: teamPermissionSetName(team.name),
@@ -1043,63 +999,11 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
       }, result.auditEventIds)
 
       return c.json({ set: await loadPermissionSetDetailFromPrimary(organizationId, result.set, await mayViewRosters(c)) }, 201)
-    },
-  )
+}
 
-  app.get(
-    "/v1/permissions/sets/:permissionSetId",
-    describeRoute({
-      tags: ["Permissions"],
-      summary: "Get a permission set",
-      description: "Returns one permission set with the status of every catalog permission (allow or deny, whether it is locked on, and who last changed it) and who it applies to: everyone (Member permissions), members with the admin role and Admin teams (Admin permissions), or the linked team and its members. The names and emails of those people, and the email of whoever last changed each permission, are only included when the caller also holds teams.view; otherwise only the counts (and the changer's name) are. Archived team sets are still readable. Requires permissions.view.",
-      responses: {
-        200: jsonResponse("Permission set returned successfully.", permissionSetResponseSchema),
-        400: jsonResponse("The permission set id was invalid.", invalidRequestSchema),
-        401: unauthorizedResponse,
-        403: forbiddenResponse("The caller lacks permissions.view."),
-        404: notFoundResponse("The permission set or organization was not found, or Permissions is turned off."),
-      },
-    }),
-    orgMemberRoute(),
-    requireOrgPermission("permissions.view"),
-    paramValidator(permissionSetParamsSchema),
-    async (c) => {
-      const payload = c.get("organizationContext")
+export async function renamePermissionSetAction(c: PermissionActionContext, payload: OrganizationContext, rawPermissionSetId: string, name: string, capture: AuditChangeCapture | null) {
       const organizationId = payload.organization.id
-      const permissionSetId = normalizeDenTypeId("permissionSet", c.req.valid("param").permissionSetId)
-      const existing = await readPermissionSet(db, organizationId, permissionSetId)
-      if (!existing) return c.json({ error: "permission_set_not_found" as const }, 404)
-      if (existing.defaultKey !== null) await ensureCurrentDefaultPermissionSets(organizationId)
-      return c.json({ set: await loadPermissionSetDetail(organizationId, existing, await mayViewRosters(c)) })
-    },
-  )
-
-  app.patch(
-    "/v1/permissions/sets/:permissionSetId",
-    describeNonMcpRoute({
-      tags: ["Permissions"],
-      "x-mcp": false,
-      summary: "Rename a role",
-      description: "Renames a team permission set (a custom role). Member and Admin permissions keep their names, and archived sets can't be changed. Requires permissions.manage (only the owner has it by default), a recent sign-in.",
-      responses: {
-        200: jsonResponse("Role renamed; its current state is returned.", permissionSetResponseSchema),
-        400: jsonResponse("The body or id was invalid, or the set is Member or Admin permissions.", z.union([invalidRequestSchema, defaultPermissionSetErrorSchema])),
-        401: unauthorizedResponse,
-        403: forbiddenResponse("The caller lacks permissions.manage or needs a recent sign-in."),
-        404: notFoundResponse("The permission set or organization was not found, or Permissions or Shared roles is turned off."),
-        409: jsonResponse("The permission set is archived.", permissionSetConflictSchema),
-      },
-    }),
-    orgMemberRoute(),
-    requireOrgPermission("permissions.manage"),
-    paramValidator(permissionSetParamsSchema),
-    jsonValidator(renamePermissionSetBodySchema),
-    async (c) => {
-      const payload = c.get("organizationContext")
-      const organizationId = payload.organization.id
-      const permissionSetId = normalizeDenTypeId("permissionSet", c.req.valid("param").permissionSetId)
-      const name = c.req.valid("json").name
-      const capture = auditChangeCapture(c)
+      const permissionSetId = normalizeDenTypeId("permissionSet", rawPermissionSetId)
       const actorMemberId = payload.currentMember.id
 
       const result = await withOrganizationTeamMutation(organizationId, async (tx) => {
@@ -1124,7 +1028,7 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
       if (!result.ok) {
         if (result.error === "permission_set_not_found") return c.json({ error: "permission_set_not_found" as const }, 404)
         if (result.error === "default_permission_set") {
-          return c.json({ error: "default_permission_set" as const, message: "Member and Admin keep their names." }, 400)
+          return c.json({ error: "default_permission_set" as const, message: "Member, Admin and Super admin keep their names." }, 400)
         }
         if (result.error === "permission_revoked") return c.json(result.response, 403, permissionFailureHeaders(result.response))
         return c.json({ error: "permission_set_archived" as const, message: "This role was deleted and can't be changed." }, 409)
@@ -1138,36 +1042,12 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
         }, result.auditEventIds)
       }
       return c.json({ set: await loadPermissionSetDetailFromPrimary(organizationId, result.set, await mayViewRosters(c)) })
-    },
-  )
+}
 
-  app.put(
-    "/v1/teams/:teamId/permission-set",
-    describeNonMcpRoute({
-      tags: ["Permissions"],
-      "x-mcp": false,
-      summary: "Set a team's custom role",
-      description: "Gives a team one custom role (a team permission set), replacing its current one, or none with permissionSetId null. The same role can be given to any number of teams; a role left with no team is kept until it is deleted. You can only give a role whose permissions you all have yourself. Whether the team is an Admin team is changed separately (PATCH /v1/teams/:teamId). Requires permissions.manage (only the owner has it by default), a recent sign-in.",
-      responses: {
-        200: jsonResponse("The team's custom role was set; the role's current state is returned, or null when the team has none.", z.object({ set: permissionSetDetailSchema.nullable() }).meta({ ref: "TeamPermissionSetResponse" })),
-        400: jsonResponse("The body or id was invalid, or the set is Member or Admin permissions.", z.union([invalidRequestSchema, defaultPermissionSetErrorSchema])),
-        401: unauthorizedResponse,
-        403: editForbiddenResponse,
-        404: notFoundResponse("The team, permission set or organization was not found, or Permissions or Shared roles is turned off."),
-        409: jsonResponse("The permission set is archived.", permissionSetConflictSchema),
-      },
-    }),
-    orgMemberRoute(),
-    requireOrgPermission("permissions.manage"),
-    paramValidator(teamParamsSchema),
-    jsonValidator(teamPermissionSetBodySchema),
-    async (c) => {
-      const payload = c.get("organizationContext")
+export async function setTeamPermissionSetAction(c: PermissionActionContext, payload: OrganizationContext, rawTeamId: string, requested: string | null, capture: AuditChangeCapture | null) {
       const organizationId = payload.organization.id
-      const teamId = normalizeDenTypeId("team", c.req.valid("param").teamId)
-      const requested = c.req.valid("json").permissionSetId
+      const teamId = normalizeDenTypeId("team", rawTeamId)
       const setId = requested ? normalizeDenTypeId("permissionSet", requested) : null
-      const capture = auditChangeCapture(c)
       const actorMemberId = payload.currentMember.id
 
       const result = await withOrganizationTeamMutation(organizationId, async (tx) => {
@@ -1202,7 +1082,7 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
         if (result.error === "team_not_found") return c.json({ error: "team_not_found" as const, message: "This team doesn't exist in your organization." }, 404)
         if (result.error === "permission_set_not_found") return c.json({ error: "permission_set_not_found" as const }, 404)
         if (result.error === "default_permission_set") {
-          return c.json({ error: "default_permission_set" as const, message: "Member and Admin aren't custom roles. Make the team an Admin team instead." }, 400)
+          return c.json({ error: "default_permission_set" as const, message: "Member, Admin and Super admin aren't custom roles. Make the team an Admin team instead." }, 400)
         }
         if (result.error === "permission_set_archived") return c.json({ error: "permission_set_archived" as const, message: "This role was deleted." }, 409)
         if (result.error === "permission_revoked") return c.json(result.response, 403, permissionFailureHeaders(result.response))
@@ -1222,44 +1102,20 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
         }, result.auditEventIds)
       }
       return c.json({ set: result.set ? await loadPermissionSetDetailFromPrimary(organizationId, result.set, await mayViewRosters(c)) : null })
-    },
-  )
+}
 
-  app.put(
-    "/v1/permissions/sets/:permissionSetId/permissions",
-    describeNonMcpRoute({
-      tags: ["Permissions"],
-      "x-mcp": false,
-      summary: "Change permissions in a set",
-      description: "Turns permissions on (allow) or off (deny) in one set. Only keys whose status actually changes are recorded; every change is kept in the set's history. Only the owner and admins can change Admin permissions. Permissions locked on for admins can't be turned off in Admin permissions, you can only turn on permissions you have yourself (except turning a permission back on in Member or Admin permissions where it is on by default), and archived sets can't be changed. The linked team can't be changed. Returns the set's new state. Requires permissions.manage (only the owner has it by default), and a recent sign-in.",
-      responses: {
-        200: jsonResponse("Permissions updated; the set's current state is returned.", permissionSetResponseSchema),
-        400: jsonResponse("The body was invalid, named an unknown or repeated permission, or tried to turn off a locked permission.", z.union([invalidRequestSchema, permissionEditErrorSchema])),
-        401: unauthorizedResponse,
-        403: editForbiddenResponse,
-        404: notFoundResponse("The permission set or organization was not found, or Permissions is turned off."),
-        409: jsonResponse("The permission set is archived.", permissionSetConflictSchema),
-      },
-    }),
-    orgMemberRoute(),
-    requireOrgPermission("permissions.manage"),
-    paramValidator(permissionSetParamsSchema),
-    jsonValidator(updatePermissionSetBodySchema),
-    async (c) => {
-      const payload = c.get("organizationContext")
+export async function updatePermissionSetPermissionsAction(c: PermissionActionContext, payload: OrganizationContext, rawPermissionSetId: string, requested: UpdatePermissionSetBody["changes"], capture: AuditChangeCapture | null) {
       const organizationId = payload.organization.id
       const editor = await callerPermissions(c)
       if (!editor) return c.json({ error: "organization_not_found" as const }, 404)
 
-      const permissionSetId = normalizeDenTypeId("permissionSet", c.req.valid("param").permissionSetId)
+      const permissionSetId = normalizeDenTypeId("permissionSet", rawPermissionSetId)
       const existing = await readPermissionSet(db, organizationId, permissionSetId)
       if (!existing) return c.json({ error: "permission_set_not_found" as const }, 404)
       // A default set must hold a row for every default key before it is
       // diffed, or reconciliation could later override an explicit deny.
       if (existing.defaultKey !== null) await ensureCurrentDefaultPermissionSets(organizationId)
 
-      const requested = c.req.valid("json").changes
-      const capture = auditChangeCapture(c)
       const actorMemberId = payload.currentMember.id
 
       const result = await withOrganizationTeamMutation(organizationId, async (tx) => {
@@ -1332,7 +1188,266 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
       }
 
       return c.json({ set: await loadPermissionSetDetailFromPrimary(organizationId, result.set, await mayViewRosters(c)) })
+}
+
+export async function archivePermissionSetAction(c: PermissionActionContext, payload: OrganizationContext, rawPermissionSetId: string, capture: AuditChangeCapture | null) {
+      const organizationId = payload.organization.id
+      const permissionSetId = normalizeDenTypeId("permissionSet", rawPermissionSetId)
+      const actorMemberId = payload.currentMember.id
+
+      const result = await withOrganizationTeamMutation(organizationId, async (tx) => {
+        if (!(await lockPermissionSet(tx, organizationId, permissionSetId))) return { ok: false as const, error: "permission_set_not_found" as const }
+        const set = await readPermissionSet(tx, organizationId, permissionSetId)
+        if (!set) return { ok: false as const, error: "permission_set_not_found" as const }
+        if (set.defaultKey !== null) return { ok: false as const, error: "default_permission_set" as const }
+        if (set.archivedAt) return { ok: false as const, error: "permission_set_archived" as const }
+        const live = await editorInTransaction(tx, organizationId, actorMemberId)
+        if (!live.ok) return live
+
+        const now = new Date()
+        const links = (await readTeamLinks(tx, organizationId, [set.id])).get(set.id) ?? []
+        const activeLinks = links.filter((link) => link.removedAt === null)
+        const teamId = currentTeam(links)?.id ?? null
+        const before = await auditStateFor(tx, set, teamId)
+
+        if (activeLinks.length > 0) {
+          await tx.update(PermissionSetTeamTable)
+            .set({ removedAt: now, removedByOrgMembershipId: actorMemberId })
+            .where(inArray(PermissionSetTeamTable.id, activeLinks.map((link) => link.linkId)))
+        }
+        await tx.update(PermissionSetTable)
+          .set({ archivedAt: now, archivedByOrgMembershipId: actorMemberId })
+          .where(eq(PermissionSetTable.id, set.id))
+
+        const archived: PermissionSetRow = { ...set, archivedAt: now, archivedByOrgMembershipId: actorMemberId }
+        const auditEventIds = await appendDomainChanges(tx, capture, [
+          permissionSetArchivedEvent(organizationId, before, { ...before, set: archived }),
+        ])
+        return { ok: true as const, set, teamId, auditEventIds }
+      })
+
+      if (!result.ok) {
+        if (result.error === "permission_set_not_found") return c.json({ error: "permission_set_not_found" as const }, 404)
+        if (result.error === "default_permission_set") {
+          return c.json({ error: "default_permission_set" as const, message: "Member, Admin and Super admin permissions can't be deleted. Turn permissions off instead." }, 400)
+        }
+        if (result.error === "permission_revoked") return c.json(result.response, 403, permissionFailureHeaders(result.response))
+        return c.json({ error: "permission_set_archived" as const, message: "This permission set was already deleted." }, 409)
+      }
+
+      await finishLegacyAuditAction(capture, {
+        organizationId,
+        actorUserId: payload.currentMember.userId,
+        action: ORGANIZATION_AUDIT_ACTIONS.permissionSetArchived,
+        payload: {
+          permissionSetId: result.set.id,
+          permissionSetName: result.set.name,
+          teamId: result.teamId,
+        },
+      }, result.auditEventIds)
+
+      return c.body(null, 204)
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVariables }>(app: Hono<T>) {
+  app.get(
+    "/v1/permissions/catalog",
+    describeRoute({
+      tags: ["Permissions"],
+      summary: "List the permission catalog",
+      description: "Lists every permission area and permission key with its label, description and flags: sensitive (needs a recent sign-in), lockedOn (can never be turned off in those default sets) and defaultOn (default sets it starts on in). Available to every member, whether or not Permissions is turned on.",
+      responses: {
+        200: jsonResponse("Permission catalog returned successfully.", permissionCatalogResponseSchema),
+        401: unauthorizedResponse,
+        404: notFoundResponse("The organization was not found."),
+      },
+    }),
+    orgMemberRoute(),
+    async (c) => {
+      const showSuperAdmin = await superAdminSetVisible(c.get("organizationContext").organization.id)
+      return c.json({
+        areas: areaEntries(),
+        permissions: PERMISSION_KEYS.map((key) => serializeDefinition(key, showSuperAdmin)),
+      })
     },
+  )
+
+  app.get(
+    "/v1/permissions/sets",
+    describeRoute({
+      tags: ["Permissions"],
+      summary: "List permission sets",
+      description: "Lists Member permissions, Admin permissions, Super admin permissions and every active team permission set, with the linked team, how many permissions each allows and who it applies to. Creates the Member, Admin and Super admin sets if they don't exist yet. Requires permissions.view.",
+      responses: {
+        200: jsonResponse("Permission sets returned successfully.", permissionSetListResponseSchema),
+        401: unauthorizedResponse,
+        403: forbiddenResponse("The caller lacks permissions.view."),
+        404: notFoundResponse("The organization was not found, or Permissions is turned off."),
+      },
+    }),
+    orgMemberRoute(),
+    requireOrgPermission("permissions.view"),
+    async (c) => {
+      const payload = c.get("organizationContext")
+      const organizationId = payload.organization.id
+      const sets = await listActiveSets(organizationId)
+      const setIds = sets.map((set) => set.id)
+      const [states, links, members, adminTeams] = await Promise.all([
+        readPermissionSetStates(db, setIds),
+        readTeamLinks(db, organizationId, setIds),
+        listActiveMembers(organizationId),
+        listAdminTeams(organizationId),
+      ])
+      const teamsBySet = new Map(sets.flatMap((set) => set.defaultKey === null ? [[set.id, activeTeams(links.get(set.id)).map((entry) => entry.id)] as const] : []))
+      const peopleCounts = await countPeoplePerSet(organizationId, teamsBySet)
+
+      return c.json({
+        sets: sets.map((set) => {
+          const team = currentTeam(links.get(set.id))
+          const teams = set.defaultKey === null ? activeTeams(links.get(set.id)) : []
+          const appliesTo: z.infer<typeof appliesToSummarySchema> = set.defaultKey === "member"
+            ? { kind: "everyone", memberCount: members.length }
+            : set.defaultKey === "admin"
+              ? { kind: "admins", directAdminCount: members.filter(isDirectAdmin).length, adminTeams }
+              : set.defaultKey === "super-admin"
+                ? { kind: "super_admins", superAdminCount: members.filter(isDirectSuperAdmin).length }
+                : { kind: "team", team, teams, memberCount: peopleCounts.get(set.id) ?? 0 }
+          return {
+            id: set.id,
+            name: set.name,
+            kind: setKind(set.defaultKey),
+            team,
+            teams,
+            allowedCount: allowedKeys(states.get(set.id)).size,
+            createdAt: set.createdAt.toISOString(),
+            appliesTo,
+          }
+        }),
+      })
+    },
+  )
+
+  app.post(
+    "/v1/permissions/sets",
+    describeNonMcpRoute({
+      tags: ["Permissions"],
+      "x-mcp": false,
+      summary: "Create team permissions",
+      description: "Creates the permission set for one team, named \"<team name> Permissions\" (fixed from then on), links it to the team and stores its initial permissions. A team can have one active set. Send name (and optionally teamIds) instead of teamId to create a named role that can be given to any number of teams; each listed team's current custom role is replaced. You can only turn on permissions you have yourself. Requires permissions.manage (only the owner has it by default), and a recent sign-in.",
+      responses: {
+        201: jsonResponse("Team permission set created.", permissionSetResponseSchema),
+        400: jsonResponse("The body was invalid or named an unknown or repeated permission.", z.union([invalidRequestSchema, permissionEditErrorSchema])),
+        401: unauthorizedResponse,
+        403: editForbiddenResponse,
+        404: notFoundResponse("The organization or team was not found, or Permissions is turned off."),
+        409: jsonResponse("The team already has an active permission set.", permissionSetConflictSchema),
+      },
+    }),
+    orgMemberRoute(),
+    requireOrgPermission("permissions.manage"),
+    jsonValidator(createPermissionSetBodySchema),
+    async (c) => createPermissionSetAction(c, c.get("organizationContext"), c.req.valid("json"), auditChangeCapture(c)),
+  )
+
+  app.get(
+    "/v1/permissions/sets/:permissionSetId",
+    describeRoute({
+      tags: ["Permissions"],
+      summary: "Get a permission set",
+      description: "Returns one permission set with the status of every catalog permission (allow or deny, whether it is locked on, and who last changed it) and who it applies to: everyone (Member permissions), members with the admin role and Admin teams (Admin permissions), or the linked team and its members. The names and emails of those people, and the email of whoever last changed each permission, are only included when the caller also holds teams.view; otherwise only the counts (and the changer's name) are. Archived team sets are still readable. Requires permissions.view.",
+      responses: {
+        200: jsonResponse("Permission set returned successfully.", permissionSetResponseSchema),
+        400: jsonResponse("The permission set id was invalid.", invalidRequestSchema),
+        401: unauthorizedResponse,
+        403: forbiddenResponse("The caller lacks permissions.view."),
+        404: notFoundResponse("The permission set or organization was not found, or Permissions is turned off."),
+      },
+    }),
+    orgMemberRoute(),
+    requireOrgPermission("permissions.view"),
+    paramValidator(permissionSetParamsSchema),
+    async (c) => {
+      const payload = c.get("organizationContext")
+      const organizationId = payload.organization.id
+      const permissionSetId = normalizeDenTypeId("permissionSet", c.req.valid("param").permissionSetId)
+      const existing = await readPermissionSet(db, organizationId, permissionSetId)
+      if (!existing) return c.json({ error: "permission_set_not_found" as const }, 404)
+      if (existing.defaultKey !== null) await ensureCurrentDefaultPermissionSets(organizationId)
+      return c.json({ set: await loadPermissionSetDetail(organizationId, existing, await mayViewRosters(c)) })
+    },
+  )
+
+  app.patch(
+    "/v1/permissions/sets/:permissionSetId",
+    describeNonMcpRoute({
+      tags: ["Permissions"],
+      "x-mcp": false,
+      summary: "Rename a role",
+      description: "Renames a team permission set (a custom role). Member, Admin and Super admin permissions keep their names, and archived sets can't be changed. Requires permissions.manage (only the owner has it by default), a recent sign-in.",
+      responses: {
+        200: jsonResponse("Role renamed; its current state is returned.", permissionSetResponseSchema),
+        400: jsonResponse("The body or id was invalid, or the set is Member, Admin or Super admin permissions.", z.union([invalidRequestSchema, defaultPermissionSetErrorSchema])),
+        401: unauthorizedResponse,
+        403: forbiddenResponse("The caller lacks permissions.manage or needs a recent sign-in."),
+        404: notFoundResponse("The permission set or organization was not found, or Permissions or Shared roles is turned off."),
+        409: jsonResponse("The permission set is archived.", permissionSetConflictSchema),
+      },
+    }),
+    orgMemberRoute(),
+    requireOrgPermission("permissions.manage"),
+    paramValidator(permissionSetParamsSchema),
+    jsonValidator(renamePermissionSetBodySchema),
+    async (c) => renamePermissionSetAction(c, c.get("organizationContext"), c.req.valid("param").permissionSetId, c.req.valid("json").name, auditChangeCapture(c)),
+  )
+
+  app.put(
+    "/v1/teams/:teamId/permission-set",
+    describeNonMcpRoute({
+      tags: ["Permissions"],
+      "x-mcp": false,
+      summary: "Set a team's custom role",
+      description: "Gives a team one custom role (a team permission set), replacing its current one, or none with permissionSetId null. The same role can be given to any number of teams; a role left with no team is kept until it is deleted. You can only give a role whose permissions you all have yourself. Whether the team is an Admin team is changed separately (PATCH /v1/teams/:teamId). Requires permissions.manage (only the owner has it by default), a recent sign-in.",
+      responses: {
+        200: jsonResponse("The team's custom role was set; the role's current state is returned, or null when the team has none.", z.object({ set: permissionSetDetailSchema.nullable() }).meta({ ref: "TeamPermissionSetResponse" })),
+        400: jsonResponse("The body or id was invalid, or the set is Member, Admin or Super admin permissions.", z.union([invalidRequestSchema, defaultPermissionSetErrorSchema])),
+        401: unauthorizedResponse,
+        403: editForbiddenResponse,
+        404: notFoundResponse("The team, permission set or organization was not found, or Permissions or Shared roles is turned off."),
+        409: jsonResponse("The permission set is archived.", permissionSetConflictSchema),
+      },
+    }),
+    orgMemberRoute(),
+    requireOrgPermission("permissions.manage"),
+    paramValidator(teamParamsSchema),
+    jsonValidator(teamPermissionSetBodySchema),
+    async (c) => setTeamPermissionSetAction(c, c.get("organizationContext"), c.req.valid("param").teamId, c.req.valid("json").permissionSetId, auditChangeCapture(c)),
+  )
+
+  app.put(
+    "/v1/permissions/sets/:permissionSetId/permissions",
+    describeNonMcpRoute({
+      tags: ["Permissions"],
+      "x-mcp": false,
+      summary: "Change permissions in a set",
+      description: "Turns permissions on (allow) or off (deny) in one set. Only keys whose status actually changes are recorded; every change is kept in the set's history. Only the owner and admins can change Admin permissions, and only the owner and super admins can change Super admin permissions. Permissions locked on for admins can't be turned off in Admin permissions, you can only turn on permissions you have yourself (except turning a permission back on in Member, Admin or Super admin permissions where it is on by default), and archived sets can't be changed. The linked team can't be changed. Returns the set's new state. Requires permissions.manage (only the owner has it by default), and a recent sign-in.",
+      responses: {
+        200: jsonResponse("Permissions updated; the set's current state is returned.", permissionSetResponseSchema),
+        400: jsonResponse("The body was invalid, named an unknown or repeated permission, or tried to turn off a locked permission.", z.union([invalidRequestSchema, permissionEditErrorSchema])),
+        401: unauthorizedResponse,
+        403: editForbiddenResponse,
+        404: notFoundResponse("The permission set or organization was not found, or Permissions is turned off."),
+        409: jsonResponse("The permission set is archived.", permissionSetConflictSchema),
+      },
+    }),
+    orgMemberRoute(),
+    requireOrgPermission("permissions.manage"),
+    paramValidator(permissionSetParamsSchema),
+    jsonValidator(updatePermissionSetBodySchema),
+    async (c) => updatePermissionSetPermissionsAction(c, c.get("organizationContext"), c.req.valid("param").permissionSetId, c.req.valid("json").changes, auditChangeCapture(c)),
   )
 
   app.get(
@@ -1388,10 +1503,10 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
       tags: ["Permissions"],
       "x-mcp": false,
       summary: "Delete team permissions",
-      description: "Archives a team permission set and unlinks it from its team, so its permissions stop applying to the team's members. The set and its history are kept. Member and Admin permissions can't be deleted. Requires permissions.manage (only the owner has it by default), and a recent sign-in.",
+      description: "Archives a team permission set and unlinks it from its team, so its permissions stop applying to the team's members. The set and its history are kept. Member, Admin and Super admin permissions can't be deleted. Requires permissions.manage (only the owner has it by default), and a recent sign-in.",
       responses: {
         204: emptyResponse("The team permission set was archived."),
-        400: jsonResponse("The id was invalid, or the set is Member or Admin permissions.", z.union([invalidRequestSchema, defaultPermissionSetErrorSchema])),
+        400: jsonResponse("The id was invalid, or the set is Member, Admin or Super admin permissions.", z.union([invalidRequestSchema, defaultPermissionSetErrorSchema])),
         401: unauthorizedResponse,
         403: forbiddenResponse("The caller lacks permissions.manage or needs a recent sign-in."),
         404: notFoundResponse("The permission set or organization was not found, or Permissions is turned off."),
@@ -1401,66 +1516,7 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
     orgMemberRoute(),
     requireOrgPermission("permissions.manage"),
     paramValidator(permissionSetParamsSchema),
-    async (c) => {
-      const payload = c.get("organizationContext")
-      const organizationId = payload.organization.id
-      const permissionSetId = normalizeDenTypeId("permissionSet", c.req.valid("param").permissionSetId)
-      const capture = auditChangeCapture(c)
-      const actorMemberId = payload.currentMember.id
-
-      const result = await withOrganizationTeamMutation(organizationId, async (tx) => {
-        if (!(await lockPermissionSet(tx, organizationId, permissionSetId))) return { ok: false as const, error: "permission_set_not_found" as const }
-        const set = await readPermissionSet(tx, organizationId, permissionSetId)
-        if (!set) return { ok: false as const, error: "permission_set_not_found" as const }
-        if (set.defaultKey !== null) return { ok: false as const, error: "default_permission_set" as const }
-        if (set.archivedAt) return { ok: false as const, error: "permission_set_archived" as const }
-        const live = await editorInTransaction(tx, organizationId, actorMemberId)
-        if (!live.ok) return live
-
-        const now = new Date()
-        const links = (await readTeamLinks(tx, organizationId, [set.id])).get(set.id) ?? []
-        const activeLinks = links.filter((link) => link.removedAt === null)
-        const teamId = currentTeam(links)?.id ?? null
-        const before = await auditStateFor(tx, set, teamId)
-
-        if (activeLinks.length > 0) {
-          await tx.update(PermissionSetTeamTable)
-            .set({ removedAt: now, removedByOrgMembershipId: actorMemberId })
-            .where(inArray(PermissionSetTeamTable.id, activeLinks.map((link) => link.linkId)))
-        }
-        await tx.update(PermissionSetTable)
-          .set({ archivedAt: now, archivedByOrgMembershipId: actorMemberId })
-          .where(eq(PermissionSetTable.id, set.id))
-
-        const archived: PermissionSetRow = { ...set, archivedAt: now, archivedByOrgMembershipId: actorMemberId }
-        const auditEventIds = await appendDomainChanges(tx, capture, [
-          permissionSetArchivedEvent(organizationId, before, { ...before, set: archived }),
-        ])
-        return { ok: true as const, set, teamId, auditEventIds }
-      })
-
-      if (!result.ok) {
-        if (result.error === "permission_set_not_found") return c.json({ error: "permission_set_not_found" as const }, 404)
-        if (result.error === "default_permission_set") {
-          return c.json({ error: "default_permission_set" as const, message: "Member and Admin permissions can't be deleted. Turn permissions off instead." }, 400)
-        }
-        if (result.error === "permission_revoked") return c.json(result.response, 403, permissionFailureHeaders(result.response))
-        return c.json({ error: "permission_set_archived" as const, message: "This permission set was already deleted." }, 409)
-      }
-
-      await finishLegacyAuditAction(capture, {
-        organizationId,
-        actorUserId: payload.currentMember.userId,
-        action: ORGANIZATION_AUDIT_ACTIONS.permissionSetArchived,
-        payload: {
-          permissionSetId: result.set.id,
-          permissionSetName: result.set.name,
-          teamId: result.teamId,
-        },
-      }, result.auditEventIds)
-
-      return c.body(null, 204)
-    },
+    async (c) => archivePermissionSetAction(c, c.get("organizationContext"), c.req.valid("param").permissionSetId, auditChangeCapture(c)),
   )
 
   app.get(
@@ -1495,7 +1551,7 @@ export function registerOrgPermissionRoutes<T extends { Variables: OrgRouteVaria
         readTeamLinks(db, organizationId, setIds),
       ])
       return c.json({
-        permission: serializeDefinition(key),
+        permission: serializeDefinition(key, sets.some((set) => set.defaultKey === "super-admin")),
         sets: sets.map((set) => {
           const defaultKey = set.defaultKey
           const status: PermissionStatus = allowedKeys(states.get(set.id), [key]).has(key) ? "allow" : "deny"
