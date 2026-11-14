@@ -486,7 +486,7 @@ type BrainStatus = {
 | `POST /bonzaiwork/brains/clone` | host | `{ url, folderPath }` → `202 { jobId }`; de map moet leeg zijn of niet bestaan. Sluit de app het venster, dan gaat de clone door: de map blijft staan en kan later als bestaande map een project worden (een nieuwe clone in dezelfde map geeft `not_empty`) |
 | `GET /bonzaiwork/brains/jobs/:jobId` | host | `{ state: "running" \| "done" \| "failed", error, problem, status }` |
 | `PUT /bonzaiwork/brains/:workspaceId` | host | registreren `{ jobId?, kind, mode?, trusted?, excluded? }` (persoonlijk zonder `jobId`: geschiedenis buiten de map plus sjabloon), of `{ mode }` wijzigen |
-| `DELETE /bonzaiwork/brains/:workspaceId` | host | synchronisatie uitzetten; de map blijft |
+| `DELETE /bonzaiwork/brains/:workspaceId` | host | synchronisatie uitzetten; de map blijft. Voor het persoonlijke brein is dit **loskoppelen**: `409 chat_running` zolang er een chat loopt; daarna gelden alleen de app-regels in elke chat, de rondes van de persoonlijke agent verdwijnen, en `PUT` met `kind: "personal"` op dezelfde map gaat verder met dezelfde geschiedenis en uitgesloten mappen |
 | `GET /bonzaiwork/brains/:workspaceId/status` | client | `BrainStatus` |
 | `POST /bonzaiwork/brains/:workspaceId/pull` | host | vóór een beurt: projectbrein en persoonlijk brein bijwerken (max. ~5 s), dan de globale instructies |
 | `POST /bonzaiwork/brains/:workspaceId/sync` | host | "Wijzigingen delen" / "Opnieuw proberen" |

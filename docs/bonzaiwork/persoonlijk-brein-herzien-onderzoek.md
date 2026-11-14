@@ -5,6 +5,12 @@ bouwplan: wat er nu staat, wat de gevraagde wijziging raakt, een voorstel en de 
 open zijn. Er is niets gebouwd en niets gedraaid; wat alleen met een meting vast te stellen is, staat
 als **[VERIFIEER]**.
 
+**Eerste stap, gebouwd:** het persoonlijke brein is los te koppelen ("Jouw brein" → Technische details →
+Loskoppelen). De map, de notities en de geschiedenis blijven; het project wordt een gewoon project; de
+globale instructies vallen terug op de app-regels; de rondes van de persoonlijke agent verdwijnen tot er
+weer een brein is. Dezelfde map opnieuw koppelen gaat verder waar het stopte. De vier regels uit §4.3
+zijn hiermee niet aangeraakt: na loskoppelen is de map geen brein meer.
+
 ## 1. De vraag
 
 Het huidige persoonlijke brein ("second brain") vervangen, met vier eisen:

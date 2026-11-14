@@ -1536,6 +1536,11 @@ export const copy = {
       chatsNone: "Nog geen chats met je brein",
       excludedSave: "Opslaan",
       privateRepoLink: "Koppelen",
+      disconnect: "Loskoppelen",
+      disconnectTitle: "Je persoonlijke brein loskoppelen?",
+      disconnectBody: "Je voorkeuren en notities tellen dan niet meer mee in je chats. De map blijft staan met alles erin en wordt een gewoon project. Je kunt dezelfde map later opnieuw koppelen.",
+      disconnectExcluded: (folders: string) => `Let op: de AI kan daarna ook in de uitgesloten mappen komen (${folders}).`,
+      disconnected: "Je persoonlijke brein is losgekoppeld",
     },
   },
 
