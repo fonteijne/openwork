@@ -2,7 +2,7 @@ import type { AttentionItem, Brain, BrainHistoryEntry, Chat, Project, Routine } 
 import { readLocal, writeLocal } from "~/lib/storage";
 
 /**
- * The pure part of Vandaag (brief §5): which project the composer starts in, how a card is keyed,
+ * The pure part of Vandaag (brief §5): which project a new chat starts in, how a card is keyed,
  * what "Terwijl je weg was" lists and since when. No React, so it tests in node.
  */
 
@@ -16,7 +16,7 @@ export const MAX_AWAY_ROWS = 8;
 /** At most this many project rows before "Alle projecten" (brief §5). */
 export const MAX_PROJECT_ROWS = 5;
 
-/** The composer's project: the one used last when it is still listed, else the first pinned, else the first. */
+/** The project a new chat starts in (the ⌘N picker, the palette's typed intent): the one used last when it is still listed, else the first pinned, else the first. */
 export function defaultProjectId(lastProjectId: string | null, projects: readonly Project[]): string | null {
   if (lastProjectId && projects.some((project) => project.id === lastProjectId)) return lastProjectId;
   return projects.find((project) => project.pinned)?.id ?? projects[0]?.id ?? null;

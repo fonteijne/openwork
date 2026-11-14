@@ -8,6 +8,8 @@ type UiState = {
   drawerOpen: boolean;
   paletteOpen: boolean;
   newProjectOpen: boolean;
+  /** The ⌘N picker: which project the new chat starts in. */
+  newChatOpen: boolean;
   feedbackOpen: boolean;
   /** The ⌘⇧/ sheet with the shortcuts table. */
   shortcutsOpen: boolean;
@@ -30,6 +32,7 @@ type UiState = {
   setDrawer(open: boolean): void;
   setPalette(open: boolean): void;
   setNewProject(open: boolean): void;
+  setNewChat(open: boolean): void;
   setFeedback(open: boolean): void;
   setShortcuts(open: boolean): void;
   setSwitcher(open: boolean): void;
@@ -87,6 +90,7 @@ export const useUi = create<UiState>((set, get) => {
     drawerOpen: false,
     paletteOpen: false,
     newProjectOpen: false,
+    newChatOpen: false,
     feedbackOpen: false,
     shortcutsOpen: false,
     switcherOpen: false,
@@ -101,6 +105,7 @@ export const useUi = create<UiState>((set, get) => {
     setDrawer: (open) => set({ drawerOpen: open }),
     setPalette: (open) => set({ paletteOpen: open }),
     setNewProject: (open) => set({ newProjectOpen: open, drawerOpen: false }),
+    setNewChat: (open) => set({ newChatOpen: open, drawerOpen: false, paletteOpen: false }),
     setFeedback: (open) => set({ feedbackOpen: open, drawerOpen: false, paletteOpen: false }),
     setShortcuts: (open) => set({ shortcutsOpen: open, drawerOpen: false, paletteOpen: false }),
     setSwitcher: (open) => set({ switcherOpen: open }),

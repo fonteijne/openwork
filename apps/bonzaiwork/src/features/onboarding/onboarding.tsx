@@ -14,8 +14,7 @@ import { useUi } from "../shell/ui-store";
  * First start, one screen (brief §3, concept §10; assessment I-1): "Waar werk je aan?" with the
  * name, the key, starter chips and "Begin". The key is required and checked before the project
  * opens (create → link; a refused key keeps the person here with the error under the field, C6).
- * In user mode the one key is linked first. Lands on Vandaag with the composer focused and the
- * project pill set. No sentence explains the interface (P1); the server row keeps its URL for
+ * In user mode the one key is linked first. Lands in the new project's empty chat with the composer focused. No sentence explains the interface (P1); the server row keeps its URL for
  * the smoke test but no longer names the vendor (C3).
  */
 export function Onboarding() {
@@ -29,7 +28,8 @@ export function Onboarding() {
     const project = await draft.create({ folderPath: null, requireKey: true });
     if (!project) return;
     rememberProject(project.id);
-    navigate({ name: "home" }, { replace: true });
+    // Straight to the new project's empty chat: that is where the first message is typed.
+    navigate({ name: "project", projectId: project.id, chatId: null }, { replace: true });
     focusComposerWhenReady();
   };
 

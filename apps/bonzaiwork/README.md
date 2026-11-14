@@ -85,7 +85,7 @@ src/
                          Progress, Command (palet), Kbd-rij
   features/
     shell/               app-shell, zijbalk, tabbalk (telefoon), ⌘K-palet, sneltoetsenblad, ui-store
-    home/                Vandaag: composer met projectpil, Voor jou-kaarten, Bezig, Terwijl je weg was,
+    home/                Vandaag: Voor jou-kaarten, Bezig, Terwijl je weg was,
                          Je werkdag, Projecten
     project/             projectkop met wisselaar en tabs, Bestanden, Details-kolom, projectruntime
     chat/                chatweergave, composer, kaarten, stappenvouw, chatlijst in de zijbalk, lezer (?bestand=)
@@ -127,11 +127,11 @@ Een onbekend id of pad geeft een niet-gevonden-staat in de pagina; de zijbalk bl
 - **Bovenbalk**: de paginatitel is het focale element; rechts hoogstens twee paginacties en op project en chat
   "Details" (⌘\). Geen agenda- of breinpil meer.
 - **Breedtes**: ≥1280 zijbalk + inhoud + Details-kolom; 1024–1279 Details als niet-modale overlay; 640–1023
-  zijbalk als lade; <640 lade plus tabbalk (Vandaag · Projecten · Routines · Meer). De composer plakt op de
-  telefoon onderaan.
+  zijbalk als lade; <640 lade plus tabbalk (Vandaag · Projecten · Routines · Meer). De composer van een
+  project plakt op de telefoon onderaan.
 - **Projectruntime**: `ProjectRuntimeProvider` zit in de projectpagina en de uitgeklapte zijbalkrij, niet in
   de shell; de laatste drie runtimes blijven geparkeerd en worden losgelaten als het venster verborgen raakt.
-- **Sneltoetsen**: één tabel in `src/lib/shortcuts.ts` (⌘0 Vandaag, ⌘K zoeken, ⌘N nieuwe chat, ⌘⇧N nieuw
+- **Sneltoetsen**: één tabel in `src/lib/shortcuts.ts` (⌘0 Vandaag, ⌘K zoeken, ⌘N nieuwe chat (kiezer: in welk project; het huidige staat bovenaan, ⌘1…9 kiest een rij), ⌘⇧N nieuw
   project, ⌘⇧P project wisselen, ⌘1…9 vastgezette projecten, ⌘J agenda, ⌘\ Details, ⌘/ zijbalk, ⌘, instellingen,
   ⌘[ / ⌘] terug/vooruit, ⌘⇧/ sneltoetsen, ⌘⇧U alles gezien). De listener, het palet, tooltips en het
   sneltoetsenblad lezen dezelfde tabel; Windows en Linux tonen Ctrl.
@@ -157,7 +157,7 @@ flow ("Nu uitvoeren" → "Gestart").
   (`litellm-key-input`, `litellm-key-submit`, `litellm-server`, `new-workspace`, `workspace-item`,
   `composer-input`, `composer-send`, `chat-messages`) en `data-role="assistant"`. Houd die stabiel; de agenda heeft
   eigen `agenda-*`-testids (zie `docs/bonzaiwork/agenda.md`). De eerste start is één scherm: vul ook
-  `project-name` in; na "Begin" landt de app op Vandaag (`new-workspace`/`workspace-item` staan op `#/projecten`).
+  `project-name` in; na "Begin" landt de app in de lege chat van het nieuwe project (`new-workspace`/`workspace-item` staan op `#/projecten`).
 - **Bewijs**: headless screenshots van de demo (1280 licht en donker, 390 licht) in
   `docs/bonzaiwork/screenshots/overhaul/`.
 

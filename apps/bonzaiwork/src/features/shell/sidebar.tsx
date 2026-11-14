@@ -63,7 +63,6 @@ function ExpandedProject(props: { project: Project; activeChatId: string | null;
       >
         <MessageSquarePlus />
         <span className="min-w-0 flex-1 truncate text-start">{copy.chatList.newChat}</span>
-        {props.open ? <kbd className="font-sans text-[11px] font-normal text-subtle-foreground pointer-coarse:hidden">{chord("newChat")}</kbd> : null}
       </Button>
       <ChatList activeChatId={props.activeChatId} />
     </div>
@@ -119,6 +118,7 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
   const desktop = useMediaQuery(DESKTOP);
   const setPalette = useUi((state) => state.setPalette);
   const setNewProject = useUi((state) => state.setNewProject);
+  const setNewChat = useUi((state) => state.setNewChat);
   const toggleSidebar = useUi((state) => state.toggleSidebar);
   const expandedId = useUi((state) => state.expandedProjectId);
   const setExpanded = useUi((state) => state.setExpandedProject);
@@ -166,6 +166,11 @@ export function Sidebar(props: { route: Route; projectId: string | null }) {
           </Tooltip>
         ) : null}
         <div className="flex-1" />
+        <Tooltip label={copy.shell.newChat} shortcut={chord("newChat")} side="bottom">
+          <Button variant="quiet" size="icon-sm" aria-label={copy.shell.newChat} onClick={() => setNewChat(true)} data-testid="sidebar-new-chat">
+            <MessageSquarePlus />
+          </Button>
+        </Tooltip>
         {desktop ? (
           <Tooltip label={copy.shell.sidebarCollapse} shortcut={chord("sidebar")} side="bottom">
             <Button variant="quiet" size="icon-sm" aria-label={copy.shell.sidebarCollapse} onClick={toggleSidebar}>
