@@ -35,6 +35,7 @@ docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per k
 docs/bonzaiwork/agenda-manager-plan.md         implementatieplan van die agenda-agent: regels, bestanden, routes, prompts, fasen
 docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt en stand per fase
 docs/bonzaiwork/agenda.md                      de agenda zoals gebouwd: bediening, demo, headless testen, eerste test na de MVP
+docs/bonzaiwork/persoonlijk-brein-herzien-onderzoek.md   onderzoek: het persoonlijke brein schoon opzetten, skills uit de app, een bestaand brein wordt een project
 docs/bonzaiwork/persoonlijke-agent-plan.md     de persoonlijke agent op Vandaag zoals gebouwd: taken, deadlines, mail, Slack, rondes, instellingen, wat niet tegen het echte is getest
 packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
 packages/bonzaiwork-agenda/      agenda: meting per kwartier (beurten, aanwezigheid), correcties, boekdocument voor Bridge; ./model voor de UI
