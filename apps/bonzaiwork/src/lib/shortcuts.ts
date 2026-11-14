@@ -97,7 +97,7 @@ export function inOverlay(target: EventTarget | null): boolean {
   return target.closest('[role="dialog"]:not([data-nonmodal]), [role="alertdialog"], [role="menu"], [role="listbox"]') !== null;
 }
 
-/** The page's composer takes focus (⌘N, "Nieuwe chat"): the page that owns a composer listens. */
+/** The page's composer takes focus ("Nieuwe chat", after the ⌘N picker): the page that owns a composer listens. */
 export const FOCUS_COMPOSER_EVENT = "bonzaiwork:focus-composer";
 
 export function focusComposer(delay = 30): void {

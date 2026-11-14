@@ -138,11 +138,14 @@ try {
   await page.waitForSelector('[data-testid="litellm-key-input"]', { timeout: 120_000 });
   check("packaged app shows BonzaiWork onboarding", (await page.title()) === "BonzaiWork", await page.title());
   check("onboarding shows the baked LiteLLM URL", (await page.textContent('[data-testid="litellm-server"]')) === baked.litellmBaseUrl);
-  // The first run is one screen (brief §3): a project name, the key, Begin; it lands on Vandaag.
+  // The first run is one screen (brief §3): a project name, the key, Begin. Here the key links and
+  // the app leaves the welcome screen for Vandaag: the project itself is not made, because this
+  // profile's HOME is a temp folder the app derives no default project folder from. On a real
+  // home folder "Begin" lands in the new project's empty chat.
   await page.fill('[data-testid="project-name"]', "Smoke");
   await page.fill('[data-testid="litellm-key-input"]', KEY);
   await page.click('[data-testid="litellm-key-submit"]');
-  await page.waitForSelector('[data-testid="composer-input"]', { timeout: 60_000 });
+  await page.waitForSelector('[data-testid="home-page"]', { timeout: 60_000 });
 
   // The native folder picker cannot be driven here; register the folder the way the UI does after picking one.
   const workspaceId = await page.evaluate(async (folderPath) => {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 
 import { useProjects, useStatus } from "~/backend/queries";
 import { BrandMark } from "~/components/brand";
@@ -7,7 +7,7 @@ import { Button } from "~/components/ui/button";
 import { EmptyState, Skeleton } from "~/components/ui/misc";
 import { copy } from "~/copy";
 import { errorText } from "~/lib/errors";
-import { navigate, routeProjectId, routeTab, useRoute, type Route } from "~/lib/router";
+import { navigate, parse, routeProjectId, routeTab, useRoute, type Route } from "~/lib/router";
 
 import { HomePage } from "./features/home/home-page";
 import { AppShell } from "./features/shell/app-shell";
@@ -184,11 +184,22 @@ export function App() {
   const firstRun = projects.data?.length === 0;
   const gated = Boolean(status.data) && (needsUserKey || (firstRun && needsOnboarding(route)));
 
+  // A project route the gate sent to #/welkom: where the person goes once the gate lifts.
+  const bounced = useRef<Route | null>(null);
   useEffect(() => {
     if (!status.data) return;
-    if (gated && route.name !== "onboarding") navigate({ name: "onboarding" }, { replace: true });
-    if (!gated && route.name === "onboarding") navigate({ name: "home" }, { replace: true });
-  }, [gated, route.name, status.data]);
+    if (gated && route.name !== "onboarding") {
+      bounced.current = routeProjectId(route) ? route : null;
+      navigate({ name: "onboarding" }, { replace: true });
+      return;
+    }
+    // Read the hash as it is now: "Begin" may already have opened the new project between this
+    // render and the effect, and that destination must not be replaced by Vandaag.
+    if (!gated && route.name === "onboarding" && parse(window.location.hash).name === "onboarding") {
+      navigate(bounced.current ?? { name: "home" }, { replace: true });
+    }
+    if (!gated) bounced.current = null;
+  }, [gated, route, status.data]);
 
   // Opening a project is the next step from almost every first screen.
   useEffect(prefetchProjectPage, []);
