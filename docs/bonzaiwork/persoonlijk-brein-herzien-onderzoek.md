@@ -25,7 +25,12 @@ zijn hiermee niet aangeraakt: na loskoppelen is de map geen brein meer.
 - *Terug*: `BONZAIWORK_MANAGED_SKILLS=0` geeft de oude opzet (skills uit het persoonlijke brein, een
   kopie in elk nieuw brein, en de keuze voor een bestaande map).
 
-Nog niet gebouwd: stap 3 en 4 (§4.3), het verhuizen van een bestaand persoonlijk brein naar een project.
+**Stap 3 en 4: gebouwd, niet meegenomen.** Het omzetten in één klik staat in fonteijne/openwork#45, die is
+gesloten: met drie testgebruikers woog het risico in de synchronisatie niet op tegen een handmatige
+overstap. Die overstap staat in [`release-notes.md`](./release-notes.md). Heropenen kan als meer
+gebruikers een eigen notitiemap gekoppeld hebben.
+
+Stap 3 en 4 (§4.3), het verhuizen van een bestaand persoonlijk brein naar een project, zitten dus niet in de app.
 Een bestaand gekoppeld brein blijft tot dan werken zoals het was, alleen komen de skills nu uit de app;
 wat er in zijn eigen `.opencode/skills` staat, telt niet meer mee in andere projecten.
 
