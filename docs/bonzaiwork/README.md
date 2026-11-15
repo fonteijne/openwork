@@ -38,6 +38,7 @@ docs/bonzaiwork/agenda-manager-plan.md         implementatieplan van die agenda-
 docs/bonzaiwork/overdracht-agenda-manager.md   overdracht om de agenda-MVP (fase 1 en 2) te bouwen, met startprompt en stand per fase
 docs/bonzaiwork/agenda.md                      de agenda zoals gebouwd: bediening, demo, headless testen, eerste test na de MVP
 docs/bonzaiwork/persoonlijk-brein-herzien-onderzoek.md   onderzoek: het persoonlijke brein schoon opzetten, skills uit de app, een bestaand brein wordt een project
+docs/bonzaiwork/release-notes.md               wat testgebruikers bij de volgende build moeten weten en doen; hoort bij het promoveren naar main
 docs/bonzaiwork/persoonlijke-agent-plan.md     de persoonlijke agent op Vandaag zoals gebouwd: taken, deadlines, mail, Slack, rondes, instellingen, wat niet tegen het echte is getest
 packages/bonzaiwork-routines/    routineplanner in het serverproces: opslag, schema, runs als chat, breinen per routine
 packages/bonzaiwork-agenda/      agenda: meting per kwartier (beurten, aanwezigheid), correcties, boekdocument voor Bridge; ./model voor de UI
@@ -311,6 +312,11 @@ Zijn de CI en je test op `nightly` akkoord, zet `main` dan op precies die commit
 git fetch origin
 git push origin <geteste-sha>:main      # alleen een fast-forward; geweigerd als main eigen commits heeft
 ```
+
+**Release notes horen bij de promotie.** Lees vóór het promoveren [`release-notes.md`](./release-notes.md),
+kopje "Volgende release": daar staat wat testgebruikers na het bijwerken moeten doen. Stuur die tekst mee
+met de build, geef het kopje daarna de datum en de commit, en begin een nieuw, leeg "Volgende release"
+(als gewone PR naar `nightly`).
 
 Wordt de push geweigerd, dan staat er iets op `main` wat niet in `nightly` zit (regel 1): merge `main` eerst
 in `nightly`, test opnieuw en promoveer dan. Liever een PR, bijvoorbeeld omdat `main` beschermd is: maak een
