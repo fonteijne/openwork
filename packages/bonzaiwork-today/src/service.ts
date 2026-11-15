@@ -66,7 +66,7 @@ export function createTodayService(deps: TodayDeps) {
   function requireConnector(kind: "calendar" | "mail" | "slack"): void {
     const state = connector(kind).state;
     const name = kind === "calendar" ? "de agenda" : kind === "mail" ? "mail" : "Slack";
-    if (state === "off") throw new TodayError(409, "connector_off", `De koppeling met ${name} staat uit. De gebruiker zet haar aan bij Instellingen → Persoonlijke agent.`);
+    if (state === "off") throw new TodayError(409, "connector_off", `De koppeling met ${name} staat uit. De gebruiker zet haar aan bij Instellingen → Agent op Vandaag.`);
     if (state === "not_configured") throw new TodayError(409, "connector_not_configured", `De koppeling met ${name} is nog niet ingesteld.`);
   }
 
@@ -122,7 +122,7 @@ export function createTodayService(deps: TodayDeps) {
     store.prune(now, today);
     const found = await scan();
     if (!found.brains.some((brain) => brain.kind === "personal")) {
-      return { enabled: true, blocked: "Maak eerst je persoonlijke brein aan (Jouw brein). De persoonlijke agent werkt van daaruit.", ...base, handles: found.handles };
+      return { enabled: true, blocked: "Maak eerst je agent aan (pagina Agent). De rondes op Vandaag werken van daaruit.", ...base, handles: found.handles };
     }
     void refreshMeetings();
     const open = found.todos.filter((todo) => !todo.done);
@@ -306,7 +306,7 @@ export function createTodayService(deps: TodayDeps) {
       const clean = thought.replace(/\s+/g, " ").trim().slice(0, 2000);
       if (!clean) throw new TodayError(400, "empty_thought", "Er is niets om te parkeren.");
       const personal = (await deps.brains()).find((brain) => brain.kind === "personal");
-      if (!personal) throw new TodayError(409, "no_personal_brain", "Maak eerst je persoonlijke brein aan.");
+      if (!personal) throw new TodayError(409, "no_personal_brain", "Maak eerst je agent aan.");
       const entry = await parkThought(personal.root, clean, new Date(deps.now()));
       await deps.changed(personal.id);
       return entry;

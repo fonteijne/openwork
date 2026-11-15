@@ -390,7 +390,7 @@ export function createSeed(now: number, options: { empty: boolean; keyMode: KeyM
       icon: "file-text",
       keyValue: workspaceKeys ? null : "unused",
     }),
-    project("p-mijn-brein", "Mijn brein", now - 2 * DAY, {
+    project("p-mijn-brein", "Mijn agent", now - 2 * DAY, {
       description: "Mijn voorkeuren, kennis en eigen werkwijzen",
       color: "sage",
       icon: "book",
