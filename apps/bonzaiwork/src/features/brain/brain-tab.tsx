@@ -5,6 +5,7 @@ import { ArrowDownToLine, ArrowUpFromLine, BookOpen, ExternalLink } from "lucide
 import { useBackend } from "~/backend/context";
 import { keys, useBrainAuthor, useBrainHistory, useBrains, useRoutines, useStatus } from "~/backend/queries";
 import type { Brain, BrainMode, Project, RemoteCheck } from "~/backend/types";
+import { OpenFolderButton } from "~/components/open-folder-button";
 import { TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
 import { StatusChip } from "~/components/ui/chip";
@@ -298,7 +299,7 @@ function TechnicalDetails(props: { brain: Brain; readOnly: boolean }) {
       <div className="border-t border-border">
         {status.remote ? <Row label={copy.brain.technical.link} value={<code className="font-mono text-xs">{status.remote}</code>} /> : null}
         {status.remote ? <Row label={copy.brain.technical.branch} value={<code className="font-mono text-xs">{status.branch}</code>} /> : null}
-        <Row label={copy.brain.technical.folder} value={<code className="font-mono text-xs">{props.brain.path}</code>} />
+        <Row label={copy.brain.technical.folder} value={<code className="font-mono text-xs">{props.brain.path}</code>} action={<OpenFolderButton path={props.brain.path} />} />
         <Row label={copy.brain.technical.lastSync} value={status.lastSyncAt ? formatDateTime(status.lastSyncAt) : copy.brain.never} />
         {status.remote ? (
           <Row

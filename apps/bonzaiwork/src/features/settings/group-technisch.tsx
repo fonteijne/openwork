@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { FolderOpen } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { keys } from "~/backend/queries";
 import type { Project } from "~/backend/types";
-import { Button } from "~/components/ui/button";
+import { OpenFolderButton } from "~/components/open-folder-button";
 import { Disclosure } from "~/components/ui/disclosure";
 import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
 import { copy } from "~/copy";
@@ -27,14 +26,7 @@ export function TechnischGroup(props: { project: Project }) {
         <Row
           label={copy.settings.technical.path}
           value={<span className="font-mono text-xs">{props.project.path}</span>}
-          action={
-            backend.capabilities.revealPath ? (
-              <Button variant="secondary" size="sm" onClick={() => void backend.desktop.revealPath(props.project.path)}>
-                <FolderOpen />
-                {copy.settings.project.reveal}
-              </Button>
-            ) : undefined
-          }
+          action={<OpenFolderButton path={props.project.path} />}
         />
         <Row label={copy.settings.technical.engine} value={versions.isLoading ? <Skeleton className="h-4 w-24" /> : (versions.data?.engine ?? (demo ? copy.boot.demoBadge : "—"))} />
         <Row label={copy.settings.technical.server} value={versions.isLoading ? <Skeleton className="h-4 w-24" /> : (versions.data?.server ?? (demo ? copy.boot.demoBadge : "—"))} />

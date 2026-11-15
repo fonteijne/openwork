@@ -57,6 +57,17 @@ export async function revealItem(path: string): Promise<void> {
   await invoker()?.("__revealItemInDir", path);
 }
 
+/**
+ * Opens the folder itself (not its parent with it selected) in Finder, Explorer or the Linux
+ * file manager: Electron's `shell.openPath` answers "" on success and the reason otherwise.
+ */
+export async function openFolder(path: string): Promise<void> {
+  const invoke = invoker();
+  if (!invoke) return;
+  const result = await invoke("__openPath", path);
+  if (typeof result === "string" && result.trim()) throw new Error(result);
+}
+
 /** The system browser; outside the desktop shell, a new tab. */
 export async function openExternal(url: string): Promise<void> {
   const open = rec(bridge()?.shell)?.openExternal;
