@@ -76,12 +76,12 @@ Doe dit:
 ${RULES}`;
 
   return [
-    { system: "agent.ochtend", name: "Persoonlijke agent: ochtend", prompt: morning, schedule: { kind: "weekly", timezone, daysOfWeek: WEEKDAYS, hour: start, minute: 0 } },
+    { system: "agent.ochtend", name: "Agent: ochtend", prompt: morning, schedule: { kind: "weekly", timezone, daysOfWeek: WEEKDAYS, hour: start, minute: 0 } },
     {
-      system: "agent.tussendoor", name: "Persoonlijke agent: tussendoor", prompt: between,
+      system: "agent.tussendoor", name: "Agent: tussendoor", prompt: between,
       schedule: { kind: "interval", timezone, everyHours: 2, daysOfWeek: WEEKDAYS, startHour: Math.min(start + 2, 22), endHour: Math.max(Math.min(start + 2, 22) + 1, end) },
     },
-    { system: "agent.avond", name: "Persoonlijke agent: avond", prompt: evening, schedule: { kind: "weekly", timezone, daysOfWeek: WEEKDAYS, hour: Math.max(0, Math.min(end - 1, 23)), minute: 30 } },
+    { system: "agent.avond", name: "Agent: avond", prompt: evening, schedule: { kind: "weekly", timezone, daysOfWeek: WEEKDAYS, hour: Math.max(0, Math.min(end - 1, 23)), minute: 30 } },
   ];
 }
 

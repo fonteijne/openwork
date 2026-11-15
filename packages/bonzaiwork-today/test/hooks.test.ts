@@ -144,7 +144,7 @@ describe("uit tot je het aanzet (T10)", () => {
     expect(rounds.map((round) => round.system)).toEqual(["agent.ochtend", "agent.tussendoor", "agent.avond"]);
     for (const round of rounds) expect(round).toMatchObject({ workspaceId: "ws-mijn", model: "gpt-6-luna", brains: ["ws-sales"], state: "active" });
     expect(rounds.every((round) => typeof round.nextRunAt === "number" && round.nextRunAt > NOW)).toBe(true);
-    expect((await view()).rounds.map((round) => round.name)).toEqual(["Persoonlijke agent: ochtend", "Persoonlijke agent: tussendoor", "Persoonlijke agent: avond"]);
+    expect((await view()).rounds.map((round) => round.name)).toEqual(["Agent: ochtend", "Agent: tussendoor", "Agent: avond"]);
   });
 
   test("een ander model geldt voor alle rondes; uitzetten haalt ze weg; BONZAIWORK_TODAY=0 wint van de instelling", async () => {
@@ -169,7 +169,7 @@ describe("uit tot je het aanzet (T10)", () => {
     personal = false;
     await hooks.reconcile();
     expect(routines.systemRoutines("agent.")).toEqual([]);
-    expect((await view()).blocked).toContain("persoonlijke brein");
+    expect((await view()).blocked).toContain("Maak eerst je agent aan");
     personal = true;
     await hooks.reconcile();
     expect(routines.systemRoutines("agent.").map((round) => round.workspaceId)).toEqual(["ws-mijn", "ws-mijn", "ws-mijn"]);
@@ -453,7 +453,7 @@ describe("de agent en de buitenwereld (plan §3, T7)", () => {
 
     expect((await call("POST", "/bonzaiwork/today/rounds/run", { system: "agent.tussendoor" })).status).toBe(200);
     const session = engineCalls.find((entry) => entry.path === "/api/session");
-    expect(session?.body).toMatchObject({ title: "Persoonlijke agent: tussendoor", model: { providerID: "litellm", id: "gpt-6-luna" } });
+    expect(session?.body).toMatchObject({ title: "Agent: tussendoor", model: { providerID: "litellm", id: "gpt-6-luna" } });
     await hooks.answerOwnReads();
     const replies = engineCalls.filter((entry) => entry.path.includes("/reply"));
     expect(replies).toHaveLength(1);

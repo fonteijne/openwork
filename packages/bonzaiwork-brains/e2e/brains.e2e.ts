@@ -223,7 +223,7 @@ async function main() {
 
     // 4. The personal brain.
     const personalFolder = join(home, "BonzaiWork", "Persoonlijk");
-    const personal = await api("/workspaces/local", { method: "POST", headers: host, body: { folderPath: personalFolder, name: "Mijn brein", preset: "starter" } });
+    const personal = await api("/workspaces/local", { method: "POST", headers: host, body: { folderPath: personalFolder, name: "Mijn agent", preset: "starter" } });
     const personalId = text(personal.body.activeId);
     const made = await api(`/bonzaiwork/brains/${personalId}`, { method: "PUT", headers: host, body: { kind: "personal", excluded: ["Dagboek"] } });
     check("personal brain registered", made.status === 200 && text(record(made.body.status).state) === "local_only", JSON.stringify(made.body).slice(0, 200));
