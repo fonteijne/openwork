@@ -5,6 +5,7 @@ import { BookOpen, FolderOpen, MessageSquarePlus } from "lucide-react";
 import { useBackend } from "~/backend/context";
 import { keys, useBrains, useProjects, useRoutines, useStatus } from "~/backend/queries";
 import type { Brain, Project, RemoteCheck, RoutineInput } from "~/backend/types";
+import { OpenFolderButton } from "~/components/open-folder-button";
 import { PageTitle, TopBar } from "~/components/top-bar";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
@@ -307,7 +308,7 @@ function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly:
       </Section>
       <Disclosure label={copy.brain.technical.title} panelClassName="ps-0" testId="brain-technical">
         <div className="border-t border-border">
-          <Row label={copy.brain.technical.folder} value={<code className="font-mono text-xs">{brain.path}</code>} />
+          <Row label={copy.brain.technical.folder} value={<code className="font-mono text-xs">{brain.path}</code>} action={<OpenFolderButton path={brain.path} />} />
           <DisconnectRow brain={brain} readOnly={props.readOnly} />
         </div>
       </Disclosure>

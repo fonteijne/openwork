@@ -872,7 +872,6 @@ export const copy = {
       descriptionEmpty: "Geen beschrijving",
       descriptionPlaceholder: "Waar gaat dit project over?",
       folder: "Map",
-      reveal: "Tonen in map",
       week: "Deze week",
       weekTracked: (duration: string) => `${duration} bijgehouden`,
       weekWithoutPost: (duration: string) => `${duration} zonder post`,
@@ -1709,6 +1708,13 @@ export const copy = {
     progress: {
       /** Read to assistive tech while a bar has no value yet. */
       indeterminate: "Bezig",
+    },
+    /** The icon button next to a folder path: opens that folder in the system's file manager. */
+    openFolder: {
+      finder: "Openen in Finder",
+      explorer: "Openen in Verkenner",
+      files: "Openen in bestandsbeheer",
+      failed: "Deze map is niet geopend. Controleer of hij nog bestaat.",
     },
   },
 

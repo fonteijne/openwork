@@ -12,6 +12,17 @@ function detectMac(): boolean {
 
 export const isMac: boolean = detectMac();
 
+function detectWindows(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const data: unknown = Reflect.get(navigator, "userAgentData");
+  const platform: unknown = typeof data === "object" && data !== null ? Reflect.get(data, "platform") : null;
+  const name = typeof platform === "string" && platform ? platform : navigator.platform || navigator.userAgent;
+  return /Win/i.test(name);
+}
+
+/** The system's file manager, so a button can name it: Finder, Verkenner (Explorer) or the Linux one. */
+export const fileManager: "finder" | "explorer" | "files" = isMac ? "finder" : detectWindows() ? "explorer" : "files";
+
 /** The modifier shown in chords: ⌘ on Apple keyboards, Ctrl elsewhere (brief §4). */
 export const MOD: string = isMac ? "⌘" : "Ctrl";
 export const SHIFT: string = isMac ? "⇧" : "Shift";

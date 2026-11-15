@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useBackend } from "~/backend/context";
 import { keys, newProjectModels, useBrainAuthor, usePersonalBrain, useStatus } from "~/backend/queries";
 import type { Project } from "~/backend/types";
+import { OpenFolderButton } from "~/components/open-folder-button";
 import { Button } from "~/components/ui/button";
 import { Field, Input } from "~/components/ui/field";
 import { Locked, Row, Section } from "~/components/ui/misc";
@@ -148,7 +149,16 @@ export function BrainsAppSection() {
   return (
     <Section title={copy.settings.appSections.brains}>
       {personal ? (
-        <Row label={copy.brain.personalTitle} hint={personal.path} action={<Button variant="secondary" size="sm" onClick={() => navigate({ name: "brain" })}>{copy.brain.personalOpen}</Button>} />
+        <Row
+          label={copy.brain.personalTitle}
+          hint={personal.path}
+          action={
+            <>
+              <OpenFolderButton path={personal.path} />
+              <Button variant="secondary" size="sm" onClick={() => navigate({ name: "brain" })}>{copy.brain.personalOpen}</Button>
+            </>
+          }
+        />
       ) : (
         <div className="border-b border-border py-3">
           <div className="text-sm font-medium">{copy.brain.personalTitle}</div>

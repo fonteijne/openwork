@@ -6,6 +6,7 @@ import { Check, Circle, CircleDot, FilePen, FileText, FolderOpen, GitBranch, Mes
 import { useBackend } from "~/backend/context";
 import { keys, modelName, projectHasKey, useAgendaSettings, useBrain, useRefreshAttention, useRoutines, useStatus, useSummary, useUsage, useWorkflows } from "~/backend/queries";
 import type { Chat, Message, Project, Routine, Workflow, WorkflowStage } from "~/backend/types";
+import { OpenFolderButton } from "~/components/open-folder-button";
 import { PromptDialog } from "~/components/prompt-dialog";
 import { Button } from "~/components/ui/button";
 import { StatusChip } from "~/components/ui/chip";
@@ -441,7 +442,6 @@ function UsageLine(props: { project: Project }) {
 }
 
 function ProjectGroup(props: { project: Project }) {
-  const backend = useBackend();
   const status = useStatus();
   const { project } = props;
   const key = status.data?.keyMode === "user" ? status.data.user : project.key;
@@ -458,13 +458,10 @@ function ProjectGroup(props: { project: Project }) {
       </div>
       {/* Path and shell actions stay behind a labelled row (P3). */}
       <Disclosure label={copy.project.details.technical} size="sm" className="-mx-1 mt-2" panelClassName="ps-6 pt-1 pb-1">
-        <p className="break-all font-mono text-xs text-muted-foreground">{project.path}</p>
-        {backend.capabilities.revealPath ? (
-          <Button variant="secondary" size="sm" className="mt-2" onClick={() => void backend.desktop.revealPath(project.path)}>
-            <FolderOpen />
-            {copy.project.details.reveal}
-          </Button>
-        ) : null}
+        <div className="flex items-start gap-1">
+          <p className="min-w-0 flex-1 break-all py-1.5 font-mono text-xs text-muted-foreground">{project.path}</p>
+          <OpenFolderButton path={project.path} className="shrink-0" />
+        </div>
       </Disclosure>
     </Group>
   );
