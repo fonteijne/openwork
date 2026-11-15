@@ -43,7 +43,7 @@ function seed(now: number, projects: readonly DemoProject[], mode: string | null
     const parsed = parseTodoLine(text);
     if (!parsed) return null;
     return {
-      ...parsed, id, brainId: brain?.id ?? personal, brainName: brain?.name ?? "Mijn brein", brainKind: brain ? "project" : "personal", path: "taken.md", line: 1,
+      ...parsed, id, brainId: brain?.id ?? personal, brainName: brain?.name ?? "Mijn agent", brainKind: brain ? "project" : "personal", path: "taken.md", line: 1,
       mine: parsed.owner ? parsed.owner === "ik" : !brain,
     };
   };
@@ -108,9 +108,9 @@ export function createDemoToday(input: { storageKey: string; search: string; now
     if (!state.settings.enabled) return [];
     const at = now();
     return [
-      { system: "agent.ochtend", name: "Persoonlijke agent: ochtend", state: "active", nextRunAt: at + 20 * HOUR, lastRunAt: at - 2 * HOUR, lastStatus: "succeeded", model: state.settings.model },
-      { system: "agent.tussendoor", name: "Persoonlijke agent: tussendoor", state: "active", nextRunAt: at + HOUR, lastRunAt: at - HOUR, lastStatus: "succeeded", model: state.settings.model },
-      { system: "agent.avond", name: "Persoonlijke agent: avond", state: "active", nextRunAt: at + 7 * HOUR, lastRunAt: null, lastStatus: null, model: state.settings.model },
+      { system: "agent.ochtend", name: "Agent: ochtend", state: "active", nextRunAt: at + 20 * HOUR, lastRunAt: at - 2 * HOUR, lastStatus: "succeeded", model: state.settings.model },
+      { system: "agent.tussendoor", name: "Agent: tussendoor", state: "active", nextRunAt: at + HOUR, lastRunAt: at - HOUR, lastStatus: "succeeded", model: state.settings.model },
+      { system: "agent.avond", name: "Agent: avond", state: "active", nextRunAt: at + 7 * HOUR, lastRunAt: null, lastStatus: null, model: state.settings.model },
     ];
   };
 
@@ -164,7 +164,7 @@ export function createDemoToday(input: { storageKey: string; search: string; now
     const brain = input.projects().find((project) => project.id === brainId) ?? null;
     const parsed = parseTodoLine(formatTodoLine({ text, owner: brain ? "ik" : null, due, dueKind: waiting ? "waiting" : "deadline" }));
     if (!parsed) throw new BackendError("invalid_todo", "Een taak heeft tekst nodig.", 400);
-    const todo: Todo = { ...parsed, id: `t-${Date.now().toString(36)}`, brainId: brain?.id ?? "demo-persoonlijk", brainName: brain?.name ?? "Mijn brein", brainKind: brain ? "project" : "personal", path: "taken.md", line: 1, mine: true };
+    const todo: Todo = { ...parsed, id: `t-${Date.now().toString(36)}`, brainId: brain?.id ?? "demo-persoonlijk", brainName: brain?.name ?? "Mijn agent", brainKind: brain ? "project" : "personal", path: "taken.md", line: 1, mine: true };
     state.todos = [...state.todos, todo];
     save();
     return todo;

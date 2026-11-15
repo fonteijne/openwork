@@ -170,7 +170,7 @@ export async function callBrainTool(access: PersonalAccess, name: string, args: 
   const text = (key: string) => (typeof args[key] === "string" ? String(args[key]) : "");
   if (TEAM_TOOLS.has(name)) return teamTool(access, name, text);
   const root = access.root();
-  if (!root) return refuse("Er is nog geen persoonlijk brein ingesteld. De gebruiker kan dat doen in Mijn brein.");
+  if (!root) return refuse("Er is nog geen persoonlijk brein. De gebruiker maakt het aan op de pagina Agent.");
   if (name === "persoonlijk_brein_zoeken") return ok(await search(root, access.excluded(), text("vraag")));
   if (name === "voorkeur_voorstellen") {
     const preference = text("voorkeur").trim();

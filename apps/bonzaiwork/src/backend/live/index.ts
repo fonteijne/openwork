@@ -28,7 +28,7 @@ import {
 import { createAgendaClient } from "./agenda";
 import { createTodayClient } from "./today";
 import { createBrainsClient } from "./brains";
-import { hasDesktopBridge, openExternal, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
+import { hasDesktopBridge, openExternal, openFolder, pickDirectory, readServerInfo, restartServer, revealItem } from "./desktop";
 import { engine, createTranslator, followEvents, PROVIDER_ID, type EngineTarget, type NativeSession } from "./engine";
 import { enc, probe, request, type Connection } from "./http";
 import { deviceMetaStore, EMPTY_META, serverMetaStore, type MetaStore, type ProjectMeta } from "./meta";
@@ -1133,6 +1133,7 @@ export async function createLiveBackend(): Promise<Backend> {
     desktop: {
       pickFolder: () => pickDirectory("Map voor dit project"),
       revealPath: (path) => revealItem(path),
+      openFolder: (path) => openFolder(path),
       openUrl: (url) => openExternal(url),
     },
 

@@ -32,6 +32,7 @@ export const APP_RULES = `# Werken in BonzaiWork
 - Kijk alleen in een ander brein als de gebruiker erom vraagt. Denk je dat een ander brein helpt, stel het dan in één zin voor en wacht op antwoord.
 - Uit een ander brein (\`breinen_lijst\`, \`brein_zoeken\`, \`brein_lezen\`) lees je alleen. Wat je gebruikt, zet je in het huidige project met de bron erbij (brein en pad); een ander brein pas je nooit aan.
 - Een taak schrijf je als afvinkregel: \`- [ ] wat er moet gebeuren @naam 📅 JJJJ-MM-DD\`. \`@naam\` is wie het doet (in een gedeeld brein; weet je het niet, laat hem weg), \`📅\` een deadline, \`⏳\` een datum waarop de eigenaar op iemand anders wacht. Verzin geen datum.
+- In de app heet het persoonlijke brein "Agent" (de pagina) en "Mijn agent" (het project). Gebruik die namen tegen de gebruiker; de tools heten nog \`persoonlijk_brein_*\`.
 - Zet nooit wachtwoorden, sleutels of privégegevens van personen in een brein.
 `;
 

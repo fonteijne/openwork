@@ -1313,6 +1313,9 @@ export function createDemoBackend(options: DemoOptions): Backend & { reset(): vo
       async revealPath() {
         // No file system in the browser.
       },
+      async openFolder() {
+        // No file system in the browser.
+      },
       async openUrl(url) {
         window.open(url, "_blank", "noopener,noreferrer");
       },

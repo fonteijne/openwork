@@ -123,7 +123,7 @@ const time = (at: number) => {
 };
 
 export async function callTodayTool(service: TodayService, name: string, args: Json): Promise<ToolResult> {
-  if (!service.enabled()) return refuse("De persoonlijke agent staat uit. De gebruiker zet hem aan bij Instellingen → Persoonlijke agent.");
+  if (!service.enabled()) return refuse("De agent op Vandaag staat uit. De gebruiker zet hem aan bij Instellingen → Agent op Vandaag.");
   const text = (key: string) => (typeof args[key] === "string" ? String(args[key]).trim() : "");
   const count = (key: string, fallback: number) => (typeof args[key] === "number" && Number.isFinite(args[key]) ? Math.trunc(Number(args[key])) : fallback);
   const yes = (key: string) => args[key] === true;

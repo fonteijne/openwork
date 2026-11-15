@@ -5,6 +5,7 @@ import { Ellipsis, Plus, Unlink, X } from "lucide-react";
 import { useBackend } from "~/backend/context";
 import { keys, modelName, useBrains, useReads, useStatus, useUsage } from "~/backend/queries";
 import type { Project, RunMode } from "~/backend/types";
+import { OpenFolderButton } from "~/components/open-folder-button";
 import { PromptDialog } from "~/components/prompt-dialog";
 import { Button } from "~/components/ui/button";
 import { StatusChip } from "~/components/ui/chip";
@@ -241,9 +242,12 @@ function FoldersSection(props: { projectId: string }) {
             label={<span title={folder}>{folderName(folder)}</span>}
             value={<span className="font-mono text-xs">{folder}</span>}
             action={
-              <Button variant="quiet" size="icon-sm" aria-label={copy.settings.folders.remove(folder)} onClick={() => void setFolders((folders.data ?? []).filter((entry) => entry !== folder))}>
-                <X />
-              </Button>
+              <>
+                <OpenFolderButton path={folder} />
+                <Button variant="quiet" size="icon-sm" aria-label={copy.settings.folders.remove(folder)} onClick={() => void setFolders((folders.data ?? []).filter((entry) => entry !== folder))}>
+                  <X />
+                </Button>
+              </>
             }
           />
         ))

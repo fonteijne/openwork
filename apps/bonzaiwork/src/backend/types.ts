@@ -49,7 +49,7 @@ export type Capabilities = {
   projectMeta: "server" | "device";
   /** A native folder picker exists (desktop). */
   folderPicker: boolean;
-  /** Can reveal a path in Finder/Explorer. */
+  /** Can reveal a path, or open a folder, in Finder/Explorer. */
   revealPath: boolean;
   /** OS notifications when a routine finishes. */
   notifications: boolean;
@@ -734,6 +734,8 @@ export interface Backend {
   desktop: {
     pickFolder(): Promise<string | null>;
     revealPath(path: string): Promise<void>;
+    /** Opens the folder itself in Finder/Explorer/the file manager; rejects when the system could not. */
+    openFolder(path: string): Promise<void>;
     /** Opens a web page in the person's browser. */
     openUrl(url: string): Promise<void>;
   };

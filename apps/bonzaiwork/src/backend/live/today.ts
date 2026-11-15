@@ -22,7 +22,7 @@ const invalid = () => new BackendError("invalid_response", "De lokale server gaf
 
 export function createTodayClient(req: Request, options: { available: boolean }): TodayBackend {
   const host = { host: true };
-  const unavailable = () => new BackendError("today_unavailable", "Deze versie van de lokale server heeft de persoonlijke agent nog niet. Werk BonzaiWork bij.", 404);
+  const unavailable = () => new BackendError("today_unavailable", "Deze versie van de lokale server heeft de agent op Vandaag nog niet. Werk BonzaiWork bij.", 404);
   const guard = <T>(run: () => Promise<T>): Promise<T> => (options.available ? run() : Promise.reject(unavailable()));
   const post = (path: string, body: unknown = {}, timeoutMs?: number) => req(`${BASE}${path}`, { method: "POST", body, ...host, ...(timeoutMs ? { timeoutMs } : {}) });
   const todo = (value: unknown) => {

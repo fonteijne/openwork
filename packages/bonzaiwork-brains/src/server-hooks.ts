@@ -679,7 +679,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         git, id: workspaceId, path: workspace.path, gitDir: join(stateDirectory, "history", `${workspaceId}.git`), excluded,
         author, save: (next) => registry.upsert(next), log, platform,
       });
-      await applyTemplate(workspace.path, { kind: "personal", name: text(body, "name") || "Mijn brein", description: "", now: new Date(), skills: !managedSkills });
+      await applyTemplate(workspace.path, { kind: "personal", name: text(body, "name") || "Mijn agent", description: "", now: new Date(), skills: !managedSkills });
       await registry.upsert(created.snapshot);
       created.dispose();
       sync = await activate(created.snapshot, workspace.path);

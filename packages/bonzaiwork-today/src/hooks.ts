@@ -195,7 +195,7 @@ export function createTodayHooks(options: TodayOptions = {}) {
       return failure(500, "today_failed", "Dat lukte niet. Probeer het opnieuw.");
     }
   };
-  const needsOn = () => { if (!service.enabled()) throw new TodayError(409, "today_off", "De persoonlijke agent staat uit."); };
+  const needsOn = () => { if (!service.enabled()) throw new TodayError(409, "today_off", "De agent op Vandaag staat uit."); };
   const key = (body: Json) => { const found = text(body, "key"); if (!found) throw new TodayError(400, "invalid_body", "Stuur de sleutel van de kaart mee."); return found; };
 
   const routes: TodayRoute[] = ([

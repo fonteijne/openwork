@@ -83,7 +83,7 @@ function seed(now: number, home: string, state: string | null): DemoBrains {
     brains: {
       [DEMO_BRAINS.service]: base(now, `${home}/Klantenservice`, "project", "git@gitlab.com:bonzai-demo/klantenservice.git"),
       [DEMO_BRAINS.offertes]: offertes,
-      [DEMO_BRAINS.personal]: { ...base(now, `${home}/Mijn brein`, "personal", null), lastSyncAt: null, excluded: ["Dagboek"] },
+      [DEMO_BRAINS.personal]: { ...base(now, `${home}/Mijn agent`, "personal", null), lastSyncAt: null, excluded: ["Dagboek"] },
     },
     history: {
       [DEMO_BRAINS.offertes]: [

@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { addDays, dateOf, dutchDuration, QUARTER_MINUTES, weekOf } from "@bonzaiwork/agenda/model";
-import { ChevronDown, Download, FolderOpen } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { keys, useAgendaSettings, usePersonalBrain, useStatus } from "~/backend/queries";
 import { PROJECT_COLORS, PROJECT_ICONS, type Project, type ProjectPatch } from "~/backend/types";
+import { OpenFolderButton } from "~/components/open-folder-button";
 import { PROJECT_ICON_COMPONENTS, ProjectIcon } from "~/components/project-icon";
 import { Button } from "~/components/ui/button";
 import { Disclosure } from "~/components/ui/disclosure";
@@ -66,14 +67,7 @@ export function ProjectGroup(props: { project: Project }) {
         <Row
           label={copy.settings.project.folder}
           value={<span title={project.path}>{folderName(project.path)}</span>}
-          action={
-            backend.capabilities.revealPath ? (
-              <Button variant="secondary" size="sm" onClick={() => void backend.desktop.revealPath(project.path)}>
-                <FolderOpen />
-                {copy.settings.project.reveal}
-              </Button>
-            ) : undefined
-          }
+          action={<OpenFolderButton path={project.path} />}
         />
         <ProjectPostRow projectId={project.id} />
         <WeekRow projectId={project.id} />

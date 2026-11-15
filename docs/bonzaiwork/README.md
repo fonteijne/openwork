@@ -15,6 +15,7 @@ Stand: upstream-release `v0.18.66` (`ef75f7b`), gemerged in `nightly` via fontei
 | O3 | De LiteLLM-URL wordt **in de build ingebakken** (`BONZAIWORK_LITELLM_BASE_URL` bij het bouwen). Onboarding vraagt alleen de key. | gebruiker |
 | O2 | Transcriptie loopt **via een Whisper-model in LiteLLM** (`/v1/audio/transcriptions`). Whisper doet geen diarization: de splitsing "ik versus de anderen" komt uit de aparte sporen (mic en systeemaudio). Echte sprekerherkenning vraagt een model met diarization achter LiteLLM of een aparte stap. De proxyroute stuurt `audio/transcriptions` al door. | gebruiker |
 | S1 | **Skills en commando's komen uit de app**, niet uit een brein, en een persoonlijk brein begint schoon (geen bestaande notitiemap meer). `BONZAIWORK_MANAGED_SKILLS=0` zet de oude opzet terug. Zie [`persoonlijk-brein-herzien-onderzoek.md`](./persoonlijk-brein-herzien-onderzoek.md). | gebruiker |
+| A1 | **Eén begrip "Agent"**: wat "Jouw brein" en "Persoonlijke agent" heette, heet in de app "Agent" (de pagina), "Mijn agent" (het project) en "Agent op Vandaag" (taken, mail, Slack, rondes). "Brein" blijft de naam voor een gedeeld projectbrein. In code, routes en tools (`persoonlijk_brein_*`, `kind: "personal"`) is niets hernoemd; bestaande projecten houden hun naam. | gebruiker |
 | O1 | Nog open. Beide `KeyResolver`s zijn gebouwd. De build kiest met `BONZAIWORK_KEY_MODE=user\|workspace`; de standaard is `user`. | – |
 
 ## Wat er staat
