@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { BookOpen, FolderOpen, MessageSquarePlus } from "lucide-react";
 
@@ -12,6 +12,7 @@ import { StatusChip } from "~/components/ui/chip";
 import { Disclosure } from "~/components/ui/disclosure";
 import { Input } from "~/components/ui/field";
 import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
+import { ConfirmDialog } from "~/components/ui/overlay";
 import { copy } from "~/copy";
 import { href, navigate } from "~/lib/router";
 import { localTimezone } from "~/lib/schedule";
@@ -241,6 +242,43 @@ function ChatsSection(props: { project: Project }) {
   );
 }
 
+/**
+ * "Loskoppelen": the brain stops counting in every chat; the folder and the project stay. The
+ * dialog says what changes, because the excluded folders stop being closed for the AI.
+ */
+function DisconnectRow(props: { brain: Brain; readOnly: boolean }) {
+  const client = useQueryClient();
+  const { busy, run, brains } = useBrainAction(props.brain.projectId);
+  const [open, setOpen] = useState(false);
+  const disconnect = async () => {
+    await run("disconnect", () => brains.unregister(props.brain.projectId), copy.brain.personal.disconnected);
+    setOpen(false);
+    // The project shows up between the others again, and Vandaag loses its rounds.
+    await Promise.all([client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.today })]);
+  };
+  return (
+    <>
+      <Row
+        label={copy.brain.personal.disconnect}
+        action={
+          <Button variant="secondary" size="sm" data-testid="brain-disconnect" disabled={props.readOnly} onClick={() => setOpen(true)}>
+            {copy.brain.personal.disconnect}
+          </Button>
+        }
+      />
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={copy.brain.personal.disconnectTitle}
+        body={props.brain.status.excluded.length ? `${copy.brain.personal.disconnectBody} ${copy.brain.personal.disconnectExcluded(props.brain.status.excluded.join(", "))}` : copy.brain.personal.disconnectBody}
+        confirmLabel={copy.brain.personal.disconnect}
+        busy={busy !== null}
+        onConfirm={() => void disconnect()}
+      />
+    </>
+  );
+}
+
 function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly: boolean }) {
   const { brain } = props;
   const chip = brainChip(brain.status);
@@ -270,6 +308,7 @@ function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly:
       <Disclosure label={copy.brain.technical.title} panelClassName="ps-0" testId="brain-technical">
         <div className="border-t border-border">
           <Row label={copy.brain.technical.folder} value={<code className="font-mono text-xs">{brain.path}</code>} />
+          <DisconnectRow brain={brain} readOnly={props.readOnly} />
         </div>
       </Disclosure>
       <FilePreview projectId={brain.projectId} chatId={null} path={preview} onClose={() => setPreview(null)} />

@@ -249,4 +249,86 @@ describe("het persoonlijke brein in de server", () => {
     const fileGit = await createGit({ stateDirectory: join(state, "check2"), allowFileProtocol: true });
     expect(await fileGit.ok(["log", "-1", "--format=%s", "main"], { cwd: bare })).toBe("Teruggedraaid: Klantmail schrijven\n");
   });
+  test("loskoppelen: telt niet meer mee, de map en de geschiedenis blijven, en dezelfde map opnieuw koppelen gaat verder", async () => {
+    const root = await vault();
+    const state = await mkdtemp(join(tmpdir(), "state-"));
+    cleanup.push(state);
+    const listeners = new Set<(activity: SessionActivity) => void>();
+    let live: string[] = [];
+    const host: BrainsHost & { context: { instructions: string | null; skillsDirectory: string | null } | null } = {
+      port: 4242, readOnly: false, context: null,
+      workspaces: () => [{ id: "ws_mijn", path: root }, { id: "ws_ander", path: join(state, "ander") }],
+      reloadEngineProviders: async () => {},
+      onSessionActivity: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      runningSessions: async () => live,
+      sessionInfo: async (id) => ({ id, title: "Chat", parentId: null }),
+      updateEngineMcp: async () => true,
+      setEngineGlobalContext: async (input) => { host.context = input; },
+      log: () => {},
+    };
+    hooks = createBrainsServerHooks({ stateDirectory: state, quietMs: 30, environment: { PATH: process.env.PATH ?? "", HOME: state } });
+    expect(hooks.todayAccess.personalConnected()).toBe(null);
+    await hooks.start(host);
+    expect(hooks.todayAccess.personalConnected()).toBe(false);
+    const call = async (method: string, path: string, params: Record<string, string>, body?: unknown) => {
+      const handler = hooks?.routes.find((candidate) => candidate.method === method && candidate.path === path);
+      if (!handler) throw new Error(`${method} ${path}`);
+      const response = await handler.handle(new Request("http://x", { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), params);
+      return { status: response.status, body: await response.json() };
+    };
+    const brain = { workspaceId: "ws_mijn" };
+    await call("PUT", "/bonzaiwork/brains/settings", {}, { name: "Anna", email: "anna@example.invalid" });
+    await call("PUT", "/bonzaiwork/brains/:workspaceId", brain, { kind: "personal", excluded: ["Dagboek"] });
+    await writeFile(join(root, "_meta/voorkeuren.md"), "# Mijn voorkeuren\n\n- Altijd in drie punten\n");
+    await call("POST", "/bonzaiwork/brains/:workspaceId/pull", brain, {});
+    expect(host.context?.instructions).toContain("Altijd in drie punten");
+    expect(hooks.todayAccess.personalConnected()).toBe(true);
+    const resources = () => hooks?.enginePolicies().map((policy) => policy.resource) ?? [];
+    expect(resources()).toEqual(expect.arrayContaining(["read:Dagboek/*", "edit:_meta/voorkeuren.md", `read:${root}/*`]));
+
+    // Never while a chat runs: any chat may be writing in the personal brain.
+    live = ["ses_1"];
+    for (const listener of listeners) listener({ workspaceId: "ws_ander", sessionId: "ses_1", state: "running" });
+    const refused = await call("DELETE", "/bonzaiwork/brains/:workspaceId", brain);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({ code: "chat_running" });
+    expect(hooks.todayAccess.personalConnected()).toBe(true);
+    live = [];
+    for (const listener of listeners) listener({ workspaceId: "ws_ander", sessionId: "ses_1", state: "idle", outcome: "succeeded" });
+
+    // An open change is recorded first; then the brain is gone from every chat.
+    await writeFile(join(root, "Projecten/nieuw.md"), "# Nieuw\n");
+    expect((await call("DELETE", "/bonzaiwork/brains/:workspaceId", brain)).status).toBe(200);
+    expect(hooks.todayAccess.personalConnected()).toBe(false);
+    expect((await call("GET", "/bonzaiwork/brains", {})).body.brains).toEqual([]);
+    expect(host.context?.instructions).toContain("Voer zelf nooit git uit");
+    expect(host.context?.instructions).not.toContain("Altijd in drie punten");
+    expect(host.context?.skillsDirectory).toBe(null);
+    expect(resources()).not.toContain("read:Dagboek/*");
+    expect(resources()).not.toContain("edit:_meta/voorkeuren.md");
+    expect(resources()).not.toContain(`read:${root}/*`);
+    expect((await callBrainTool(hooks.personalAccess, "persoonlijk_brein_lezen", { pad: "AGENTS.md" })).isError).toBe(true);
+    // Nothing is deleted: the notes, the template files and the history are all still there.
+    expect(await readFile(join(root, "Projecten/offerte.md"), "utf8")).toContain("[[Klant]]");
+    expect(existsSync(join(root, "_meta/voorkeuren.md"))).toBe(true);
+    const git = await createGit({ stateDirectory: join(state, "check") });
+    const history = () => git.ok(["log", "--format=%s", "--name-only"], { cwd: root, gitDir: join(state, "history", "ws_mijn.git"), workTree: root });
+    const before = await history();
+    expect(before).toContain("Projecten/nieuw.md");
+
+    // It survives a restart as "no personal brain".
+    hooks.stop();
+    hooks = createBrainsServerHooks({ stateDirectory: state, quietMs: 30, environment: { PATH: process.env.PATH ?? "", HOME: state } });
+    await hooks.start(host);
+    expect(hooks.todayAccess.personalConnected()).toBe(false);
+    expect(host.context?.instructions).not.toContain("Altijd in drie punten");
+
+    // The same folder again: the same history, and the excluded folders are remembered.
+    const again = await call("PUT", "/bonzaiwork/brains/:workspaceId", brain, { kind: "personal" });
+    expect(again.status).toBe(200);
+    expect(again.body.status).toMatchObject({ kind: "personal", state: "local_only", excluded: ["Dagboek"] });
+    expect(host.context?.instructions).toContain("Altijd in drie punten");
+    expect(resources()).toContain("read:Dagboek/*");
+    expect(await history()).toContain(before.trim());
+  });
 });

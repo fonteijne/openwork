@@ -253,6 +253,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   const proposalsFile = join(stateDirectory, "proposals.json");
   let proposals: PreferenceProposal[] = [];
 
+  let ready = false;
   let markStarted = () => {};
   const started = new Promise<void>((resolve) => { markStarted = resolve; });
   const whenStarted = (handle: BrainsRoute["handle"]): BrainsRoute["handle"] => async (request, params) => {
@@ -642,6 +643,19 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       if (personal()) return failure(409, "personal_exists", "There is a personal brain already.");
       if (!git) return failure(503, "starting", "BonzaiWork is still starting.");
       const excluded = Array.isArray(body.excluded) ? body.excluded.filter((value): value is string => typeof value === "string") : [];
+      // The folder that was disconnected before: its record comes back as it was, so a linked
+      // private repository and the excluded folders are not lost.
+      const former = registry.formerPersonal;
+      if (former?.id === workspaceId && former.kind === "personal" && former.gitDir && samePath(former.path, workspace.path, platform)
+        && (await stat(former.gitDir).catch(() => null))?.isDirectory()) {
+        const record: BrainRecord = { ...former, excluded: excluded.length ? excluded : former.excluded };
+        await registry.upsert(record);
+        sync = await activate(record, workspace.path);
+        if (!chatsWriteIn(record)) await sync.share();
+        await refreshPolicies();
+        await refreshGlobalContext();
+        return json({ workspaceId, status: await sync.status() });
+      }
       const created = await BrainSync.initLocal({
         git, id: workspaceId, path: workspace.path, gitDir: join(stateDirectory, "history", `${workspaceId}.git`), excluded,
         author, save: (next) => registry.upsert(next), log, platform,
@@ -775,9 +789,34 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   async function unregister(workspaceId: string): Promise<Response> {
     const sync = known(workspaceId);
+    if (sync?.snapshot.kind === "personal") return disconnectPersonal(sync);
     sync?.dispose();
     syncs.delete(workspaceId);
     await registry.remove(workspaceId);
+    await refreshPolicies();
+    return json({ ok: true });
+  }
+
+  /**
+   * "Loskoppelen": the personal brain stops counting in every chat. The folder, its notes and its
+   * history stay where they are and the project stays a plain project; nothing is deleted. Never
+   * while a chat runs: any chat may be writing in it.
+   */
+  async function disconnectPersonal(sync: BrainSync): Promise<Response> {
+    for (const id of [...running.keys()]) await pruneRunning(id).catch(() => undefined);
+    if (chatsWriteIn(sync.snapshot)) {
+      const userMessage = "Er loopt nog een chat. Wacht tot die klaar is en koppel je brein dan los.";
+      return failure(409, "chat_running", "A chat is still running.", { userMessage });
+    }
+    // What is still open goes into the history first, so connecting again starts from a clean state.
+    await sync.recordOwn().catch((error: unknown) => log("warn", "Open changes not recorded before disconnecting", { error: String(error) }));
+    const record = sync.snapshot;
+    sync.dispose();
+    syncs.delete(record.id);
+    await registry.disconnectPersonal(record);
+    personalDirty = false;
+    // App rules only, no personal skills: from the next turn, in every project.
+    await refreshGlobalContext();
     await refreshPolicies();
     return json({ ok: true });
   }
@@ -989,6 +1028,8 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     todayAccess: {
       brains: async () => Promise.all([...syncs.values()].map(async (sync) => ({ ...(await describeBrain(sync)), kind: sync.snapshot.kind, excluded: sync.snapshot.excluded ?? [], readOnly: sync.snapshot.mode === "read_only" }))),
       author,
+      /** Whether a personal brain is connected; null while the brains are still starting. */
+      personalConnected: (): boolean | null => (ready ? registry.brains.some((brain) => brain.kind === "personal") : null),
       /** Recorded now when no chat writes in the brain; otherwise the end of that chat's turn records it. */
       changed: async (id: string): Promise<void> => {
         const sync = syncs.get(id);
@@ -1011,6 +1052,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         });
         await ensureKnownHosts(sshOptions.knownHostsFile);
         await registry.load();
+        ready = true;
         await loadProposals();
         await reconcile();
         await refreshGlobalContext();
