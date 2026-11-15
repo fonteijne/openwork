@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { lstat, mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { isAbsolute, join } from "node:path";
 
@@ -82,11 +82,11 @@ export type DownstreamServerHost = {
   /** MCP entries in the engine-global runtime config (null removes one); every workspace gets them. */
   updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
   /**
-   * Instructions and a skills folder that count in every conversation of
-   * every workspace, sub-tasks included: `AGENTS.md` and `skills/` in the
-   * engine's own config folder, which the engine watches.
+   * Instructions, a skills folder and a commands folder that count in every
+   * conversation of every workspace, sub-tasks included: `AGENTS.md`, `skills/`
+   * and `commands/` in the engine's own config folder, which the engine watches.
    */
-  setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
+  setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null; commandsDirectory?: string | null }): Promise<void>;
   /** The engine's own config folder (OPENCODE_CONFIG_DIR), where the global instructions live. */
   engineConfigDirectory: string;
   /**
@@ -535,21 +535,26 @@ export async function startDownstreamServerHooks(input: DownstreamStartInput): P
       await Promise.all(localWorkspaces().map((workspace) => engine.syncWorkspaceMcp?.(workspace.id, workspace.path)
         .catch((error: unknown) => log("warn", "MCP not registered again after a folder rebuild", { workspace: workspace.id, error: error instanceof Error ? error.message : String(error) }))));
     },
-    setEngineGlobalContext: async ({ instructions, skillsDirectory }) => {
+    setEngineGlobalContext: async ({ instructions, skillsDirectory, commandsDirectory }) => {
       const directory = engineConfigDirectory(config);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const agents = join(directory, "AGENTS.md");
       if (instructions === null) await rm(agents, { force: true });
       else await writeFileAtomic(agents, instructions);
-      const skills = join(directory, "skills");
-      const existing = await lstat(skills).catch(() => null);
-      if (existing && !existing.isSymbolicLink()) {
-        log("warn", "Engine skills folder is not a link; left as it is", { path: skills });
-        return;
+      const links: Array<[string, string | null]> = [["skills", skillsDirectory], ["commands", commandsDirectory ?? null]];
+      for (const [name, target] of links) {
+        const link = join(directory, name);
+        const existing = await lstat(link).catch(() => null);
+        if (existing && !existing.isSymbolicLink()) {
+          log("warn", "Engine folder is not a link; left as it is", { path: link });
+          continue;
+        }
+        // The same target again: leave the link, so the engine's file watcher sees nothing.
+        if (existing && target && await readlink(link).catch(() => null) === target) continue;
+        if (existing) await rm(link, { force: true });
+        // A junction needs no rights on Windows; elsewhere this is a symlink.
+        if (target) await symlink(target, link, "junction");
       }
-      if (existing) await rm(skills, { force: true });
-      // A junction needs no rights on Windows; elsewhere this is a symlink.
-      if (skillsDirectory) await symlink(skillsDirectory, skills, "junction");
     },
   };
   try {

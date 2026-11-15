@@ -11,6 +11,24 @@ globale instructies vallen terug op de app-regels; de rondes van de persoonlijke
 weer een brein is. Dezelfde map opnieuw koppelen gaat verder waar het stopte. De vier regels uit §4.3
 zijn hiermee niet aangeraakt: na loskoppelen is de map geen brein meer.
 
+**Stap 0, 1 en 2, gebouwd** (de voorstellen V1–V7 zijn akkoord):
+
+- *Gemeten* (fase 0 §5.1, `engine-probe.mjs`): commando's in de config-map gelden in elk project; bij
+  dezelfde skillnaam wint de skill in de projectmap; en een skill in de config-map kon zijn eigen
+  bijlagen niet lezen. Dat laatste was al stuk voor `icm-architect` en is opgelost met een allow-regel
+  ná de deny.
+- *Skills en commando's uit de app* (§4.2): `packages/bonzaiwork-brains/src/managed.ts` schrijft ze bij
+  elke start naar `userData/bonzaiwork/managed/` en de engine krijgt ze in elk project. Een brein krijgt
+  geen kopie meer. De skills werken in het brein van het project en anders in het persoonlijke brein.
+- *Schoon persoonlijk brein* (§4.1): "Kies je bestaande notitiemap" is weg; een persoonlijk brein begint
+  in een map die BonzaiWork maakt.
+- *Terug*: `BONZAIWORK_MANAGED_SKILLS=0` geeft de oude opzet (skills uit het persoonlijke brein, een
+  kopie in elk nieuw brein, en de keuze voor een bestaande map).
+
+Nog niet gebouwd: stap 3 en 4 (§4.3), het verhuizen van een bestaand persoonlijk brein naar een project.
+Een bestaand gekoppeld brein blijft tot dan werken zoals het was, alleen komen de skills nu uit de app;
+wat er in zijn eigen `.opencode/skills` staat, telt niet meer mee in andere projecten.
+
 ## 1. De vraag
 
 Het huidige persoonlijke brein ("second brain") vervangen, met vier eisen:

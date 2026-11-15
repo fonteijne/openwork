@@ -714,7 +714,11 @@ export interface Backend {
     restore(projectId: string, commit: string, path: string | null): Promise<BrainStatus>;
     concept(projectId: string, path: string): Promise<ConceptView | null>;
     verify(projectId: string, path: string): Promise<ConceptView | null>;
-    author(): Promise<{ author: HistoryAuthor | null; suggested: HistoryAuthor | null }>;
+    /**
+     * `existingFolder`: a personal brain may still be made on a notes folder the person already has.
+     * Off by default: a personal brain starts clean in a folder BonzaiWork makes.
+     */
+    author(): Promise<{ author: HistoryAuthor | null; suggested: HistoryAuthor | null; existingFolder: boolean }>;
     setAuthor(author: HistoryAuthor): Promise<void>;
     proposals(): Promise<PreferenceProposal[]>;
     decide(proposalId: string, decision: "accept" | "reject", text: string | null): Promise<void>;

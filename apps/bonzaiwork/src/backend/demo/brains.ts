@@ -344,7 +344,7 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
       save();
       return this.concept(projectId, path);
     },
-    author: async () => ({ author: state.author, suggested: state.author ? null : { name: "Jij", email: "jij@voorbeeld.nl" } }),
+    author: async () => ({ author: state.author, suggested: state.author ? null : { name: "Jij", email: "jij@voorbeeld.nl" }, existingFolder: false }),
     setAuthor: async (author) => { await later(); state.author = author; save(); },
     proposals: async () => structuredClone(state.proposals),
     async decide(proposalId) {

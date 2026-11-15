@@ -942,7 +942,7 @@ Nog niet gebouwd (stand 30-10):
 | B4 | Rechtstreeks of via branch/PR? | **Rechtstreeks in fase 1**, "via voorstel" als modus in fase 3 |
 | B5 | Vertrouwen per gebruiker of centraal? | **Per gebruiker** |
 | B6 | Brein als project of extra map? | **Een brein is altijd een eigen project, gedeeld met teamleden.** Plus één **persoonlijk brein** per gebruiker dat in elk project meetelt. Andere al-geclonede breinen zijn in een chat te raadplegen (alleen lezen) |
-| N1 | Persoonlijk brein verplicht als privérepo? Kan een bestaand second brain? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel. Een bestaand second brain wordt **gekozen, niet gekopieerd** (§5.1.1) |
+| N1 | Persoonlijk brein verplicht als privérepo? Kan een bestaand second brain? | **Nee, lokaal is prima.** Koppelen aan een privérepo kan optioneel. ~~Een bestaand second brain wordt gekozen, niet gekopieerd (§5.1.1)~~ **Herzien**: een persoonlijk brein begint schoon in een map die BonzaiWork maakt; zie [`persoonlijk-brein-herzien-onderzoek.md`](./persoonlijk-brein-herzien-onderzoek.md) |
 | N2 | Mag de AI uit eigen beweging in andere breinen kijken? | **Alleen als de gebruiker erom vraagt, of na een voorstel van de AI** dat de gebruiker goedkeurt (§5.2) |
 | N3 | Persoonlijke instructies altijd volledig in elke chat? | **Ja**, tot de grens van N6 (niet de 192 KiB van de projectinstructies; dat is een gedeeld budget, §5.1) |
 | N4 | Mag de AI bestaande notities in een gekozen second brain wijzigen? | **Ja**, in de hele map (behalve uitgesloten mappen); iedereen migreert naar BonzaiWork. Met een eigen geschiedenis om terug te draaien en zonder werk van de gebruiker te overschrijven (§5.1.1) |

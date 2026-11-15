@@ -49,7 +49,7 @@ function Shell(props: { children: React.ReactNode; actions?: React.ReactNode }) 
   );
 }
 
-/** No personal brain yet: one card with the two ways to start (brief §8; the onboarding step is gone). */
+/** No personal brain yet: one card to start a clean one (brief §8; the onboarding step is gone). */
 function SetupCard(props: { readOnly: boolean }) {
   const setup = usePersonalSetup();
   const disabled = props.readOnly || setup.busy !== null;
@@ -65,10 +65,12 @@ function SetupCard(props: { readOnly: boolean }) {
           <Button variant="primary" disabled={disabled} onClick={() => void setup.createNew()}>
             {setup.busy === "new" ? copy.common.loading : copy.brain.personalNew}
           </Button>
-          <Button variant="secondary" disabled={disabled || (setup.typing && !setup.path.trim())} onClick={() => void setup.chooseExisting()}>
-            <FolderOpen />
-            {setup.busy === "existing" ? copy.common.loading : copy.brain.personalExisting}
-          </Button>
+          {setup.existingAllowed ? (
+            <Button variant="secondary" disabled={disabled || (setup.typing && !setup.path.trim())} onClick={() => void setup.chooseExisting()}>
+              <FolderOpen />
+              {setup.busy === "existing" ? copy.common.loading : copy.brain.personalExisting}
+            </Button>
+          ) : null}
         </>
       }
     >

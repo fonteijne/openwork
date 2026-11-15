@@ -252,7 +252,7 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
         const email = str(value, "email");
         return name && email ? { name, email } : null;
       };
-      return { author: read("author"), suggested: read("suggested") };
+      return { author: read("author"), suggested: read("suggested"), existingFolder: bool(payload, "managedSkills") === false };
     },
     setAuthor: async (author) => void (await req("/bonzaiwork/brains/settings", { method: "PUT", body: author, ...host })),
     proposals: async () => readProposals(await req("/bonzaiwork/brains/proposals")),

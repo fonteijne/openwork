@@ -1531,7 +1531,7 @@ export const copy = {
     personal: {
       label: "Je agent",
       setupTitle: "Nog geen agent",
-      setupState: "Wat je de AI over jezelf vertelt, telt mee in elk project · blijft op deze laptop",
+      setupState: "Wat je de AI over jezelf vertelt, telt mee in elk project · begint leeg · blijft op deze laptop",
       proposals: "Voorstellen",
       preferences: "Voorkeuren",
       preferencesRow: "Je voorkeuren",
@@ -1544,7 +1544,7 @@ export const copy = {
       privateRepoLink: "Koppelen",
       disconnect: "Loskoppelen",
       disconnectTitle: "Je agent loskoppelen?",
-      disconnectBody: "Je voorkeuren en notities tellen dan niet meer mee in je chats. De map blijft staan met alles erin en wordt een gewoon project. Je kunt dezelfde map later opnieuw koppelen.",
+      disconnectBody: "Je voorkeuren en notities tellen dan niet meer mee in je chats. De map blijft staan met alles erin en wordt een gewoon project.",
       disconnectExcluded: (folders: string) => `Let op: de AI kan daarna ook in de uitgesloten mappen komen (${folders}).`,
       disconnected: "Je agent is losgekoppeld",
     },

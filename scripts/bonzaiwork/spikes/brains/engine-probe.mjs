@@ -47,6 +47,10 @@ const scripted = {
   READOUT: () => ["read", { path: join(sales, "AGENTS.md") }],
   READOUTREL: () => ["read", { path: "../Sales/AGENTS.md" }],
   READPERSONAL: () => ["read", { path: join(personal, "AGENTS.md") }],
+  SKILL: (tools) => [tools.find((name) => name === "skill"), { id: "zelfde" }],
+  SKILLREF: (tools) => [tools.find((name) => name === "skill"), { id: "met-bijlage" }],
+  READREF: () => ["read", { path: join(configDir, "skills/met-bijlage/references/extra.md") }],
+  READREFREAL: () => ["read", { path: join(personal, "map-skills/met-bijlage/references/extra.md") }],
   GREPOUT: () => ["grep", { pattern: "Sales", path: sales }],
   WRITEOUT: () => ["write", { path: join(sales, "knowledge/van-buiten.md"), content: "VAN-BUITEN\n" }],
 };
@@ -93,6 +97,11 @@ const skill = (name) => `---\nname: ${name}\ndescription: ${name}\n---\n${name}\
 await file(join(personal, "AGENTS.md"), "# Mijn brein\nPERSOONLIJK-1\n");
 await file(join(personal, ".opencode/skills/via-config/SKILL.md"), skill("via-config"));
 await file(join(personal, "map-skills/via-map/SKILL.md"), skill("via-map"));
+await file(join(personal, "map-skills/zelfde/SKILL.md"), "---\nname: zelfde\ndescription: zelfde\n---\nSKILL-GLOBAAL\n");
+await file(join(personal, "map-skills/met-bijlage/SKILL.md"), "---\nname: met-bijlage\ndescription: met-bijlage\n---\nLees references/extra.md\n");
+await file(join(personal, "map-skills/met-bijlage/references/extra.md"), "BIJLAGE-1\n");
+await file(join(sales, ".opencode/skills/zelfde/SKILL.md"), "---\nname: zelfde\ndescription: zelfde\n---\nSKILL-PROJECT\n");
+await file(join(configDir, "commands/globaal.md"), "---\ndescription: Globaal\n---\nGLOBAAL-COMMANDO\n");
 await file(join(sales, "AGENTS.md"), "# Sales\nPROJECT-1\n");
 await file(join(sales, ".opencode/skills/team-skill/SKILL.md"), skill("team-skill"));
 await file(join(sales, ".opencode/commands/verwerk.md"), `---\ndescription: Verwerk\n---\nUitkomst: !\`touch "${commandMarker}" && echo SHELL-UIT\`\n`);
@@ -220,6 +229,14 @@ check("mcp.global", "MCP uit de globale config (`mcp.servers`) is er in elk proj
 check("mcp.project", "Engine laadt zelf de MCP uit de opencode.json van een brein", (await settled(sales, "/api/mcp", "rogue")).includes("rogue"));
 check("plugin.runs", "Plugin in .opencode/plugins/ van een brein draait al bij het openen van de map", existsSync(pluginMarker));
 
+check("commands.global", "Commando's in <OPENCODE_CONFIG_DIR>/commands staan in elk project", (await settled(plain, "/api/command", "globaal")).includes("globaal") && (await listed(sales, "/api/command")).includes("globaal"));
+const clash = ((await api(sales, "/api/skill"))?.data ?? []).filter((entry) => (entry.name ?? entry.id) === "zelfde");
+check("skills.clash", "Bij dezelfde skillnaam wint de skill in de projectmap van die in de config-map", clash.length === 1 && String(clash[0]?.content).includes("SKILL-PROJECT"));
+check("skills.clash-tool", "… ook als de AI hem laadt met de skill-tool", (await turn(sales, await chat(sales), "DO_SKILL")).toolResult.includes("SKILL-PROJECT"));
+check("skills.clash-other", "… en in een ander project geldt gewoon die van de config-map", (await turn(plain, await chat(plain), "DO_SKILL")).toolResult.includes("SKILL-GLOBAAL"));
+const skillLoaded = (await turn(plain, await chat(plain), "DO_SKILLREF")).toolResult;
+check("skills.ref-path", "De skill-tool geeft het pad van de skill via de config-map (de link), niet het doel van de link", skillLoaded.includes(join(configDir, "skills/met-bijlage")));
+check("skills.ref-default", "Zonder regel leest de AI een bijlage van een globale skill", (await attempt(plain, "DO_READREF")).toolResult.includes("BIJLAGE-1"));
 const plainChat = await chat(plain);
 const entry = await fetch(`${url}/api/experimental/session/${plainChat}/instructions/entries/bonzaiwork.personal?${at(plain)}`, { method: "PUT", headers: { authorization, "content-type": "application/json" }, body: JSON.stringify({ value: "ENTRY-1" }) });
 const first = await turn(plain, plainChat, "hallo");
@@ -310,6 +327,22 @@ check("policy.outside-grep-path", "tool.use `grep:<absolute map>*` dicht grep me
 await writeGlobal([...globalPolicies, { action: "tool.use", resource: "grep:Sales", effect: "deny" }]);
 await sleep(3000);
 check("policy.grep-pattern", "… want de resource van grep is het zoekpatroon (`grep:Sales` blokkeert hem wel)", blocked((await attempt(plain, "DO_GREPOUT")).toolResult));
+await writeGlobal(globalPolicies);
+await sleep(3000);
+// What closedFolders() writes today: the config folder itself is closed for read and edit.
+await writeGlobal([...globalPolicies, { action: "tool.use", resource: `read:${configDir}/*`, effect: "deny" }]);
+await sleep(3000);
+check("skills.ref-denied", "Met `read:<config-map>/*` op deny leest de AI de bijlage van een globale skill niet meer (pad via de link)", blocked((await attempt(plain, "DO_READREF")).toolResult));
+check("skills.ref-real", "… via het echte pad van de map achter de link wel: de regel kijkt naar het pad zoals gevraagd", blocked((await attempt(plain, "DO_READREFREAL")).toolResult), false);
+check("skills.ref-tool", "… maar de skill zelf laadt nog met de skill-tool", (await turn(plain, await chat(plain), "DO_SKILLREF")).toolResult.includes("references/extra.md"));
+const skillsDeny = { action: "tool.use", resource: `read:${configDir}/*`, effect: "deny" };
+const skillsAllow = { action: "tool.use", resource: `read:${configDir}/skills/*`, effect: "allow" };
+await writeGlobal([...globalPolicies, skillsDeny, skillsAllow]);
+await sleep(3000);
+check("skills.ref-allow", "Een allow op `read:<config-map>/skills/*` ná die deny laat de bijlage weer door (de laatste regel wint)", (await attempt(plain, "DO_READREF")).toolResult.includes("BIJLAGE-1"));
+await writeGlobal([...globalPolicies, skillsAllow, skillsDeny]);
+await sleep(3000);
+check("skills.ref-allow-order", "… maar vóór de deny helpt die allow niet", blocked((await attempt(plain, "DO_READREF")).toolResult));
 await writeGlobal(globalPolicies);
 await sleep(3000);
 const mcpAfter = await listed(sales, "/api/mcp");

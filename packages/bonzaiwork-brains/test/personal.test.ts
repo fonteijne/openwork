@@ -187,7 +187,9 @@ describe("het persoonlijke brein in de server", () => {
     expect(existsSync(join(state, "history", "ws_mijn.git"))).toBe(true);
     expect(existsSync(join(root, "_meta/voorkeuren.md"))).toBe(true);
     expect(await readFile(join(root, "Projecten/offerte.md"), "utf8")).toContain("[[Klant]]");
-    expect(host.context?.skillsDirectory).toBe(join(root, ".opencode", "skills"));
+    // Skills and commands come from the app, not from the vault; nothing of them is copied into it.
+    expect(host.context?.skillsDirectory).toBe(join(state, "managed", "skills"));
+    expect(existsSync(join(root, ".opencode"))).toBe(false);
     expect(hooks.enginePolicies().map((policy) => policy.resource)).toEqual(expect.arrayContaining(["read:Dagboek/*", "edit:Dagboek/*", "edit:_meta/voorkeuren.md"]));
 
     const git = await createGit({ stateDirectory: join(state, "check") });
@@ -303,7 +305,7 @@ describe("het persoonlijke brein in de server", () => {
     expect((await call("GET", "/bonzaiwork/brains", {})).body.brains).toEqual([]);
     expect(host.context?.instructions).toContain("Voer zelf nooit git uit");
     expect(host.context?.instructions).not.toContain("Altijd in drie punten");
-    expect(host.context?.skillsDirectory).toBe(null);
+    expect(host.context?.skillsDirectory).toBe(join(state, "managed", "skills"));
     expect(resources()).not.toContain("read:Dagboek/*");
     expect(resources()).not.toContain("edit:_meta/voorkeuren.md");
     expect(resources()).not.toContain(`read:${root}/*`);

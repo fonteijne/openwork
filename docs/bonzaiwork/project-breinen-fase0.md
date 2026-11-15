@@ -288,6 +288,19 @@ setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: st
 - Klein gevolg: in het project "Mijn brein" zelf staat dezelfde tekst twee keer in de context (als
   projectinstructie en als kopie). Acceptabel; de hook kan hem daar later weglaten.
 
+### 5.1 Skills en commando's uit de app (aanvulling, november 2026)
+
+Voor [`persoonlijk-brein-herzien-onderzoek.md`](./persoonlijk-brein-herzien-onderzoek.md) §4.2, gemeten
+op OpenCode 2.2.6 (`commands.global`, `skills.clash*`, `skills.ref-*` in de probe):
+
+| Vraag | Gemeten | Gevolg |
+|---|---|---|
+| Laadt de engine `<OPENCODE_CONFIG_DIR>/commands/`? | Ja, in elk project | De commando's komen ook uit de app |
+| Dezelfde skillnaam in de config-map en in de projectmap | De skill van het project wint, ook met de skill-tool; elders geldt die van de config-map | Een brein met een oude kopie blijft die gebruiken; BonzaiWork haalt hem niet uit een gedeelde repo |
+| Welk pad geeft de skill-tool voor de bijlagen? | Het pad via de config-map (de link), niet het doel van de link | – |
+| Leest de AI zo'n bijlage met `read:<config-map>/*` op deny? | **Nee**: "Blocked by configuration policy". De skill zelf laadt nog wel | Dit was al zo voor `icm-architect` (zijn `references/`) |
+| Helpt een allow op `read:<config-map>/skills/*`? | Alleen als hij **na** de deny staat: de laatste regel die past, wint | `enginePolicies()` zet die allow na de dichte mappen; schrijven blijft dicht |
+
 ## 6. Na een pull, en een niet-vertrouwd brein
 
 ### 6.1 Geen reload nodig, dus eerst vertrouwen

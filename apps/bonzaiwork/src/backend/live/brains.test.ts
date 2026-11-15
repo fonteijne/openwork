@@ -91,6 +91,6 @@ describe("brains client", () => {
       "/bonzaiwork/brains/settings": { author: null, suggested: { name: "Jij", email: "jij@example.com" } },
     });
     expect(await brains.concept("w1", "knowledge/korting.md")).toMatchObject({ title: "Korting", status: "stable", stale: true, tier: "human", sources: [{ title: "Prijslijst" }] });
-    expect(await brains.author()).toEqual({ author: null, suggested: { name: "Jij", email: "jij@example.com" } });
+    expect(await brains.author()).toEqual({ author: null, suggested: { name: "Jij", email: "jij@example.com" }, existingFolder: false });
   });
 });

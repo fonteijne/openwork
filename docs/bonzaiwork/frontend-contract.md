@@ -508,7 +508,7 @@ type BrainStatus = {
 | `POST /bonzaiwork/brains/:workspaceId/setup` | host | `{ name, description }`: breinsjabloon in een lege repo, daarna delen |
 | `GET /bonzaiwork/brains/:workspaceId/concept?path=` | client | `{ concept }`: OKF-type, status, verlopen, schrijver, nakijkers, vertrouwensniveau, bronnen |
 | `POST /bonzaiwork/brains/:workspaceId/verify` | host | `{ path }`: "Klopt" vastleggen in de notitie |
-| `GET` / `PUT /bonzaiwork/brains/settings` | client / host | naam en e-mail voor de geschiedenis (`{ author, suggested }`) |
+| `GET` / `PUT /bonzaiwork/brains/settings` | client / host | naam en e-mail voor de geschiedenis (`{ author, suggested, managedSkills }`). `managedSkills: false` (alleen met `BONZAIWORK_MANAGED_SKILLS=0`) betekent de oude opzet: de UI biedt dan ook "Kies je bestaande notitiemap" aan |
 | `GET /bonzaiwork/brains/proposals` | client | voorkeuren die de AI voorstelde |
 | `POST /bonzaiwork/brains/proposals/:id` | host | `{ decision: "accept" \| "reject", text? }` |
 | `* /bonzaiwork/brains/mcp` | lokaal token | de breinen-MCP, alleen voor de engine |

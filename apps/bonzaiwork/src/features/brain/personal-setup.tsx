@@ -14,15 +14,17 @@ import { errorText } from "~/lib/errors";
 import { navigate } from "~/lib/router";
 
 /**
- * Makes the personal brain (brains plan §5.1): a project named "Mijn brein" on an existing notes
- * folder or a new one, registered as kind personal. Nothing is copied or moved; history lives
- * outside the folder. The onboarding step is gone (brief §8): Jouw brein and the first proposal
+ * Makes the personal brain (brains plan §5.1): a project named "Mijn brein" in a new folder,
+ * registered as kind personal; history lives outside the folder. An existing notes folder is only
+ * offered when the server still allows it (`existingFolder`). The onboarding step is gone (brief §8): Jouw brein and the first proposal
  * offer it instead.
  */
 export function usePersonalSetup() {
   const backend = useBackend();
   const client = useQueryClient();
   const status = useStatus();
+  // A personal brain starts clean; the server says when an existing notes folder may still be chosen.
+  const existingAllowed = useBrainAuthor().data?.existingFolder ?? false;
   const [busy, setBusy] = useState<"existing" | "new" | null>(null);
   const [typing, setTyping] = useState(false);
   const [path, setPath] = useState("");
@@ -65,7 +67,7 @@ export function usePersonalSetup() {
     return picked ? create("existing", picked) : null;
   };
 
-  return { busy, typing, path, setPath, chooseExisting, createNew: () => create("new", null) };
+  return { busy, typing, path, setPath, existingAllowed, chooseExisting, createNew: () => create("new", null) };
 }
 
 /** Without a native picker the folder is typed; ⏎ submits. */
@@ -171,9 +173,11 @@ export function BrainsAppSection() {
             <Button variant="secondary" size="sm" disabled={readOnly || setup.busy !== null} onClick={() => void setup.createNew()}>
               {copy.brain.personalNew}
             </Button>
-            <Button variant="quiet" size="sm" disabled={readOnly || setup.busy !== null || (setup.typing && !setup.path.trim())} onClick={() => void setup.chooseExisting()}>
-              {copy.brain.personalExisting}
-            </Button>
+            {setup.existingAllowed ? (
+              <Button variant="quiet" size="sm" disabled={readOnly || setup.busy !== null || (setup.typing && !setup.path.trim())} onClick={() => void setup.chooseExisting()}>
+                {copy.brain.personalExisting}
+              </Button>
+            ) : null}
           </div>
         </div>
       )}
