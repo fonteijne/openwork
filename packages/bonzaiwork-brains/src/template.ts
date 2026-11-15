@@ -2,21 +2,25 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { appendLog, renderIndexes } from "./okf.ts";
+import { isManagedSource } from "./managed.ts";
 import { TEMPLATE_FILES } from "./template-files.ts";
 
 /**
  * The brain template (plan §6.1, §6.6, §6.7): `AGENTS.md` as the ICM entry,
- * `_meta/`, `_templates/`, an OKF bundle in `knowledge/`, `workflows/`, and
- * the skills and commands for ingesting, recording, maintenance and making
- * workflows. Writes only what is missing: an existing note is never
+ * `_meta/`, `_templates/`, an OKF bundle in `knowledge/` and
+ * `workflows/`. Writes only what is missing: an existing note is never
  * replaced, an existing `AGENTS.md` gets the routing added below it.
+ *
+ * The skills and commands are not part of a brain: the app ships them to every project
+ * (managed.ts). `skills: true` is the old behaviour, a copy in the brain itself.
  */
 export type TemplateKind = "project" | "personal";
 
 /** Where each template file goes in a brain of this kind. */
-export function templateTargets(kind: TemplateKind): Map<string, string> {
+export function templateTargets(kind: TemplateKind, options: { skills?: boolean } = {}): Map<string, string> {
   const targets = new Map<string, string>();
   for (const source of TEMPLATE_FILES.keys()) {
+    if (!options.skills && isManagedSource(source)) continue;
     if (source.startsWith("common/")) targets.set(source.slice("common/".length), source);
     else if (source.startsWith(kind === "project" ? "team/" : "personal/")) targets.set(source.slice(source.indexOf("/") + 1), source);
     else if (source.startsWith("vendor/")) targets.set(`.opencode/skills/${source.slice("vendor/".length)}`, source);
@@ -32,11 +36,11 @@ const ROUTING_HEADING = "## Waar alles staat";
 
 export type TemplateResult = { written: string[]; extendedAgents: boolean };
 
-export async function applyTemplate(root: string, input: { kind: TemplateKind; name: string; description: string; now: Date }): Promise<TemplateResult> {
+export async function applyTemplate(root: string, input: { kind: TemplateKind; name: string; description: string; now: Date; skills?: boolean }): Promise<TemplateResult> {
   const written: string[] = [];
   let extendedAgents = false;
   const values = { name: input.name.trim() || "Brein", description: input.description.trim() || "Waar dit brein over gaat en voor wie." };
-  for (const [target, source] of templateTargets(input.kind)) {
+  for (const [target, source] of templateTargets(input.kind, { skills: input.skills })) {
     const content = fill(TEMPLATE_FILES.get(source) ?? "", values);
     const path = join(root, target);
     const existing = await readFile(path, "utf8").catch(() => null);

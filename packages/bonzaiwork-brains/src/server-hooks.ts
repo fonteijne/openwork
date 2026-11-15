@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 
 import { createGit, type Git } from "./git.ts";
+import { writeManaged, type ManagedFolders } from "./managed.ts";
 import { handleMcpRequest, type PersonalAccess, type TeamBrain } from "./mcp.ts";
 import { composeInstructions, isCloudFolder, PREFERENCES_FILE } from "./personal.ts";
 import { answerBrainReads } from "./answers.ts";
@@ -48,7 +49,7 @@ export type BrainsHost = {
   followSessions?(workspaceId: string): Promise<boolean>;
   sessionInfo(sessionId: string): Promise<{ id: string; title: string | null; parentId: string | null } | null>;
   updateEngineMcp(servers: Record<string, Record<string, unknown> | null>): Promise<boolean>;
-  setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null }): Promise<void>;
+  setEngineGlobalContext(input: { instructions: string | null; skillsDirectory: string | null; commandsDirectory?: string | null }): Promise<void>;
   /** OPENCODE_CONFIG_DIR: the global instructions; closed to the ordinary tools like a brain. */
   engineConfigDirectory?: string;
   /** Rebuilds the engine's loaded folders with the current config and registers their MCPs again. */
@@ -254,6 +255,10 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   let proposals: PreferenceProposal[] = [];
 
   let ready = false;
+  // Skills and commands come from the app (managed.ts). BONZAIWORK_MANAGED_SKILLS=0 is the switch
+  // back: the personal brain's own skills folder counts in every project, as before.
+  const managedSkills = environment.BONZAIWORK_MANAGED_SKILLS?.trim() !== "0";
+  let managed: ManagedFolders | null = null;
   let markStarted = () => {};
   const started = new Promise<void>((resolve) => { markStarted = resolve; });
   const whenStarted = (handle: BrainsRoute["handle"]): BrainsRoute["handle"] => async (request, params) => {
@@ -266,7 +271,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
 
   function syncFor(record: BrainRecord): BrainSync {
     if (!git) throw new Error("brains not started");
-    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService, busy: async () => chatsWriteIn(record) });
+    return new BrainSync({ git, record, author, save: (next) => registry.upsert(next), log, platform, proposals: proposalService, busy: async () => chatsWriteIn(record), skillsInBrain: !managedSkills });
   }
 
   /** A chat runs that may write in this brain: its own project, or for the personal brain any project. */
@@ -293,6 +298,18 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     }))].sort();
   }
 
+  /**
+   * The app's own skills sit in the closed config folder, and a skill reads its attachments with
+   * the plain read tool on that path (measured: without this the read is refused). The last
+   * matching rule wins, so this allow comes after the denies; editing stays closed.
+   */
+  function managedSkillFolders(): string[] {
+    const config = host?.engineConfigDirectory;
+    if (!managedSkills || !config) return [];
+    const clean = config.replace(/[*?]/g, "").replace(/[\\/]+$/, "");
+    return clean.includes("\\") ? [`${clean}\\skills\\*`, `${clean.replace(/\\/g, "/")}/skills/*`] : [`${clean}/skills/*`];
+  }
+
   function enginePolicies(): EnginePolicy[] {
     const mcp = [...new Set([...syncs.values()].flatMap((sync) => sync.untrustedMcpServers))].sort();
     // Excluded folders and the preferences file (plan §5.1.1, §7.3). Paths are relative to the
@@ -307,6 +324,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         { action: "tool.use", resource: `read:${folder}`, effect: "deny" },
         { action: "tool.use", resource: `edit:${folder}`, effect: "deny" },
       ]),
+      ...managedSkillFolders().map((folder): EnginePolicy => ({ action: "tool.use", resource: `read:${folder}`, effect: "allow" })),
       ...folders.flatMap((folder): EnginePolicy[] => [
         { action: "tool.use", resource: `read:${escape(folder)}/*`, effect: "deny" },
         { action: "tool.use", resource: `edit:${escape(folder)}/*`, effect: "deny" },
@@ -322,14 +340,15 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
    */
   async function refreshGlobalContext(): Promise<boolean> {
     if (!host) return false;
-    const own = personal();
-    const root = own?.snapshot.path ?? null;
+    const root = personal()?.snapshot.path ?? null;
     const instructions = await composeInstructions(root);
     personalWarning = instructions.truncated ? "Je persoonlijke instructies zijn groter dan 32 KiB en worden ingekort meegestuurd. Maak ze korter." : null;
-    const skills = root && (await stat(join(root, ".opencode", "skills")).catch(() => null))?.isDirectory() ? join(root, ".opencode", "skills") : null;
-    const signature = JSON.stringify([instructions.text, skills]);
+    const own = root && (await stat(join(root, ".opencode", "skills")).catch(() => null))?.isDirectory() ? join(root, ".opencode", "skills") : null;
+    const skills = managedSkills ? managed?.skills ?? null : own;
+    const commands = managedSkills ? managed?.commands ?? null : null;
+    const signature = JSON.stringify([instructions.text, skills, commands]);
     if (signature === globalContext) return false;
-    await host.setEngineGlobalContext({ instructions: instructions.text, skillsDirectory: skills });
+    await host.setEngineGlobalContext({ instructions: instructions.text, skillsDirectory: skills, commandsDirectory: commands });
     globalContext = signature;
     return true;
   }
@@ -660,7 +679,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         git, id: workspaceId, path: workspace.path, gitDir: join(stateDirectory, "history", `${workspaceId}.git`), excluded,
         author, save: (next) => registry.upsert(next), log, platform,
       });
-      await applyTemplate(workspace.path, { kind: "personal", name: text(body, "name") || "Mijn brein", description: "", now: new Date() });
+      await applyTemplate(workspace.path, { kind: "personal", name: text(body, "name") || "Mijn brein", description: "", now: new Date(), skills: !managedSkills });
       await registry.upsert(created.snapshot);
       created.dispose();
       sync = await activate(created.snapshot, workspace.path);
@@ -874,7 +893,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       if (!name || !email || !/^[^\s@]+@[^\s@]+$/.test(email)) return failure(400, "invalid_author", "Fill in a name and an e-mail address.");
       await registry.setAuthor({ name, email });
     }
-    return json({ author: registry.author, suggested: registry.author ? null : suggestedAuthor(environment) });
+    return json({ author: registry.author, suggested: registry.author ? null : suggestedAuthor(environment), managedSkills });
   }
 
   const mcpRoutes = ["POST", "GET", "DELETE"].map((method): BrainsRoute => ({
@@ -1054,6 +1073,10 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
         await registry.load();
         ready = true;
         await loadProposals();
+        if (managedSkills) {
+          managed = await writeManaged(join(stateDirectory, "managed"))
+            .catch((error: unknown) => { log("error", "Managed skills not written", { error: String(error) }); return null; });
+        }
         await reconcile();
         await refreshGlobalContext();
         // The engine reaches the brain tools in every project through this one entry (plan §5.2).

@@ -19,7 +19,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { SERVER_ENVIRONMENT_DEFAULTS } from "@bonzaiwork/policy";
 
@@ -281,6 +281,23 @@ async function main() {
     await new Promise((done) => setTimeout(done, 8_000));
     const personalRead = await ask(engine, sessionId, `LEESPAD|${join(personalFolder, "AGENTS.md")}|`);
     check("the personal brain is closed to other projects too", personalRead.includes("Blocked by configuration policy"), personalRead.slice(0, 160));
+
+    // 6b. Skills and commands come from the app (managed.ts): in every project, with readable attachments.
+    const at = `location%5Bdirectory%5D=${encodeURIComponent(personalFolder)}`;
+    const named = async (path: string) => list(record(await (await fetch(`${personalEngineUrl}${path}?${at}`, { headers: owner })).json()).data).map(record);
+    const skills = await waitFor("managed skills", async () => {
+      const found = await named("/api/skill");
+      return found.some((skill) => skill.name === "okf-query") ? found : null;
+    }, 30_000);
+    const architect = skills.find((skill) => skill.name === "icm-architect");
+    check("the app's skills are in a project that has none of its own", ["okf-ingest", "okf-query", "okf-lint", "icm-architect"].every((name) => skills.some((skill) => skill.name === name)), skills.map((skill) => text(skill.name)).join(","));
+    check("… and are not copied into the personal brain", !existsSync(join(personalFolder, ".opencode", "skills")));
+    const commands = (await named("/api/command")).map((command) => text(command.name));
+    check("the app's commands are there too", ["verwerk", "vastleggen", "onderhoud", "werkwijze"].every((name) => commands.includes(name)), commands.join(","));
+    const attachment = await ask(personalEngineUrl, personalChatId, `LEESPAD|${join(dirname(text(architect?.path)), "references", "core.md")}|`);
+    check("a skill's attachment is readable although the config folder is closed", !attachment.includes("Blocked by configuration policy") && attachment.includes("core.md"), attachment.slice(0, 160));
+    const closedConfig = await ask(personalEngineUrl, personalChatId, `LEESPAD|${join(dirname(text(architect?.path)), "..", "..", "opencode.json")}|`);
+    check("… and the rest of the config folder stays closed", closedConfig.includes("Blocked by configuration policy"), closedConfig.slice(0, 160));
 
     // 7. A routine reads the brains it names without a click; another routine waits (plan §5.2).
     const readsBefore = toolResults.filter((result) => result.includes("Uit het brein Sales")).length;

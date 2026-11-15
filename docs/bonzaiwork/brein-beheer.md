@@ -14,8 +14,10 @@ gebruiker veranderden. Niemand hoeft git te kennen.
    werkt goed: BonzaiWork stelt die naam voor als projectnaam.
 2. Laat hem **leeg** (geen README, geen `.gitignore`). De eerste collega die hem in BonzaiWork ophaalt,
    krijgt het breinsjabloon erin: `AGENTS.md`, `knowledge/` (OKF), `workflows/` (ICM), `_meta/`,
-   `_templates/` en de standaardcommando's `/verwerk`, `/vastleggen`, `/onderhoud` en `/werkwijze`
-   ([plan §6.1](./project-breinen-plan.md#61-structuur)).
+   `_templates/` ([plan §6.1](./project-breinen-plan.md#61-structuur)). De commando's `/verwerk`,
+   `/vastleggen`, `/onderhoud` en `/werkwijze` en de bijbehorende skills zitten in de app en hoeven niet
+   in de repo te staan. Staan ze er nog wel (een brein van voor deze versie), dan gebruikt BonzaiWork in
+   dat brein de versie uit de repo.
    - Heeft de repo al inhoud, dan blijft die zoals hij is. Je kunt het sjabloon zelf toevoegen of het zo
      laten; BonzaiWork werkt ook met een gewone map Markdown.
 3. De standaardbranch (meestal `main`) is wat iedereen deelt. BonzaiWork werkt nooit op andere branches,

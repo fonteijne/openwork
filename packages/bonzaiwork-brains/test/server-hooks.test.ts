@@ -74,7 +74,9 @@ test("clone, registreren, een beurt en delen na de stille periode", async () => 
   hooks = createBrainsServerHooks({ stateDirectory: join(world.root, "state-app"), allowFileProtocol: true, quietMs: 50, prepareTimeoutMs: 2_000, environment: { PATH: process.env.PATH ?? "", HOME: world.root } });
   const host = fakeHost();
   await hooks.start(host);
-  expect(hooks.enginePolicies().map((policy) => policy.resource)).toEqual(["shell:git *", "edit:.git/*", "edit:*/.git/*", "read:/engine/config/*", "edit:/engine/config/*"]);
+  expect(hooks.enginePolicies().map((policy) => policy.resource)).toEqual(["shell:git *", "edit:.git/*", "edit:*/.git/*", "read:/engine/config/*", "edit:/engine/config/*", "read:/engine/config/skills/*"]);
+  // The app's own skills stay readable inside the closed config folder: the allow comes after the deny (the last rule wins).
+  expect(hooks.enginePolicies().at(-1)).toEqual({ action: "tool.use", resource: "read:/engine/config/skills/*", effect: "allow" });
 
   expect((await call("/bonzaiwork/brains/settings", { method: "PUT", body: { name: "Anna", email: "anna@example.invalid" } })).status).toBe(200);
   const folder = join(world.root, "BonzaiWork", "Sales");

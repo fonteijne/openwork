@@ -233,9 +233,16 @@ test("host: session activity, running sessions, MCP entries and the global conte
     const directory = engineConfigDirectory(config);
     assert.equal(await readFile(join(directory, "AGENTS.md"), "utf8"), "# Mijn voorkeuren\n");
     assert.equal(await realpath(join(directory, "skills")), await realpath(skills));
+    assert.equal(existsSync(join(directory, "commands")), false);
+    // Commands the app ships are linked the same way; the same call again changes nothing.
+    await host.setEngineGlobalContext({ instructions: "# Mijn voorkeuren\n", skillsDirectory: skills, commandsDirectory: skills });
+    assert.equal(await realpath(join(directory, "commands")), await realpath(skills));
+    await host.setEngineGlobalContext({ instructions: "# Mijn voorkeuren\n", skillsDirectory: skills, commandsDirectory: skills });
+    assert.equal(await realpath(join(directory, "commands")), await realpath(skills));
     await host.setEngineGlobalContext({ instructions: null, skillsDirectory: null });
     assert.equal(existsSync(join(directory, "AGENTS.md")), false);
     assert.equal(existsSync(join(directory, "skills")), false);
+    assert.equal(existsSync(join(directory, "commands")), false);
   } finally {
     sseClient?.end();
     engine.closeAllConnections();

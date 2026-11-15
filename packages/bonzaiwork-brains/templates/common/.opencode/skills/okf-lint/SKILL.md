@@ -1,9 +1,12 @@
 ---
 name: okf-lint
-description: De kennis en werkwijzen van dit brein controleren (onderhoud). Gebruik bij /onderhoud of als de gebruiker vraagt of het brein nog klopt.
+description: Vastgelegde kennis en werkwijzen controleren (onderhoud). Gebruik bij /onderhoud of als de gebruiker vraagt of het brein nog klopt.
 ---
 
 # Onderhoud
+
+**Waar je werkt.** Staat er `knowledge/index.md` in dit project, dan controleer je dit brein. Zo niet,
+dan het persoonlijke brein, met `persoonlijk_brein_lezen` en `persoonlijk_brein_zoeken` en dezelfde paden.
 
 Meld wat je vindt; verwijder niets en herschrijf niets zonder akkoord.
 

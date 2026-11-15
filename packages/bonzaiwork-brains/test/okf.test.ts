@@ -90,7 +90,9 @@ describe("sjabloon", () => {
     }
     await walk(root);
     expect([...TEMPLATE_FILES.keys()].sort()).toEqual(files.filter((file) => file !== "vendor/README.md").sort());
-    expect([...templateTargets("project").keys()]).toContain(".opencode/skills/icm-architect/SKILL.md");
+    // Skills and commands are shipped by the app, not written into a brain (managed.ts).
+    expect([...templateTargets("project").keys()].filter((path) => path.startsWith(".opencode/"))).toEqual([]);
+    expect([...templateTargets("project", { skills: true }).keys()]).toContain(".opencode/skills/icm-architect/SKILL.md");
     expect([...templateTargets("personal").keys()]).toContain("_meta/voorkeuren.md");
     for (const [path, content] of TEMPLATE_FILES) if (path.includes("commands/")) expect(content).not.toMatch(/!`/);
   });

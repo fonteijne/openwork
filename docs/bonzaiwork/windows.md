@@ -47,7 +47,7 @@ Alles hieronder is dus niet getest.
 | W12 | Paden vergelijken | `samePath`: hoofdletterongevoelig en beide slashes, alleen bij het registreren na een clone | `src/server-hooks.ts` | Andere plekken vergelijken nog exact (zie §4) |
 | W13 | Map voor een nieuw brein | De app bouwt `C:\…\BonzaiWork` + `/` + naam (gemengde slashes) | `apps/bonzaiwork/src/backend/live/index.ts` (`defaultFolder()` en de clone) | Map op een vreemde plek of een mislukte clone |
 | W14 | Persoonlijk brein: geschiedenis buiten de map | `--git-dir` in userData (`%APPDATA%`), `--work-tree` de notitiemap, mogelijk op een andere schijf | `src/sync.ts` `initLocal` | Geen geschiedenis voor een vault op `D:\` |
-| W15 | Skills in elke chat | Junction `<OPENCODE_CONFIG_DIR>\skills` naar de skills van het persoonlijke brein (geen beheerdersrechten nodig) | `apps/server/src/downstream-hooks.ts` `setEngineGlobalContext` | Persoonlijke skills ontbreken in chats |
+| W15 | Skills en commando's in elke chat | Junctions `<OPENCODE_CONFIG_DIR>\skills` en `\commands` naar de map met wat de app levert (`userData\bonzaiwork\managed`; geen beheerdersrechten nodig) | `apps/server/src/downstream-hooks.ts` `setEngineGlobalContext` | De skills en commando's van de app ontbreken in chats; of een bijlage van een skill is niet te lezen (de allow-regel gebruikt beide scheidingstekens) |
 | W16 | Atomisch opslaan | Schrijven naar een tijdelijk bestand, dan `rename` over het oude; op Windows kan dat `EPERM` geven als een virusscanner het bestand open heeft | `src/registry.ts`, `src/server-hooks.ts` (voorstellen), `bonzaiwork-routines/src/routines.ts` | Instellingen of routines worden niet opgeslagen |
 | W17 | Regeleinden | Gebundelde git met `core.autocrlf=false`; notities met CRLF (Kladblok) gaan zo de geschiedenis in. De OKF-frontmatter leest CRLF; de werkwijze- en ICM-lezers splitsen op `\n` en laten een `\r` staan | `src/okf.ts`, `src/icm.ts`, `src/workflows.ts` | Gemengde regeleinden in een team; een stapcontract dat net niet herkend wordt |
 | W18 | Bestandsnamen | `:`, `?`, `*` en namen als `CON` mogen niet; een repo van een Mac-collega kan ze bevatten; paden langer dan 260 tekens | git-checkout in `src/sync.ts` | Clone of bijwerken faalt voor iedereen op Windows |
@@ -90,7 +90,7 @@ Windows 11 x64. Per regel: afvinken, met datum en uitkomst.
       dat project dicht (herbouw, W11).
 - [ ] "Uit een gedeeld brein" met de standaardmap: het project opent op de juiste map (W12, W13).
 - [ ] Persoonlijk brein op `D:\Notities`: vastleggen, geschiedenis, terugzetten (W14).
-- [ ] Een persoonlijke skill werkt in een chat in een ander project (W15).
+- [ ] `/verwerk` en de skill `okf-query` werken in een project zonder eigen skills, en `icm-architect` leest zijn `references/` (W15).
 - [ ] Een repo met een bestand `vraag?.md` of een heel lang pad: duidelijke melding, de rest werkt (W18).
 - [ ] Een notitie met CRLF uit Kladblok: OKF-controle, index en log kloppen; een stapcontract met CRLF wordt
       herkend (W17).

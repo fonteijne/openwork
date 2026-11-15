@@ -1,9 +1,15 @@
 ---
 name: okf-ingest
-description: Een bron verwerken in de kennis van dit brein (OKF). Gebruik als de gebruiker een bestand, tekst of notitie aanlevert om te bewaren, of /verwerk vraagt.
+description: Een bron verwerken in vastgelegde kennis (OKF). Gebruik als de gebruiker een bestand, tekst of notitie aanlevert om te bewaren, of /verwerk vraagt.
 ---
 
 # Een bron verwerken
+
+**Waar je werkt.** Staat er `knowledge/index.md` in dit project, dan verwerk je de bron in dit brein, met
+de gewone lees- en schrijftools. Zo niet, dan in het persoonlijke brein, met dezelfde paden:
+`persoonlijk_brein_lezen` en `persoonlijk_brein_zoeken` om te lezen, `persoonlijk_brein_schrijven` voor
+een nieuw bestand en `persoonlijk_brein_bewerken` voor een bestaand bestand. Twijfel je of iets
+teamkennis of persoonlijk is, vraag het.
 
 1. Lees `_meta/schema.md` voor de typen en schrijfafspraken, en `knowledge/index.md` voor wat er al is.
 2. Zet de bron als Markdown in `knowledge/references/<jjjj-mm-dd>-<onderwerp>.md`, met frontmatter
