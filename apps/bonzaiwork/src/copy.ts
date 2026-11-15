@@ -32,12 +32,20 @@ export const copy = {
     back: "Terug",
   },
 
+  // ⌘N: the picker that asks which project the new chat starts in.
+  newChat: {
+    title: "Nieuwe chat",
+    placeholder: "In welk project?",
+    group: "Projecten",
+    current: "Huidig",
+    noMatch: "Geen project met deze naam",
+    noProjects: "Nog geen projecten",
+    hints: { navigate: "bladeren" },
+  },
+
   // Vandaag (brief §5): the first screen. No sentences that explain the interface (P1).
   home: {
     title: "Vandaag",
-    composerPlaceholder: "Waar ga je aan werken?",
-    chooseProject: "Project kiezen",
-    linkKey: "Key koppelen",
     forYou: "Voor jou",
     more: (count: number) => `Nog ${count}`,
     busy: "Bezig",
@@ -63,7 +71,6 @@ export const copy = {
     routineChat: "routine",
     /** A brain changed by a colleague: "Sanne: Kortingsbeleid bijgewerkt". */
     brainChange: (author: string, title: string) => `${author}: ${title}`,
-    keyLocked: "Dit project heeft nog geen key",
     /** Toast after "Opnieuw" on a failed chat (C2). */
     retried: "Opnieuw gestart",
     /** Toast after "Nu uitvoeren" on a routine (C2). */
@@ -1215,7 +1222,6 @@ export const copy = {
       technisch: ["engine", "plugins", "log", "versie", "pad"],
     },
     actions: {
-      newChatIn: (project: string) => `Nieuwe chat in ${project}`,
       goBrain: "Naar jouw brein",
       goAllProjects: "Alle projecten",
       goRoutines: "Naar routines",

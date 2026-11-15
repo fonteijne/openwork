@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { MessageSquarePlus } from "lucide-react";
+import { useQueries } from "@tanstack/react-query";
 
 import { useBackend } from "~/backend/context";
 import { keys, useAttention, useBrainAuthor, useBrains, useProjects, useRecentChats, useRoutines, useToday } from "~/backend/queries";
 import type { Brain, BrainHistoryEntry, Project } from "~/backend/types";
 import { PageTitle, TopBar } from "~/components/top-bar";
-import { toast } from "~/components/ui/toast";
+import { Button } from "~/components/ui/button";
+import { Tooltip } from "~/components/ui/tooltip";
 import { copy } from "~/copy";
-import { errorText } from "~/lib/errors";
-import { SEEN_ALL_EVENT } from "~/lib/shortcuts";
+import { chord, SEEN_ALL_EVENT } from "~/lib/shortcuts";
 import { cn } from "~/lib/cn";
-import { DESKTOP, SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
+import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
 
 import { useSidebarProjects } from "../projects/use-listed-projects";
+import { useUi } from "../shell/ui-store";
 import { withWorld } from "../today/model";
 import { CleanupRow, DayCloseCard, FocusLine, PlanSection, SentToday, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
 import { AttentionSection } from "./attention-section";
-import { HomeComposer } from "./home-composer";
 import { awayRows, MAX_AWAY_ROWS, nextRoutine, readLastSeen, writeLastSeen } from "./model";
 import { BusySection, ProjectsSection, WhileAwaySection, WorkdaySection } from "./sections";
 
@@ -49,15 +50,12 @@ function useSeenAll(onSeenAll: () => void) {
 }
 
 /**
- * Vandaag (brief §5): one composer that starts work in any project, then only the sections with
- * content: Voor jou, Bezig, Terwijl je weg was, Je werkdag, Projecten. The first card is the focal
- * element; without one, the composer (P7). No sentence explains the interface (P1). On a phone the
- * composer sticks to the bottom, in thumb reach (brief §4).
+ * Vandaag (brief §5): only the sections with content: Voor jou, Bezig, Terwijl je weg was, Je
+ * werkdag, Projecten. The first card is the focal element (P7). No sentence explains the interface
+ * (P1). Work starts from "Nieuwe chat" in the bar (⌘N), which asks for the project first.
  */
 export function HomePage() {
-  const backend = useBackend();
-  const client = useQueryClient();
-  const smallUp = useMediaQuery(SMALL_UP);
+  const setNewChat = useUi((state) => state.setNewChat);
   const { projects, summaries } = useSidebarProjects();
   const attention = useAttention();
   const recent = useRecentChats();
@@ -92,24 +90,11 @@ export function HomePage() {
   };
   useSeenAll(seenAll);
 
-  // "Parkeren" (T5): the thought goes to the inbox of the personal brain; the page stays as it is.
-  const park = async (text: string): Promise<boolean> => {
-    try {
-      await backend.today.park(text);
-      toast(copy.today.parkedToast);
-      void client.invalidateQueries({ queryKey: keys.today });
-      return true;
-    } catch (failure) {
-      toast(errorText(failure), { tone: "error" });
-      return false;
-    }
-  };
   // With the personal agent on there is more to show: a second column on a wide window keeps the
   // day (Komt eraan, dagplan, Je werkdag) beside the work instead of below it.
   const wide = useMediaQuery(WIDE);
   const desktop = useMediaQuery(DESKTOP);
   const columns = Boolean(agent) && wide;
-  const composer = <HomeComposer projects={projects} size={smallUp && !agent ? "large" : "default"} autoFocus={false} onPark={agent && !agent.blocked ? park : undefined} />;
   const cleanup = agent?.cleanup[0];
   const day = (
     <>
@@ -123,13 +108,21 @@ export function HomePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <TopBar>
+      <TopBar
+        actions={
+          <Tooltip label={copy.shell.newChat} shortcut={chord("newChat")} side="bottom">
+            <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => setNewChat(true)} data-testid="home-new-chat">
+              <MessageSquarePlus />
+              {copy.shell.newChat}
+            </Button>
+          </Tooltip>
+        }
+      >
         <PageTitle>{copy.home.title}</PageTitle>
       </TopBar>
       <main className="min-h-0 flex-1 overflow-y-auto" data-testid="home-page">
         <div className={cn("mx-auto w-full px-4 pt-6 pb-12 sm:px-6", columns ? "grid max-w-6xl grid-cols-[minmax(0,1fr)_19rem] items-start gap-x-10" : "max-w-3xl sm:pt-8")}>
           <div className={cn("flex min-w-0 flex-col", agent ? "gap-6" : "gap-8")}>
-            {smallUp ? composer : null}
             {agent?.focus ? <FocusLine focus={agent.focus} projects={everyProject} /> : null}
             {agent?.blocked ? <TodayBlocked reason={agent.blocked} /> : null}
             {agent?.close ? <DayCloseCard close={agent.close} done={agent.done} /> : null}
@@ -154,7 +147,6 @@ export function HomePage() {
           {columns ? <aside className="sticky top-6 flex min-w-0 flex-col gap-6" data-testid="home-day">{day}</aside> : null}
         </div>
       </main>
-      {smallUp ? null : <div className="shrink-0 border-t border-border bg-background px-3 pt-2 pb-[max(8px,env(safe-area-inset-bottom))]">{composer}</div>}
     </div>
   );
 }

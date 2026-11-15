@@ -8,7 +8,7 @@ import { PAGE_TITLE } from "~/components/top-bar";
 import { Sheet } from "~/components/ui/overlay";
 import { copy } from "~/copy";
 import { goBack, goForward, navigate, type Route } from "~/lib/router";
-import { focusComposer, inOverlay, matchShortcut, PARK_EVENT, PROJECT_SLOTS, SEEN_ALL_EVENT, type ShortcutId } from "~/lib/shortcuts";
+import { inOverlay, matchShortcut, PARK_EVENT, PROJECT_SLOTS, SEEN_ALL_EVENT, type ShortcutId } from "~/lib/shortcuts";
 import { DESKTOP, SMALL_UP, useMediaQuery, WIDE } from "~/lib/use-media";
 import { useOpenedOnce } from "~/lib/use-opened-once";
 
@@ -20,6 +20,7 @@ import { Sidebar } from "./sidebar";
 import { useUi } from "./ui-store";
 
 const CommandPalette = lazy(() => import("./command-palette").then((module) => ({ default: module.CommandPalette })));
+const NewChatPicker = lazy(() => import("./new-chat-picker").then((module) => ({ default: module.NewChatPicker })));
 const NewProjectDialog = lazy(() => import("../projects/new-project-dialog").then((module) => ({ default: module.NewProjectDialog })));
 // The agenda panel is its own chunk: closed means not loaded (agenda plan §7.6).
 const AgendaPanelHost = lazy(() => import("../agenda/agenda-panel").then((module) => ({ default: module.AgendaPanelHost })));
@@ -73,9 +74,8 @@ function useShortcuts(route: Route, projectId: string | null) {
           ui.setPalette(true);
           return;
         case "newChat":
-          if (projectId) navigate({ name: "project", projectId, chatId: null });
-          else if (route.name !== "home") navigate({ name: "home" });
-          focusComposer();
+          // The picker asks where the chat starts; the open project is its first row.
+          ui.setNewChat(true);
           return;
         case "newProject":
           if (!readOnly) ui.setNewProject(true);
@@ -143,6 +143,7 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
   const drawerOpen = useUi((state) => state.drawerOpen);
   const setDrawer = useUi((state) => state.setDrawer);
   const paletteOpened = useOpenedOnce(useUi((state) => state.paletteOpen));
+  const newChatOpened = useOpenedOnce(useUi((state) => state.newChatOpen));
   const newProjectOpen = useUi((state) => state.newProjectOpen);
   const setNewProject = useUi((state) => state.setNewProject);
   const setSidecarSheet = useUi((state) => state.setSidecarSheet);
@@ -157,7 +158,7 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
   useAgendaPresence(props.projectId);
   useShortcuts(props.route, props.projectId);
 
-  // The home composer starts in the project the person worked in last (brief §5).
+  // The new-chat picker and the palette start from the project the person worked in last (brief §5).
   useEffect(() => {
     if (props.projectId) rememberProject(props.projectId);
   }, [props.projectId, rememberProject]);
@@ -213,6 +214,11 @@ export function AppShell(props: { route: Route; projectId: string | null; childr
       {paletteOpened ? (
         <Suspense fallback={null}>
           <CommandPalette route={props.route} projectId={props.projectId} />
+        </Suspense>
+      ) : null}
+      {newChatOpened ? (
+        <Suspense fallback={null}>
+          <NewChatPicker projectId={props.projectId} />
         </Suspense>
       ) : null}
       {newProjectOpened ? (

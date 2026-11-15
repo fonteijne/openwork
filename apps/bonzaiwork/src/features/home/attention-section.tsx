@@ -6,7 +6,6 @@ import { Skeleton } from "~/components/ui/misc";
 import { copy } from "~/copy";
 import { formatWhen } from "~/lib/format";
 import { focusCard } from "~/lib/card-keys";
-import { focusComposer } from "~/lib/shortcuts";
 
 import { trustDismissed } from "../brain/model";
 import { AttentionCard } from "./attention-cards";
@@ -30,7 +29,7 @@ export function SectionHeading(props: { title: string; count?: number; trailing?
 /**
  * "Voor jou" (brief §5): one Callout per open decision, in the backend's order; at most five, the
  * rest behind "Nog n". After an answer the card leaves, the page stays (P11, S5) and focus moves
- * to the next card, or to the composer when none is left. The first card is the focal element by
+ * to the next card, or to nothing moves when none is left. The first card is the focal element by
  * weight only (P7: its action is the one filled primary); arriving moves no focus (S5).
  */
 export function AttentionSection(props: {
@@ -86,7 +85,6 @@ export function AttentionSection(props: {
     const target = visible[Math.min(advanceTo, visible.length - 1)];
     const element = target ? refs.current.get(attentionKey(target)) : undefined;
     if (element) focusCard(element);
-    else focusComposer(0);
     setAdvanceTo(null);
   }, [advanceTo, visible]);
 

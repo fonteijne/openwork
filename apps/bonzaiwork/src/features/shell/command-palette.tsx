@@ -40,7 +40,7 @@ import { errorText } from "~/lib/errors";
 import { relativeTime } from "~/lib/format";
 import { chordLabel } from "~/lib/platform";
 import { APP_SETTINGS_GROUPS, canGoBack, canGoForward, goBack, goForward, navigate, SETTINGS_GROUPS, type Route } from "~/lib/router";
-import { PARK_EVENT, chord, focusComposer, PROJECT_SLOTS } from "~/lib/shortcuts";
+import { PARK_EVENT, chord, PROJECT_SLOTS } from "~/lib/shortcuts";
 import { setTheme } from "~/lib/theme";
 import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
 
@@ -139,6 +139,7 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
   const open = useUi((state) => state.paletteOpen);
   const setOpen = useUi((state) => state.setPalette);
   const setNewProject = useUi((state) => state.setNewProject);
+  const setNewChat = useUi((state) => state.setNewChat);
   const setFeedback = useUi((state) => state.setFeedback);
   const setShortcuts = useUi((state) => state.setShortcuts);
   const setSwitcher = useUi((state) => state.setSwitcher);
@@ -389,14 +390,12 @@ export function CommandPalette(props: { route: Route; projectId: string | null }
       {
         id: "new-chat",
         group: "actions",
-        label: openProject ? copy.palette.actions.newChatIn(openProject.name) : copy.shell.newChat,
+        label: copy.shell.newChat,
         shortcut: chord("newChat"),
         icon: <MessageSquarePlus />,
         primary: true,
-        run: () => {
-          go(openProject ? { name: "project", projectId: openProject.id, chatId: null } : { name: "home" });
-          focusComposer(60);
-        },
+        // The same picker ⌘N opens (S6: one action, one home); opening it closes the palette.
+        run: () => setNewChat(true),
       },
       ...(readOnly ? [] : [{ id: "new-project", group: "actions" as const, label: copy.shell.newProject, shortcut: chord("newProject"), icon: <FolderPlus />, primary: true, run: () => { close(); setNewProject(true); } }]),
       ...(props.route.name !== "home" ? [{ id: "go-home", group: "actions" as const, label: copy.palette.goHome, shortcut: chord("home"), icon: <Inbox />, primary: true, run: () => go({ name: "home" }) }] : []),

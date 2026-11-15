@@ -36,6 +36,12 @@ Een onbekend pad of project geeft een niet-gevonden-staat in de pagina met gevul
 
 ### §5 Vandaag: gebouwd
 
+Bijgewerkt: de composer met projectpil is van Vandaag af. Een chat begint met "Nieuwe chat" (⌘N, de knop in
+de balk van Vandaag of in de zijbalkkop, of het palet): een kiezer over de gedimde pagina met de projecten,
+het huidige bovenaan; ⏎ of ⌘1…9 opent de lege chat van dat project met de composer in focus
+(`src/features/shell/new-chat-picker.tsx`). De eerste start landt in de lege chat van het nieuwe project.
+De alinea hieronder beschrijft de oorspronkelijke bouw.
+
 Composer met projectpil (Popover met projecttegels, `Geen key` per project, laatst gebruikt project
 onthouden), zonder key één rij "Key koppelen"; ⏎ maakt de chat en opent hem met het bericht verstuurd. Voor
 jou uit `attention.list()` (één poll): toestemming, vraag (RadioCards, 1–9), mislukte chat ("Mislukt: …",
