@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { BookOpen, FolderOpen, MessageSquarePlus } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
-import { keys, useBrains, useProjects, useRoutines, useStatus } from "~/backend/queries";
+import { keys, useBrainAuthor, useBrains, useProjects, useRoutines, useStatus } from "~/backend/queries";
 import type { Brain, Project, RemoteCheck, RoutineInput } from "~/backend/types";
 import { OpenFolderButton } from "~/components/open-folder-button";
 import { PageTitle, TopBar } from "~/components/top-bar";
@@ -14,7 +14,9 @@ import { Disclosure } from "~/components/ui/disclosure";
 import { Input } from "~/components/ui/field";
 import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
 import { ConfirmDialog } from "~/components/ui/overlay";
+import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { errorText } from "~/lib/errors";
 import { href, navigate } from "~/lib/router";
 import { localTimezone } from "~/lib/schedule";
 import { focusComposer } from "~/lib/shortcuts";
@@ -28,6 +30,7 @@ import { BrainAttentionCard, ProposalCards } from "./cards";
 import { HistorySection } from "./history";
 import { KnowledgeSection } from "./knowledge";
 import { BrainLinkField } from "./link-field";
+import { ExcludedRow } from "./excluded-row";
 import { brainChip } from "./model";
 import { TypedFolder, usePersonalSetup } from "./personal-setup";
 
@@ -134,26 +137,6 @@ function PreferencesSection(props: { brain: Brain; readOnly: boolean }) {
   );
 }
 
-function ExcludedRow(props: { brain: Brain; readOnly: boolean }) {
-  const current = props.brain.status.excluded.join(", ");
-  const [value, setValue] = useState(current);
-  const { busy, run, brains } = useBrainAction(props.brain.projectId);
-  const folders = value.split(",").map((folder) => folder.trim()).filter(Boolean);
-  return (
-    <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border py-2.5">
-      <label className="text-sm font-medium text-foreground" htmlFor="brain-excluded">
-        {copy.brain.excluded}
-      </label>
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:max-w-sm">
-        <Input id="brain-excluded" value={value} disabled={props.readOnly} onChange={(event) => setValue(event.target.value)} placeholder={copy.brain.excludedPlaceholder} />
-        <Button variant="secondary" size="sm" disabled={props.readOnly || busy !== null || value === current} onClick={() => void run("excluded", () => brains.setExcluded(props.brain.projectId, folders), copy.settings.saved)}>
-          {copy.brain.personal.excludedSave}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 /** A private repository for the personal brain, through the same tested link field (I-8). */
 function PrivateRepoRow(props: { brain: Brain; readOnly: boolean }) {
   const { busy, run, brains } = useBrainAction(props.brain.projectId);
@@ -246,6 +229,61 @@ function ChatsSection(props: { project: Project }) {
 }
 
 /**
+ * "Nu omzetten" (onderzoek §4.3, V5): a brain from before the clean setup becomes the project
+ * "Mijn notities", and a new, empty agent starts that takes over the preferences and to-dos.
+ * Nothing is deleted or moved; the dialog says what changes before anything happens.
+ */
+function MigrateCard(props: { brain: Brain; readOnly: boolean }) {
+  const backend = useBackend();
+  const client = useQueryClient();
+  const setup = usePersonalSetup();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const migrate = async () => {
+    setBusy(true);
+    try {
+      await backend.projects.update(props.brain.projectId, { name: copy.brain.migrate.projectName });
+      await backend.brains.convert(props.brain.projectId);
+      await Promise.all([client.invalidateQueries({ queryKey: keys.brains }), client.invalidateQueries({ queryKey: keys.projects })]);
+      // The new agent never lands on the folder that just became a project.
+      if (await setup.createNew(props.brain.projectId)) toast(copy.brain.migrate.done);
+      setOpen(false);
+    } catch (failure) {
+      toast(errorText(failure), { tone: "error" });
+    } finally {
+      setBusy(false);
+      await Promise.all([client.invalidateQueries({ queryKey: keys.brains }), client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.today })]);
+    }
+  };
+  return (
+    <>
+      <Callout
+        testId="agent-migrate"
+        label={copy.brain.migrate.title}
+        icon={<BookOpen />}
+        title={copy.brain.migrate.title}
+        state={copy.brain.migrate.state}
+        actions={
+          <Button variant="primary" data-testid="agent-migrate-start" disabled={props.readOnly || busy} onClick={() => setOpen(true)}>
+            {copy.brain.migrate.action}
+          </Button>
+        }
+      />
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={copy.brain.migrate.confirmTitle}
+        body={copy.brain.migrate.confirmBody(copy.brain.migrate.projectName)}
+        confirmLabel={copy.brain.migrate.action}
+        tone="primary"
+        busy={busy}
+        onConfirm={() => void migrate()}
+      />
+    </>
+  );
+}
+
+/**
  * "Loskoppelen": the brain stops counting in every chat; the folder and the project stay. The
  * dialog says what changes, because the excluded folders stop being closed for the AI.
  */
@@ -282,7 +320,7 @@ function DisconnectRow(props: { brain: Brain; readOnly: boolean }) {
   );
 }
 
-function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly: boolean }) {
+function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly: boolean; existingAllowed: boolean }) {
   const { brain } = props;
   const chip = brainChip(brain.status);
   const [preview, setPreview] = useState<string | null>(null);
@@ -293,6 +331,7 @@ function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly:
           <BookOpen className="size-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
           <StatusChip status={chip.status} label={chip.label} className="text-sm" />
         </div>
+        {brain.status.legacy && !props.existingAllowed ? <MigrateCard brain={brain} readOnly={props.readOnly} /> : null}
         <BrainAttentionCard projectId={brain.projectId} link={false} />
         <ProposalCards all />
       </div>
@@ -316,7 +355,8 @@ function PersonalBrain(props: { brain: Brain; project: Project | null; readOnly:
       <KnowledgeSection projectId={brain.projectId} readOnly={props.readOnly} onOpen={setPreview} />
       <HistorySection projectId={brain.projectId} readOnly={props.readOnly} />
       <Section title={copy.brain.personal.privacy}>
-        <ExcludedRow key={brain.status.excluded.join(",")} brain={brain} readOnly={props.readOnly} />
+        {/* A clean agent is BonzaiWork's own folder: there is nothing of the person's to keep the AI out of. */}
+        {brain.status.legacy || brain.status.excluded.length ? <ExcludedRow key={brain.status.excluded.join(",")} brain={brain} readOnly={props.readOnly} /> : null}
         <PrivateRepoRow brain={brain} readOnly={props.readOnly} />
       </Section>
       <Disclosure label={copy.brain.technical.title} panelClassName="ps-0" testId="brain-technical">
@@ -340,6 +380,7 @@ export function PersonalPage() {
   const status = useStatus();
   const brains = useBrains();
   const projects = useProjects();
+  const author = useBrainAuthor();
   const readOnly = status.data?.readOnly ?? false;
   const personal = (brains.data ?? []).find((brain) => brain.status.kind === "personal") ?? null;
   const project = personal ? ((projects.data ?? []).find((candidate) => candidate.id === personal.projectId) ?? null) : null;
@@ -364,7 +405,7 @@ export function PersonalPage() {
   }
   return (
     <Shell actions={project ? <NewChatButton projectId={project.id} /> : undefined}>
-      {personal ? <PersonalBrain brain={personal} project={project} readOnly={readOnly} /> : <SetupCard readOnly={readOnly} />}
+      {personal ? <PersonalBrain brain={personal} project={project} readOnly={readOnly} existingAllowed={author.data?.existingFolder ?? false} /> : <SetupCard readOnly={readOnly} />}
     </Shell>
   );
 }

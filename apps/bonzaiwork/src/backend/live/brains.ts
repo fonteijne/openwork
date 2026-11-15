@@ -40,6 +40,8 @@ export function readBrainStatus(value: unknown): BrainStatus | null {
   const kind: BrainKind = str(value, "kind") === "personal" ? "personal" : "project";
   return {
     kind,
+    ownFolder: bool(value, "ownFolder") ?? kind === "personal",
+    legacy: bool(value, "legacy") ?? false,
     state,
     mode: MODES.find((entry) => entry === str(value, "mode")) ?? "auto",
     remote: str(value, "remote") ?? null,
@@ -210,6 +212,7 @@ export function createBrainsClient(req: Request, folderFor: (target: { folderPat
     },
     register: async (projectId, input) => requireStatus(await req(brain(projectId), { method: "PUT", body: input, ...host })),
     unregister: async (projectId) => void (await req(brain(projectId), { method: "DELETE", ...host })),
+    convert: async (projectId) => requireStatus(field(await req(`${brain(projectId)}/convert`, { method: "POST", ...host }), "status")),
     reads: async (projectId) => strings(field(await req(`${brain(projectId)}/reads`), "brains")),
     setReads: async (projectId, brains) => strings(field(await req(`${brain(projectId)}/reads`, { method: "PUT", body: { brains }, ...host }), "brains")),
     workflows: async (projectId) => readWorkflows(await req(`${brain(projectId)}/workflows`)),

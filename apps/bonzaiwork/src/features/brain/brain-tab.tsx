@@ -22,6 +22,7 @@ import { fileName } from "~/lib/tools";
 import { useOpenProjectFile } from "../chat/file-link";
 import { useBrainAction } from "./actions";
 import { BrainAttentionCard } from "./cards";
+import { ExcludedRow } from "./excluded-row";
 import { HistorySection } from "./history";
 import { JoinBrainForm } from "./join-brain";
 import { KnowledgeSection } from "./knowledge";
@@ -300,6 +301,7 @@ function TechnicalDetails(props: { brain: Brain; readOnly: boolean }) {
         {status.remote ? <Row label={copy.brain.technical.link} value={<code className="font-mono text-xs">{status.remote}</code>} /> : null}
         {status.remote ? <Row label={copy.brain.technical.branch} value={<code className="font-mono text-xs">{status.branch}</code>} /> : null}
         <Row label={copy.brain.technical.folder} value={<code className="font-mono text-xs">{props.brain.path}</code>} action={<OpenFolderButton path={props.brain.path} />} />
+        {status.ownFolder ? <ExcludedRow key={status.excluded.join(",")} brain={props.brain} readOnly={props.readOnly} /> : null}
         <Row label={copy.brain.technical.lastSync} value={status.lastSyncAt ? formatDateTime(status.lastSyncAt) : copy.brain.never} />
         {status.remote ? (
           <Row

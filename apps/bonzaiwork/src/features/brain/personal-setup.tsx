@@ -29,11 +29,11 @@ export function usePersonalSetup() {
   const [typing, setTyping] = useState(false);
   const [path, setPath] = useState("");
 
-  const create = async (kind: "existing" | "new", folderPath: string | null): Promise<Project | null> => {
+  const create = async (kind: "existing" | "new", folderPath: string | null, avoidId: string | null = null): Promise<Project | null> => {
     setBusy(kind);
     try {
-      const project = await backend.projects.create({
-        name: copy.brain.personalName,
+      const make = (name: string) => backend.projects.create({
+        name,
         description: null,
         color: "violet",
         icon: "lightbulb",
@@ -43,9 +43,16 @@ export function usePersonalSetup() {
         // Like every new project: the preferred models only.
         allowedModels: newProjectModels(status.data),
       });
+      let project = await make(copy.brain.personalName);
+      // A project is its folder: the same name can land on the folder that must stay a project.
+      if (avoidId !== null && project.id === avoidId) {
+        project = await make(`${copy.brain.personalName} 2`);
+        if (project.id === avoidId) throw new Error(copy.brain.migrate.folderTaken);
+      }
       await backend.brains.register(project.id, { kind: "personal" });
       await Promise.all([client.invalidateQueries({ queryKey: keys.projects }), client.invalidateQueries({ queryKey: keys.brains })]);
-      toast(copy.brain.personalReady);
+      // After "Nu omzetten" the card says what happened; one message is enough.
+      if (avoidId === null) toast(copy.brain.personalReady);
       return project;
     } catch (failure) {
       toast(errorText(failure), { tone: "error" });
@@ -67,7 +74,7 @@ export function usePersonalSetup() {
     return picked ? create("existing", picked) : null;
   };
 
-  return { busy, typing, path, setPath, existingAllowed, chooseExisting, createNew: () => create("new", null) };
+  return { busy, typing, path, setPath, existingAllowed, chooseExisting, createNew: (avoidId: string | null = null) => create("new", null, avoidId) };
 }
 
 /** Without a native picker the folder is typed; ⏎ submits. */

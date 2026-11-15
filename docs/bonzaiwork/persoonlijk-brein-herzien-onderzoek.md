@@ -25,9 +25,23 @@ zijn hiermee niet aangeraakt: na loskoppelen is de map geen brein meer.
 - *Terug*: `BONZAIWORK_MANAGED_SKILLS=0` geeft de oude opzet (skills uit het persoonlijke brein, een
   kopie in elk nieuw brein, en de keuze voor een bestaande map).
 
-Nog niet gebouwd: stap 3 en 4 (§4.3), het verhuizen van een bestaand persoonlijk brein naar een project.
-Een bestaand gekoppeld brein blijft tot dan werken zoals het was, alleen komen de skills nu uit de app;
-wat er in zijn eigen `.opencode/skills` staat, telt niet meer mee in andere projecten.
+**Stap 3 en 4, gebouwd** (§4.3; in de app heet het persoonlijke brein intussen "Agent"):
+
+- *Eigen map los van `kind`*: `BrainRecord.ownFolder` ("de eigen map van de gebruiker") draagt nu de
+  regels die aan `kind === "personal"` hingen: vertrouwd zonder origin, alleen Markdown en geen
+  uitgesloten mappen in de geschiedenis, uitgesloten mappen dicht voor de AI. Oude records zonder het
+  veld vallen terug op hun `kind`. Het Brein-tab van zo'n project toont "Uitgesloten mappen".
+- *Nu omzetten*: een agent van voor de schone opzet (`status.legacy`) krijgt op de Agent-pagina een
+  kaart. Na bevestiging wordt de map het project "Mijn notities" (`POST …/convert`) en maakt de app een
+  nieuwe, lege agent die `_meta/voorkeuren.md`, `taken.md` en `inbox.md` als kopie overneemt (V2, V3).
+  Niet terwijl er een chat loopt. Stopt de app halverwege, dan neemt de eerstvolgende nieuwe agent ze
+  alsnog over (`carryFrom` in `brains.json`).
+- De test in `test/personal.test.ts` dekt de vier gevallen op een oud record met een gekoppelde
+  privérepo, en faalt als een van de regels weer aan `kind` hangt (het dagboek zou dan naar de repo gaan).
+
+Wat blijft staan: `AGENTS.md` in het omgezette project zegt nog "telt mee in elk project" (het is een
+bestand van de gebruiker; BonzaiWork past het niet aan), en met `BONZAIWORK_MANAGED_SKILLS=0` verschijnt
+de kaart niet.
 
 ## 1. De vraag
 

@@ -1528,6 +1528,17 @@ export const copy = {
       fetched: "Brein opgehaald",
       retest: "Opnieuw testen",
     },
+    migrate: {
+      title: "Je agent begint opnieuw",
+      state: "Je agent start voortaan leeg, met skills uit BonzaiWork · je notities blijven als project",
+      action: "Nu omzetten",
+      confirmTitle: "Je agent omzetten?",
+      confirmBody: (project: string) =>
+        `Je huidige map wordt het project "${project}". De map, je notities, je chats en de geschiedenis blijven staan; ze tellen alleen niet meer mee in elke chat. Daarna maakt BonzaiWork een nieuwe, lege agent die je voorkeuren, taken en geparkeerde gedachten overneemt. Dit is niet met één klik terug te draaien.`,
+      projectName: "Mijn notities",
+      done: "Je agent is omgezet; je notities staan in het project Mijn notities",
+      folderTaken: "De map voor je nieuwe agent bestaat al. Hernoem de map Mijn agent en probeer het opnieuw.",
+    },
     personal: {
       label: "Je agent",
       setupTitle: "Nog geen agent",

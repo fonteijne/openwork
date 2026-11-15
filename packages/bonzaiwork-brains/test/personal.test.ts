@@ -333,4 +333,119 @@ describe("het persoonlijke brein in de server", () => {
     expect(resources()).toContain("read:Dagboek/*");
     expect(await history()).toContain(before.trim());
   });
+  test("nu omzetten: een brein van voor de schone opzet wordt een project en blijft de eigen map; een nieuw brein neemt voorkeuren en taken over", async () => {
+    const root = await vault();
+    const state = await mkdtemp(join(tmpdir(), "state-"));
+    const fresh = await mkdtemp(join(tmpdir(), "agent-"));
+    cleanup.push(state, fresh);
+    // What only a shared repository would have to ask trust for; here it is the person's own.
+    await writeFile(join(root, "opencode.json"), JSON.stringify({ mcp: { eigen: { type: "local", command: ["x"] } } }));
+    await mkdir(join(root, ".opencode/plugins"), { recursive: true });
+    await writeFile(join(root, ".opencode/plugins/eigen.js"), "export default {};\n");
+    const listeners = new Set<(activity: SessionActivity) => void>();
+    let live: string[] = [];
+    const host: BrainsHost & { context: { instructions: string | null; skillsDirectory: string | null } | null } = {
+      port: 4242, readOnly: false, context: null,
+      workspaces: () => [{ id: "ws_oud", path: root }, { id: "ws_nieuw", path: fresh }],
+      reloadEngineProviders: async () => {},
+      onSessionActivity: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+      runningSessions: async () => live,
+      sessionInfo: async (id) => ({ id, title: "Chat", parentId: null }),
+      updateEngineMcp: async () => true,
+      setEngineGlobalContext: async (input) => { host.context = input; },
+      log: () => {},
+    };
+    const options = { stateDirectory: state, quietMs: 30, allowFileProtocol: true, environment: { PATH: process.env.PATH ?? "", HOME: state } };
+    const call = async (method: string, path: string, params: Record<string, string>, body?: unknown) => {
+      const handler = hooks?.routes.find((candidate) => candidate.method === method && candidate.path === path);
+      if (!handler) throw new Error(`${method} ${path}`);
+      const response = await handler.handle(new Request("http://x", { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), params);
+      return { status: response.status, body: await response.json() };
+    };
+    const old = { workspaceId: "ws_oud" };
+    hooks = createBrainsServerHooks(options);
+    await hooks.start(host);
+    await call("PUT", "/bonzaiwork/brains/settings", {}, { name: "Anna", email: "anna@example.invalid" });
+    await call("PUT", "/bonzaiwork/brains/:workspaceId", old, { kind: "personal", excluded: ["Dagboek"] });
+    await writeFile(join(root, "_meta/voorkeuren.md"), "# Mijn voorkeuren\n\n- Altijd in drie punten\n");
+    await writeFile(join(root, "taken.md"), "# Taken\n\n- [ ] Belasting regelen\n");
+    await writeFile(join(root, "inbox.md"), "- idee voor later\n");
+    // A private repository is linked: it has to keep receiving after the brain became a project.
+    const bare = join(state, "prive.git");
+    const git = await createGit({ stateDirectory: join(state, "check"), allowFileProtocol: true });
+    await git.ok(["init", "-q", "--bare", "-b", "main", bare], { cwd: state });
+    expect((await call("POST", "/bonzaiwork/brains/:workspaceId/remote", old, { url: `file://${bare}` })).body).toMatchObject({ state: "synced" });
+
+    // A record as it was written before this version: no `ownFolder`, no `clean`.
+    hooks.stop();
+    const registryFile = join(state, "brains.json");
+    const saved = JSON.parse(await readFile(registryFile, "utf8"));
+    for (const brain of saved.brains) { delete brain.ownFolder; delete brain.clean; }
+    await writeFile(registryFile, JSON.stringify(saved));
+    hooks = createBrainsServerHooks(options);
+    await hooks.start(host);
+    const before = (await call("GET", "/bonzaiwork/brains/:workspaceId/status", old)).body;
+    expect(before).toMatchObject({ kind: "personal", ownFolder: true, legacy: true });
+    expect(host.context?.instructions).toContain("Altijd in drie punten");
+
+    // Not while a chat runs.
+    live = ["ses_1"];
+    for (const listener of listeners) listener({ workspaceId: "ws_nieuw", sessionId: "ses_1", state: "running" });
+    expect((await call("POST", "/bonzaiwork/brains/:workspaceId/convert", old)).body).toMatchObject({ code: "chat_running" });
+    live = [];
+    for (const listener of listeners) listener({ workspaceId: "ws_nieuw", sessionId: "ses_1", state: "idle", outcome: "succeeded" });
+
+    const converted = await call("POST", "/bonzaiwork/brains/:workspaceId/convert", old);
+    expect(converted.status).toBe(200);
+    expect(converted.body.status).toMatchObject({ kind: "project", ownFolder: true, legacy: false, excluded: ["Dagboek"], remote: `file://${bare}`, pendingTrust: [] });
+    expect(hooks.todayAccess.personalConnected()).toBe(false);
+    expect(host.context?.instructions).not.toContain("Altijd in drie punten");
+    expect((await call("POST", "/bonzaiwork/brains/:workspaceId/convert", old)).body).toMatchObject({ code: "not_personal" });
+
+    // 1. Trust: nothing of the person's own is taken out of the folder or asked about.
+    const resources = () => hooks?.enginePolicies().map((policy) => `${policy.effect} ${policy.resource}`) ?? [];
+    // 3. The excluded folders stay closed for the AI; the preferences file is an ordinary file again.
+    expect(resources()).toEqual(expect.arrayContaining(["deny read:Dagboek/*", "deny edit:Dagboek/*"]));
+    expect(resources()).not.toContain("deny edit:_meta/voorkeuren.md");
+    // 2. History: a turn in the project records Markdown only, never the excluded folder or an attachment.
+    await writeFile(join(root, "Dagboek/2026-11-15.md"), "Ook privé.\n");
+    await writeFile(join(root, "nieuw-plaatje.png"), "png");
+    await writeFile(join(root, "Projecten/na-omzetten.md"), "# Na het omzetten\n");
+    const shared = (await call("POST", "/bonzaiwork/brains/:workspaceId/sync", old)).body;
+    expect(shared).toMatchObject({ kind: "project", state: "synced", pendingTrust: [] });
+    expect(existsSync(join(root, "opencode.json"))).toBe(true);
+    expect(existsSync(join(root, ".opencode/plugins/eigen.js"))).toBe(true);
+    const sent = await git.ok(["log", "--format=", "--name-only", "main"], { cwd: bare });
+    expect(sent).toContain("Projecten/na-omzetten.md");
+    expect(sent).not.toContain("Dagboek");
+    expect(sent).not.toContain(".png");
+    expect(sent).not.toContain("opencode.json");
+    // 4. The settings of an own folder still work on the project.
+    const excluded = await call("PUT", "/bonzaiwork/brains/:workspaceId/excluded", old, { folders: ["Dagboek", "Gezondheid"] });
+    expect(excluded.body).toMatchObject({ excluded: ["Dagboek", "Gezondheid"] });
+    expect(resources()).toContain("deny read:Gezondheid/*");
+    // Other projects reach it like any other brain: through the brains tools only.
+    expect(resources()).toContain(`deny read:${root}/*`);
+    expect((await hooks.personalAccess.teamBrains()).map((brain) => brain.id)).toEqual(["ws_oud"]);
+
+    // It survives a restart as a project, and the new brain still takes over what it should.
+    hooks.stop();
+    hooks = createBrainsServerHooks(options);
+    await hooks.start(host);
+    expect((await call("GET", "/bonzaiwork/brains/:workspaceId/status", old)).body).toMatchObject({ kind: "project", ownFolder: true });
+
+    const made = await call("PUT", "/bonzaiwork/brains/:workspaceId", { workspaceId: "ws_nieuw" }, { kind: "personal" });
+    expect(made.body.status).toMatchObject({ kind: "personal", legacy: false, state: "local_only", excluded: [] });
+    expect(await readFile(join(fresh, "_meta/voorkeuren.md"), "utf8")).toContain("Altijd in drie punten");
+    expect(await readFile(join(fresh, "taken.md"), "utf8")).toContain("Belasting regelen");
+    expect(await readFile(join(fresh, "inbox.md"), "utf8")).toContain("idee voor later");
+    expect(host.context?.instructions).toContain("Altijd in drie punten");
+    expect(existsSync(join(fresh, "Projecten"))).toBe(false);
+    // Copies: the originals stay in the project.
+    expect(await readFile(join(root, "taken.md"), "utf8")).toContain("Belasting regelen");
+    expect(await readFile(join(root, "_meta/voorkeuren.md"), "utf8")).toContain("Altijd in drie punten");
+    // Once: what the person changes in the new brain is not overwritten by a later start.
+    expect(JSON.parse(await readFile(registryFile, "utf8")).carryFrom).toBe(null);
+    expect(resources()).toEqual(expect.arrayContaining(["deny edit:_meta/voorkeuren.md", "deny read:Dagboek/*"]));
+  });
 });

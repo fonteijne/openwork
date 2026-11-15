@@ -25,7 +25,7 @@ const MIN = 60_000;
 export const DEMO_BRAINS = { service: "p-service", offertes: "p-offertes", personal: "p-mijn-brein" } as const;
 
 type DemoBrains = {
-  version: 1;
+  version: 2;
   brains: Record<string, BrainStatus & { path: string }>;
   history: Record<string, BrainHistoryEntry[]>;
   author: HistoryAuthor | null;
@@ -71,7 +71,7 @@ const SWITCHES: Record<string, Partial<BrainStatus>> = {
 
 function base(now: number, path: string, kind: BrainStatus["kind"], remote: string | null): BrainStatus & { path: string } {
   return {
-    path, kind, state: remote ? "synced" : "local_only", mode: "auto", remote, branch: "main", ahead: 0, behind: 0,
+    path, kind, ownFolder: kind === "personal", legacy: false, state: remote ? "synced" : "local_only", mode: "auto", remote, branch: "main", ahead: 0, behind: 0,
     lastSyncAt: now - 2 * MIN, conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, fixInNotes: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
   };
 }
@@ -79,11 +79,11 @@ function base(now: number, path: string, kind: BrainStatus["kind"], remote: stri
 function seed(now: number, home: string, state: string | null): DemoBrains {
   const offertes = { ...base(now, `${home}/Offertes 2026`, "project", "git@gitlab.com:bonzai-demo/offertes.git"), ...(state ? SWITCHES[state] : {}) };
   return {
-    version: 1,
+    version: 2,
     brains: {
       [DEMO_BRAINS.service]: base(now, `${home}/Klantenservice`, "project", "git@gitlab.com:bonzai-demo/klantenservice.git"),
       [DEMO_BRAINS.offertes]: offertes,
-      [DEMO_BRAINS.personal]: { ...base(now, `${home}/Mijn agent`, "personal", null), lastSyncAt: null, excluded: ["Dagboek"] },
+      [DEMO_BRAINS.personal]: { ...base(now, `${home}/Mijn agent`, "personal", null), lastSyncAt: null, excluded: ["Dagboek"], legacy: true },
     },
     history: {
       [DEMO_BRAINS.offertes]: [
@@ -111,7 +111,7 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
   const switchState = new URLSearchParams(input.search).get("brein");
   const key = `${input.storageKey}.brains.${switchState ?? "normaal"}`;
   const stored = readLocalJson(key);
-  const valid = (value: unknown): value is DemoBrains => typeof value === "object" && value !== null && Reflect.get(value, "version") === 1;
+  const valid = (value: unknown): value is DemoBrains => typeof value === "object" && value !== null && Reflect.get(value, "version") === 2;
   const state: DemoBrains = valid(stored) ? stored : seed(input.now, input.home, switchState);
   const save = () => writeLocalJson(key, state);
   const jobs = new Map<string, { url: string; path: string }>();
@@ -265,6 +265,10 @@ export function createDemoBrains(input: { now: number; home: string; storageKey:
     async setUp(projectId) {
       await later();
       return view(projectId);
+    },
+    async convert(projectId) {
+      await later(600);
+      return set(projectId, { kind: "project", ownFolder: true, legacy: false });
     },
     async unregister(projectId) {
       await later();

@@ -377,6 +377,17 @@ async function main() {
     check("a round starts", roundRun.status === 200, JSON.stringify(roundRun.body).slice(0, 200));
     const roundRead = await waitFor("round read mail", async () => toolResults.find((result) => result.includes("Geen nieuwe ongelezen mail sinds de vorige ronde")) ?? null, 45_000).catch(() => null);
     check("the agent's own round reads mail without a click, and only what is new", roundRead !== null, toolResults.slice(-2).join(" | ").slice(0, 300));
+
+    // 9. "Nu omzetten": the personal brain becomes a plain project and stops counting in every chat.
+    await waitFor("no running chat", async () => {
+      const answer = await api(`/bonzaiwork/brains/${personalId}/convert`, { method: "POST", headers: host });
+      return text(answer.body.code) === "chat_running" ? null : answer;
+    }, 60_000).then((answer) => {
+      const status = record(answer.body.status);
+      check("the personal brain became a project that is still the person's own folder", status.kind === "project" && status.ownFolder === true, JSON.stringify(answer.body).slice(0, 200));
+    });
+    const after = record(await (await fetch(`${base}/bonzaiwork/brains`, { headers: owner })).json());
+    check("… and there is no personal brain any more", !list(after.brains).some((brain) => record(record(brain).status).kind === "personal"));
     await log.flush();
   } catch (error) {
     // A timeout is a failure too: keep the folder and show the server's side of it (CI keeps nothing).

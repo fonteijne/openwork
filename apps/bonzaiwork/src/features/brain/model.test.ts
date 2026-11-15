@@ -5,7 +5,7 @@ import type { BrainHistoryEntry, BrainStatus, ConceptView } from "~/backend/type
 import { attentionKind, brainChip, brainRecovery, conceptChecked, deliverableOf, groupKnowledge, isKnowledgeNote, knowledgeCounts, noteTitle, stageChatTitle, teamOf } from "./model";
 
 const status = (patch: Partial<BrainStatus> = {}): BrainStatus => ({
-  kind: "project", state: "synced", mode: "auto", remote: "git@gitlab.com:team/brein.git", branch: "main", ahead: 0, behind: 0, lastSyncAt: 1_000,
+  kind: "project", ownFolder: false, legacy: false, state: "synced", mode: "auto", remote: "git@gitlab.com:team/brein.git", branch: "main", ahead: 0, behind: 0, lastSyncAt: 1_000,
   conflictFiles: [], conflictBy: null, merging: false, error: null, repairable: false, fixInNotes: false, pendingTrust: [], unshared: [], warnings: [], excluded: [], proposal: null,
   ...patch,
 });

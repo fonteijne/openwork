@@ -19,6 +19,11 @@ type RegistryFile = {
    * it stopped (its private repository, excluded folders, what was shared).
    */
   formerPersonal: BrainRecord | null;
+  /**
+   * The personal brain that became a project: the next personal brain takes over its preferences,
+   * to-dos and parked thoughts (once), also when the app stopped in between.
+   */
+  carryFrom: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,6 +50,8 @@ function readRecord(value: unknown): BrainRecord | null {
     lastSyncAt: typeof value.lastSyncAt === "number" ? value.lastSyncAt : null, gitConfig: stringOrNull(value.gitConfig),
     excluded: Array.isArray(value.excluded) ? value.excluded.filter((folder): folder is string => typeof folder === "string") : [],
     proposal: readProposal(value.proposal),
+    ...(typeof value.ownFolder === "boolean" ? { ownFolder: value.ownFolder } : {}),
+    ...(value.clean === true ? { clean: true } : {}),
   };
 }
 
@@ -69,7 +76,7 @@ function readAuthor(value: unknown): Author | null {
 }
 
 export class BrainRegistry {
-  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {}, formerPersonal: null };
+  private data: RegistryFile = { version: 1, author: null, brains: [], reads: {}, formerPersonal: null, carryFrom: null };
   private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly file: string) {}
@@ -86,6 +93,7 @@ export class BrainRegistry {
       brains: Array.isArray(parsed.brains) ? parsed.brains.flatMap((entry) => readRecord(entry) ?? []) : [],
       reads: readReads(parsed.reads),
       formerPersonal: readRecord(parsed.formerPersonal),
+      carryFrom: typeof parsed.carryFrom === "string" ? parsed.carryFrom : null,
     };
   }
 
@@ -122,6 +130,12 @@ export class BrainRegistry {
   }
 
   get formerPersonal(): BrainRecord | null { return this.data.formerPersonal; }
+  get carryFrom(): string | null { return this.data.carryFrom; }
+
+  setCarryFrom(id: string | null): Promise<void> {
+    this.data = { ...this.data, carryFrom: id };
+    return this.flush();
+  }
 
   /** Disconnects the personal brain: no brain any more, remembered for when its folder is connected again. */
   disconnectPersonal(record: BrainRecord): Promise<void> {

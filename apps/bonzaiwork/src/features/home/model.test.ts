@@ -43,6 +43,8 @@ const brain = (projectId: string, kind: "project" | "personal" = "project"): Bra
   path: `/b/${projectId}`,
   status: {
     kind,
+    ownFolder: kind === "personal",
+    legacy: false,
     state: "synced",
     mode: "auto",
     remote: null,

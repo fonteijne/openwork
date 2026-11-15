@@ -16,7 +16,7 @@ import { BrainRegistry } from "./registry.ts";
 import { createProposalService, type ProposalService } from "./proposals.ts";
 import { parseRemote } from "./remote.ts";
 import { checkConnection, ensureKnownHosts, scanHostKeys, sshCommand, trustHostKeys, type SshOptions } from "./ssh.ts";
-import { BrainCloneError, BrainSync, type Author, type BrainKind, type BrainMode, type BrainRecord, type BrainStatus } from "./sync.ts";
+import { BrainCloneError, BrainSync, isOwnFolder, type Author, type BrainKind, type BrainMode, type BrainRecord, type BrainStatus } from "./sync.ts";
 
 /**
  * openwork-server hooks for brains (plan §3, §8.1). The types mirror
@@ -106,6 +106,8 @@ export const BASE_ENGINE_POLICIES: readonly EnginePolicy[] = [
 const BODY_LIMIT = 64 * 1024;
 const MODES: readonly BrainMode[] = ["auto", "manual", "read_only", "proposal"];
 const KINDS: readonly BrainKind[] = ["project", "personal"];
+/** Vandaag's files in the personal brain (packages/bonzaiwork-today/src/scan.ts): to-dos and parked thoughts. */
+const CARRIED_FILES: readonly string[] = ["taken.md", "inbox.md"];
 
 /**
  * One folder, however it is written. On Windows the app may build `C:\\Users\\x\\BonzaiWork/Sales`
@@ -314,8 +316,10 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     const mcp = [...new Set([...syncs.values()].flatMap((sync) => sync.untrustedMcpServers))].sort();
     // Excluded folders and the preferences file (plan §5.1.1, §7.3). Paths are relative to the
     // project folder and count in every project (fase 0 §6.4); grep and bash still get past.
+    // Every folder of the person's own counts, also one that became a project: its chats run inside it,
+    // where these relative paths are exactly what the engine sees.
     const own = personal();
-    const folders = own ? own.snapshot.excluded : [];
+    const folders = [...new Set([...syncs.values()].filter((sync) => isOwnFolder(sync.snapshot)).flatMap((sync) => sync.snapshot.excluded))].sort();
     const escape = (path: string) => path.replace(/[*?]/g, "");
     return [
       ...BASE_ENGINE_POLICIES,
@@ -654,7 +658,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       sync?.dispose();
       job.sync.dispose();
       if (kind === "personal" && personal()) return failure(409, "personal_exists", "There is a personal brain already.");
-      const record: BrainRecord = { ...job.sync.snapshot, id: workspaceId, kind, mode };
+      const record: BrainRecord = { ...job.sync.snapshot, id: workspaceId, kind, mode, ownFolder: kind === "personal" };
       await registry.upsert(record);
       jobs.delete(jobId);
       sync = await activate(record, workspace.path);
@@ -677,9 +681,12 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
       }
       const created = await BrainSync.initLocal({
         git, id: workspaceId, path: workspace.path, gitDir: join(stateDirectory, "history", `${workspaceId}.git`), excluded,
+        // Clean: BonzaiWork's own folder with the app's skills. With the switch back, any folder may be chosen.
+        clean: managedSkills,
         author, save: (next) => registry.upsert(next), log, platform,
       });
       await applyTemplate(workspace.path, { kind: "personal", name: text(body, "name") || "Mijn agent", description: "", now: new Date(), skills: !managedSkills });
+      await carryOver(workspaceId, workspace.path);
       await registry.upsert(created.snapshot);
       created.dispose();
       sync = await activate(created.snapshot, workspace.path);
@@ -817,6 +824,59 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
   }
 
   /**
+   * What a new personal brain takes over from the one that became a project (onderzoek V2, V3): the
+   * preferences the person approved, and the to-dos and parked thoughts of Vandaag. Copies; the
+   * originals stay in the project. Once, and never over something that is already there.
+   */
+  async function carryOver(targetId: string, target: string): Promise<void> {
+    const from = registry.carryFrom;
+    if (!from || from === targetId) return;
+    const source = host?.workspaces().find((workspace) => workspace.id === from)?.path;
+    if (source) {
+      const preferences = await readFile(join(source, PREFERENCES_FILE), "utf8").catch(() => null);
+      if (preferences !== null) {
+        await mkdir(dirname(join(target, PREFERENCES_FILE)), { recursive: true });
+        await writeFile(join(target, PREFERENCES_FILE), preferences);
+      }
+      for (const file of CARRIED_FILES) {
+        const content = await readFile(join(source, file), "utf8").catch(() => null);
+        if (content !== null) await writeFile(join(target, file), content, { flag: "wx" }).catch(() => undefined);
+      }
+    }
+    await registry.setCarryFrom(null);
+  }
+
+  /**
+   * "Nu omzetten" (onderzoek §4.3): a personal brain from before the clean setup becomes a plain
+   * project. The folder, the notes, the chats, the history and a linked private repository stay as
+   * they are; it only stops counting in every chat. It stays the person's own folder (`ownFolder`):
+   * Markdown only in the history, excluded folders closed, nothing to trust without a remote. The
+   * app then makes a new, clean personal brain, which takes over the preferences (`carryOver`).
+   */
+  async function convertPersonal(workspaceId: string): Promise<Response> {
+    const sync = known(workspaceId);
+    if (!sync) return notABrain();
+    if (sync.snapshot.kind !== "personal") return failure(409, "not_personal", "This brain is not the personal brain.");
+    for (const id of [...running.keys()]) await pruneRunning(id).catch(() => undefined);
+    if (chatsWriteIn(sync.snapshot)) {
+      const userMessage = "Er loopt nog een chat. Wacht tot die klaar is en zet je agent dan om.";
+      return failure(409, "chat_running", "A chat is still running.", { userMessage });
+    }
+    await sync.recordOwn().catch((error: unknown) => log("warn", "Open changes not recorded before converting", { error: String(error) }));
+    const { clean: _clean, ...kept } = sync.snapshot;
+    const record: BrainRecord = { ...kept, kind: "project", ownFolder: true };
+    sync.dispose();
+    syncs.delete(workspaceId);
+    await registry.upsert(record);
+    await registry.setCarryFrom(workspaceId);
+    const next = await activate(record, record.path);
+    personalDirty = false;
+    await refreshGlobalContext();
+    await refreshPolicies();
+    return json({ workspaceId, status: await next.status() });
+  }
+
+  /**
    * "Loskoppelen": the personal brain stops counting in every chat. The folder, its notes and its
    * history stay where they are and the project stays a plain project; nothing is deleted. Never
    * while a chat runs: any chat may be writing in it.
@@ -926,6 +986,7 @@ export function createBrainsServerHooks(options: BrainsHooksOptions = {}) {
     { method: "GET", path: "/bonzaiwork/brains", auth: "client", handle: () => list() },
     { method: "PUT", path: "/bonzaiwork/brains/:workspaceId", auth: "host-token", handle: (request, params) => register(request, params.workspaceId) },
     { method: "DELETE", path: "/bonzaiwork/brains/:workspaceId", auth: "host-token", handle: (_request, params) => unregister(params.workspaceId) },
+    { method: "POST", path: "/bonzaiwork/brains/:workspaceId/convert", auth: "host-token", handle: (_request, params) => convertPersonal(params.workspaceId) },
     { method: "GET", path: "/bonzaiwork/brains/:workspaceId/status", auth: "client", handle: (_request, params) => act(params.workspaceId, (sync) => sync.status()) },
     { method: "POST", path: "/bonzaiwork/brains/:workspaceId/pull", auth: "host-token", handle: (request, params) => pull(request, params.workspaceId) },
     { method: "POST", path: "/bonzaiwork/brains/:workspaceId/sync", auth: "host-token", handle: (_request, params) => act(params.workspaceId, (sync) => sync.share()) },

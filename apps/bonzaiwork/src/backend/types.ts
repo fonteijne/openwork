@@ -437,6 +437,10 @@ export type TrustItem = { path: string; kind: "config" | "plugin" | "agent" | "c
 
 export type BrainStatus = {
   kind: BrainKind;
+  /** The person's own notes folder (Markdown only, excluded folders); also after it became a project. */
+  ownFolder: boolean;
+  /** A personal brain from before the clean setup: "Nu omzetten" makes it a project and starts a new one. */
+  legacy: boolean;
   state: BrainState;
   mode: BrainMode;
   /** SSH form; null for a personal brain with history only. */
@@ -677,6 +681,8 @@ export interface Backend {
     /** Makes a project a brain: after a clone (`jobId`), or as the personal brain in its folder. */
     register(projectId: string, input: { jobId?: string; kind: BrainKind; mode?: BrainMode; trusted?: string[]; excluded?: string[] }): Promise<BrainStatus>;
     unregister(projectId: string): Promise<void>;
+    /** "Nu omzetten": the personal brain becomes a plain project; its folder, notes and history stay. */
+    convert(projectId: string): Promise<BrainStatus>;
     /** Other brains this project consults without asking (plan §5.2); the server answers for them. */
     reads(projectId: string): Promise<string[]>;
     setReads(projectId: string, brains: string[]): Promise<string[]>;

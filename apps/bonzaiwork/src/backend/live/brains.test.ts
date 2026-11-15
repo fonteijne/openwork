@@ -25,6 +25,8 @@ describe("brain status", () => {
   it("reads every field and fills the gaps", () => {
     expect(readBrainStatus({ state: "behind", kind: "project", behind: 2, remote: "git@gitlab.com:team/brein.git", excluded: ["Dagboek"], pendingTrust: [{ path: "opencode.json", kind: "config", mcpServers: ["crm"] }, { path: "x", kind: "weird" }] })).toEqual({
       kind: "project",
+      ownFolder: false,
+      legacy: false,
       state: "behind",
       mode: "auto",
       remote: "git@gitlab.com:team/brein.git",

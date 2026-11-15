@@ -42,9 +42,22 @@ export type BrainRecord = {
   proposal?: Proposal | null;
   /** The .git/config BonzaiWork expects (plan §7.4, laag 4). */
   gitConfig: string | null;
-  /** Personal brain: folders the AI never reads or changes (plan §5.1.1). */
+  /** A folder of the person's own: folders the AI never reads or changes (plan §5.1.1). */
   excluded: string[];
+  /**
+   * A folder of the person's own notes rather than a shared repository: only Markdown goes into the
+   * history, excluded folders are respected, and nothing in it needs trust until it has a remote.
+   * This used to be "kind is personal"; it is a field of its own so it stays true when a personal
+   * brain becomes a project. Absent in older records: then the kind decides (`isOwnFolder`).
+   */
+  ownFolder?: boolean;
+  /** A personal brain BonzaiWork made in a folder of its own, with the app's skills (not on top of existing notes). */
+  clean?: boolean;
 };
+
+export function isOwnFolder(record: Pick<BrainRecord, "kind" | "ownFolder">): boolean {
+  return record.ownFolder ?? record.kind === "personal";
+}
 
 export type Unshared = { path: string; reason: "not_markdown" | "too_large" };
 
@@ -77,8 +90,12 @@ export type BrainStatus = {
   unshared: Unshared[];
   /** Advice that blocks nothing (a long AGENTS.md, a source put back). */
   warnings: string[];
-  /** Personal brain: folders the AI does not open. */
+  /** The person's own folder: folders the AI does not open. */
   excluded: string[];
+  /** The person's own notes folder (Markdown only, excluded folders); also after it became a project. */
+  ownFolder: boolean;
+  /** A personal brain from before the clean setup: "Nu omzetten" makes it a project and starts a new one. */
+  legacy: boolean;
   /** "Via voorstel": the open merge or pull request; `manual` when the user opens it from the link. */
   proposal: Proposal | null;
 };
@@ -292,9 +309,9 @@ export class BrainSync {
    * checkout, fast-forward and rebase.
    */
   private async applyTrust(ref: string): Promise<boolean> {
-    // A personal brain is the user's own folder: nothing in it is someone else's code, until it has
+    // The person's own folder (a personal brain, or one that became a project): nothing in it is someone else's code, until it has
     // a remote: then what comes from there is checked like any shared brain (review #5).
-    if (this.record.kind === "personal" && !this.record.remote) {
+    if (isOwnFolder(this.record) && !this.record.remote) {
       this.pending = [];
       return true;
     }
@@ -321,7 +338,7 @@ export class BrainSync {
   private async writeLocalExcludes(): Promise<void> {
     const file = join(this.gitDir, "info", "exclude");
     await mkdir(dirname(file), { recursive: true });
-    const extra = this.record.kind === "personal" ? personalExcludes(this.record.excluded) : [];
+    const extra = isOwnFolder(this.record) ? personalExcludes(this.record.excluded) : [];
     await writeFile(file, withLocalExcludes(await readFile(file, "utf8").catch(() => ""), extra));
   }
 
@@ -1149,6 +1166,8 @@ export class BrainSync {
                     : ahead ? "ahead" : behind ? "behind" : "synced";
     return {
       kind: this.record.kind,
+      ownFolder: isOwnFolder(this.record),
+      legacy: this.record.kind === "personal" && this.record.clean !== true,
       state,
       mode: this.record.mode,
       remote: this.record.remote,
@@ -1193,7 +1212,7 @@ export class BrainSync {
    * history lives outside it (`gitDir`, in userData), no `.git` in the
    * vault, Markdown only, nothing ever sent until a remote is linked.
    */
-  static async initLocal(input: Omit<BrainSyncOptions, "record"> & { id: string; path: string; gitDir: string; excluded?: readonly string[] }): Promise<BrainSync> {
+  static async initLocal(input: Omit<BrainSyncOptions, "record"> & { id: string; path: string; gitDir: string; excluded?: readonly string[]; clean?: boolean }): Promise<BrainSync> {
     await mkdir(input.path, { recursive: true });
     await mkdir(dirname(input.gitDir), { recursive: true });
     const fresh = await readdir(input.gitDir).catch(() => null) === null;
@@ -1202,6 +1221,7 @@ export class BrainSync {
       record: {
         id: input.id, kind: "personal", path: input.path, gitDir: input.gitDir, mode: "auto", remote: null, branch: "main",
         trusted: {}, lastSyncedRemote: null, lastSyncAt: null, gitConfig: null, excluded: [...(input.excluded ?? [])],
+        ownFolder: true, clean: input.clean === true,
       },
     });
     if (fresh) await sync.ok(["init", "-q", "-b", "main"]);

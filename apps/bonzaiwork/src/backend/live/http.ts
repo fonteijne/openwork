@@ -92,6 +92,7 @@ const SERVER_MESSAGES: Record<string, string> = {
   clone_not_ready: "Het brein is nog niet opgehaald. Wacht even en probeer het opnieuw.",
   folder_mismatch: "Dit project hoort niet bij de opgehaalde map.",
   personal_exists: "Je hebt al een persoonlijk brein.",
+  not_personal: "Dit is niet je agent.",
   chat_running: "Er loopt nog een chat. Wacht tot die klaar is en probeer het opnieuw.",
   already_brain: "Dit project is al een brein.",
   cloud_folder: "Deze map wordt al door een clouddienst gesynchroniseerd. Kies een map buiten iCloud, OneDrive of Dropbox.",
