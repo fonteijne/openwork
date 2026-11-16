@@ -1,9 +1,15 @@
-import { sortAttention, type AttentionItem, type DayItem, type Meeting, type Project, type TodayChatStart, type UpcomingBucket, type UpcomingRow } from "~/backend/types";
+import { isSlackMemberId, sortAttention, type AttentionItem, type DayItem, type Meeting, type Project, type TodayChatStart, type UpcomingBucket, type UpcomingRow } from "~/backend/types";
 
 /**
  * The pure part of the personal agent's sections on Vandaag (docs/bonzaiwork/persoonlijke-agent-plan.md
  * §4): how the world's cards join "Voor jou", how "Komt eraan" is grouped and how a date reads.
  */
+
+/** A name for a card ("van Mila Bakker"), or null: never a Slack id like U020WN463K3, which tells the person nothing. */
+export function readableName(name: string | null): string | null {
+  const trimmed = name?.trim();
+  return trimmed && !isSlackMemberId(trimmed) ? trimmed : null;
+}
 
 /** At most this many rows in "Komt eraan" before "Nog n". */
 export const MAX_UPCOMING_ROWS = 6;

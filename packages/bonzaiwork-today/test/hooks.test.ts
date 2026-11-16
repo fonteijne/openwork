@@ -373,6 +373,25 @@ describe("de agent en de buitenwereld (plan §3, T7)", () => {
     expect((await view()).connectors.slack.state).toBe("error");
   });
 
+  test("Slack: een id als afzender wordt geweigerd; de kaart linkt naar het bericht op Slack, nooit naar slack://", async () => {
+    const asId = await tool("bericht_melden", { bron: "slack", id: "C1:1.0", titel: "#sales", van: "U020WN463K3", waarom: "Vraagt iets", kanaal: "C1" });
+    expect(asId.isError).toBe(true);
+    expect(asId.text).toContain("Slack-id");
+    expect((await tool("belofte_voorstellen", { tekst: "de cijfers", wie: "ander", persoon: "<@U020WN463K3>", bron: "slack", bron_id: "C1:1.0" })).isError).toBe(true);
+    expect((await tool("bericht_melden", { bron: "mail", id: "m", titel: "Zonder afzender", waarom: "Y" })).isError).toBe(true);
+    // No name found and no workspace known yet: no sender and no link, rather than a dead one.
+    await tool("bericht_melden", { bron: "slack", id: "C1:1700000000.000100", titel: "#sales", waarom: "Vraagt iets", kanaal: "C1", link: "slack://channel?team=T1&id=C1" });
+    expect((await view()).items.filter((item) => item.kind === "message")).toMatchObject([{ key: "slack:C1:1700000000.000100", from: "", link: null }]);
+    // Reading a thread by its link shows the workspace; later cards get a permalink from channel and timestamp.
+    await tool("slack_draad", { link: "https://Bonzai.slack.com/archives/C1/p1700000000000100" });
+    await tool("bericht_melden", { bron: "slack", id: "C2:1700000000.000200", titel: "#marketing", van: "Mila Bakker", waarom: "Vraagt om een scene", kanaal: "C2", draad: "1700000000.000100" });
+    await tool("bericht_melden", { bron: "slack", id: "C3:1700000000.000300", titel: "#zelf", van: "Robin", waarom: "Link van de agent", link: "https://bonzai.slack.com/archives/C3/p1700000000000300" });
+    const links = Object.fromEntries((await view()).items.flatMap((item) => (item.kind === "message" ? [[item.key, item.link]] : [])));
+    expect(links["slack:C2:1700000000.000200"]).toBe("https://bonzai.slack.com/archives/C2/p1700000000000200?thread_ts=1700000000.000100&cid=C2");
+    expect(links["slack:C3:1700000000.000300"]).toBe("https://bonzai.slack.com/archives/C3/p1700000000000300");
+    expect(field(JSON.parse(await read("state/today.json")), "slackWorkspace")).toBe("bonzai.slack.com");
+  });
+
   test("Later verbergt een kaart tot morgen; Niet voor mij haalt haar weg", async () => {
     await tool("bericht_melden", { bron: "mail", id: "a", titel: "A", van: "X", waarom: "Y" });
     await tool("bericht_melden", { bron: "mail", id: "b", titel: "B", van: "X", waarom: "Y" });

@@ -12,6 +12,7 @@ import { Switch } from "~/components/ui/switch";
 import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
 import { cn } from "~/lib/cn";
+import { errorText } from "~/lib/errors";
 import { recentErrors } from "~/lib/recent-errors";
 import { useRoute } from "~/lib/router";
 
@@ -164,6 +165,9 @@ export function FeedbackDialog(props: { open: boolean; onOpenChange: (open: bool
       await openGithub();
       toast(copy.feedback.opened);
       props.onOpenChange(false);
+    } catch (failure) {
+      // The browser did not open GitHub: say so and keep the dialog with the message.
+      toast(errorText(failure), { tone: "error" });
     } finally {
       setBusy(false);
     }

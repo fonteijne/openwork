@@ -3,7 +3,7 @@ import { CalendarClock, Handshake, Mail, MessagesSquare } from "lucide-react";
 
 import { useBackend } from "~/backend/context";
 import { useRefreshAttention, useRefreshToday } from "~/backend/queries";
-import type { DayItem } from "~/backend/types";
+import { openableLink, type DayItem } from "~/backend/types";
 import { ProseHtml } from "~/components/prose-html";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
@@ -17,7 +17,7 @@ import { errorText } from "~/lib/errors";
 import { relativeTime } from "~/lib/format";
 import { renderMarkdown } from "~/lib/markdown";
 
-import { formatDay, meetingTime, minutesUntil } from "./model";
+import { formatDay, meetingTime, minutesUntil, readableName } from "./model";
 
 /**
  * The cards of the world in "Voor jou" (docs/bonzaiwork/persoonlijke-agent-plan.md §4): a mail or
@@ -59,14 +59,17 @@ function useWorldAction(onResolved: () => void) {
   return { busy, act };
 }
 
-function ExternalLink(props: { url: string; label: string }) {
+/** "Openen in …": only for a web address (no `slack://` or a made-up link), and it says so when it does not open. */
+function ExternalLink(props: { url: string | null; label: string }) {
   const backend = useBackend();
+  const url = openableLink(props.url);
+  if (!url) return null;
   return (
     <a
-      href={props.url}
+      href={url}
       onClick={(event) => {
         event.preventDefault();
-        void backend.desktop.openUrl(props.url);
+        backend.desktop.openUrl(url).catch((failure: unknown) => toast(errorText(failure), { tone: "error" }));
       }}
     >
       {props.label}
@@ -83,6 +86,7 @@ function MessageCard(props: CardProps<"message">) {
   // "Versturen" only show together, so nothing is sent unseen (P9).
   const [open, setOpen] = useState(false);
   const source = copy.today.message[item.source];
+  const from = readableName(item.from);
   const canSend = open && Boolean(item.reply) && text.trim().length > 0;
   const send = () => void act(() => backend.today.send(item.key, text), copy.today.message.sent);
   // Esc sets the card aside for a day; it never throws a message away.
@@ -101,7 +105,8 @@ function MessageCard(props: CardProps<"message">) {
       title={item.title}
       state={
         <>
-          {source} {copy.today.message.from(item.from)} · {item.why} <span className="whitespace-nowrap">· {relativeTime(item.at)}</span>
+          {source}
+          {from ? ` ${copy.today.message.from(from)}` : null} · {item.why} <span className="whitespace-nowrap">· {relativeTime(item.at)}</span>
           {item.reply && open ? <span className="block">{item.reply.via === "mail" ? copy.today.message.sendsMail(item.from) : copy.today.message.sendsSlack(item.title)}</span> : null}
           {item.reply && !open && text.trim() ? <span className="block truncate text-foreground">{text.trim().replace(/\s+/g, " ")}</span> : null}
         </>
@@ -134,7 +139,7 @@ function MessageCard(props: CardProps<"message">) {
           ) : null}
         </>
       }
-      link={item.link ? <ExternalLink url={item.link} label={copy.today.message.open(item.source === "mail" ? "Outlook" : "Slack")} /> : undefined}
+      link={openableLink(item.link) ? <ExternalLink url={item.link} label={copy.today.message.open(item.source === "mail" ? "Outlook" : "Slack")} /> : undefined}
     >
       {item.reply && open ? (
         <Textarea
@@ -182,7 +187,7 @@ function MeetingCard(props: CardProps<"meeting">) {
           <Kbd>⏎</Kbd>
         </Button>
       }
-      link={meeting.link ? <ExternalLink url={meeting.link} label={copy.today.meeting.open} /> : undefined}
+      link={openableLink(meeting.link) ? <ExternalLink url={meeting.link} label={copy.today.meeting.open} /> : undefined}
     >
       {html ? (
         <Disclosure label={copy.today.meeting.prep} size="sm" className="mt-2" panelClassName="ps-6 pt-1">
@@ -213,7 +218,7 @@ function CommitmentCard(props: CardProps<"commitment">) {
       title={item.text}
       state={
         <>
-          {item.who === "mine" ? copy.today.commitment.mine(item.person) : copy.today.commitment.theirs(item.person)}
+          {item.who === "mine" ? copy.today.commitment.mine(readableName(item.person)) : copy.today.commitment.theirs(readableName(item.person))}
           {item.due ? ` · ${copy.today.due(formatDay(item.due))}` : null} · {copy.today.commitment.source[item.source]}
         </>
       }
@@ -229,7 +234,7 @@ function CommitmentCard(props: CardProps<"commitment">) {
           </Button>
         </>
       }
-      link={item.link ? <ExternalLink url={item.link} label={copy.today.message.open(item.source === "slack" ? "Slack" : "Outlook")} /> : undefined}
+      link={openableLink(item.link) ? <ExternalLink url={item.link} label={copy.today.message.open(item.source === "slack" ? "Slack" : "Outlook")} /> : undefined}
     />
   );
 }

@@ -793,6 +793,8 @@ export type AgendaBackend = {
 export type {
   AgentRound, CleanupCandidate, ConnectorStatus, DayClose, DayItem, DoneEntry, SentEntry, DayPlan, Focus, Meeting, StartHere, StartReason, TodaySettings, Todo, TodayView, UpcomingBucket, UpcomingRow,
 } from "@bonzaiwork/today/model";
+/** The server's own checks, for cards stored before it made them: a Slack id is no name, only a web address opens. */
+export { isSlackMemberId, openableLink } from "@bonzaiwork/today/model";
 
 export type TodaySettingsView = { settings: TodaySettings; /** Turned off for this installation (`BONZAIWORK_TODAY=0`); the switch cannot turn it on. */ killed: boolean };
 

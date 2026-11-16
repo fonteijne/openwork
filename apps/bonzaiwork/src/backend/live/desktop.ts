@@ -1,3 +1,4 @@
+import { BackendError } from "../types";
 import { field, rec, str, type Json } from "./read";
 
 /**
@@ -68,11 +69,18 @@ export async function openFolder(path: string): Promise<void> {
   if (typeof result === "string" && result.trim()) throw new Error(result);
 }
 
-/** The system browser; outside the desktop shell, a new tab. */
+/**
+ * The system browser; outside the desktop shell, a new tab. The shell answers `{ ok: false }` instead
+ * of throwing when the address does not open; that throws here, so a link never fails in silence.
+ * `pending` means the browser is still starting: not a failure.
+ */
 export async function openExternal(url: string): Promise<void> {
   const open = rec(bridge()?.shell)?.openExternal;
   if (typeof open === "function") {
-    await Promise.resolve(Reflect.apply(open, undefined, [url]));
+    const result: unknown = await Promise.resolve(Reflect.apply(open, undefined, [url]));
+    if (field(result, "ok") === false && field(result, "pending") !== true) {
+      throw new BackendError("open_failed", "De link opent niet in je browser.", null, str(result, "error") ?? null);
+    }
     return;
   }
   window.open(url, "_blank", "noopener,noreferrer");

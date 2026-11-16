@@ -3,6 +3,7 @@ import { ConnectorError, type MailSummary, type Ms365, type SlackCli } from "./c
 import { isDate, ownHandles, type TeamMember } from "./notation.ts";
 import { localDate, meetingIsNear, pickStart, rankTodos, upcomingRows, visibleItems } from "./rank.ts";
 import { addTodo, parkThought, readInbox, readTeam, removeInboxEntry, scanBrain, setTodoDone, type BrainFolder, type InboxEntry } from "./scan.ts";
+import { isSlackMemberId, isSlackWebLink, openableLink, parseSlackMessageId, slackPermalink, slackWorkspaceIn } from "./slack.ts";
 import { readSettings, type TodayStore } from "./store.ts";
 import {
   MAX_SKIPS, type AgentRound, type ChatStart, type CleanupCandidate, type ConnectorStatus, type DayItem, type DueKind, type Focus, type Meeting, type PlanBlock, type ReplyTarget, type StartReason,
@@ -41,6 +42,7 @@ export class TodayError extends Error {
 const MEETINGS_EVERY_MS = 5 * 60_000;
 const MEETING_HORIZON_MS = 8 * 24 * 60 * 60_000;
 const OFF: ConnectorStatus = { state: "off", detail: null, checkedAt: null };
+const senderIsId = (field: string) => `${field} is een Slack-id; daar kan de gebruiker niets mee. Zoek de naam op (in de draad met slack_draad of met slack_zoeken) en geef die naam. Vind je geen naam, laat ${field} dan leeg.`;
 
 type Scan = { brains: BrainFolder[]; todos: Todo[]; handles: string[]; cleanup: CleanupCandidate[]; inbox: InboxEntry[] };
 
@@ -61,6 +63,31 @@ export function createTodayService(deps: TodayDeps) {
     const command = kind === "slack" ? current.slackCommand : current.ms365Command;
     if (!command.trim()) return { state: "not_configured", detail: null, checkedAt: null };
     return status[kind].state === "off" ? { state: "ok", detail: null, checkedAt: null } : status[kind];
+  }
+
+  /** Remembers the workspace host from a message link, so a card can link to its message (plan §4). */
+  async function learnSlackWorkspace(text: string): Promise<void> {
+    const workspace = slackWorkspaceIn(text);
+    if (!workspace || workspace === store.state.slackWorkspace) return;
+    store.state.slackWorkspace = workspace;
+    await store.save();
+  }
+
+  /**
+   * A link that opens the Slack message in the browser: the agent's own when it is a web address on
+   * Slack, otherwise the permalink built from the channel and timestamp in the id. Never `slack://`
+   * (it does nothing without the desktop app) and never a made-up address; null when neither works.
+   */
+  async function slackLink(given: string | null, id: string, channel: string | null, threadTs: string | null): Promise<string | null> {
+    const link = openableLink(given);
+    if (link && isSlackWebLink(link)) {
+      await learnSlackWorkspace(link);
+      return link;
+    }
+    const message = parseSlackMessageId(id);
+    const workspace = store.state.slackWorkspace;
+    if (!message || !workspace) return null;
+    return slackPermalink(workspace, channel ?? message.channel, message.ts, threadTs);
   }
 
   function requireConnector(kind: "calendar" | "mail" | "slack"): void {
@@ -354,10 +381,15 @@ export function createTodayService(deps: TodayDeps) {
     async reportMessage(input: { source: "mail" | "slack"; id: string; title: string; from: string; why: string; draft: string | null; link: string | null; channel: string | null; threadTs: string | null }): Promise<string> {
       requireConnector(input.source);
       if (!input.id.trim() || !input.why.trim()) throw new TodayError(400, "invalid_item", "Geef de id van het bericht en waarom het de gebruiker nodig heeft.");
+      const from = input.from.trim().slice(0, 120);
+      if (input.source === "mail" && !from) throw new TodayError(400, "invalid_item", "Geef de afzender van de mail in van.");
+      // An id like U020WN463K3 tells the person nothing (the card reads "Slack van U020…").
+      if (isSlackMemberId(from)) throw new TodayError(400, "sender_is_id", senderIsId("van"));
       const reply: ReplyTarget | null = input.source === "mail" ? { via: "mail", messageId: input.id } : input.channel ? { via: "slack", channel: input.channel, threadTs: input.threadTs } : null;
+      const link = input.source === "slack" ? await slackLink(input.link, input.id, input.channel, input.threadTs) : openableLink(input.link);
       const result = store.report({
         kind: "message", key: `${input.source}:${input.id}`, source: input.source, title: input.title.trim().slice(0, 200) || (input.source === "mail" ? "(geen onderwerp)" : "Slack"),
-        from: input.from.trim().slice(0, 120), why: input.why.replace(/\s+/g, " ").trim().slice(0, 300), draft: input.draft?.trim().slice(0, 6000) || null, link: input.link, reply, at: deps.now(),
+        from, why: input.why.replace(/\s+/g, " ").trim().slice(0, 300), draft: input.draft?.trim().slice(0, 6000) || null, link, reply, at: deps.now(),
       });
       await store.save();
       return result === "dismissed" ? "De gebruiker heeft dit bericht al afgehandeld; er komt geen nieuwe kaart." : result === "updated" ? "De kaart is bijgewerkt." : "De kaart staat bij de gebruiker.";
@@ -377,10 +409,12 @@ export function createTodayService(deps: TodayDeps) {
       const text = input.text.replace(/\s+/g, " ").trim().slice(0, 300);
       if (!text || !input.sourceId.trim()) throw new TodayError(400, "invalid_item", "Geef de belofte in één zin en de id van het bericht waar ze staat.");
       if (input.due && !isDate(input.due)) throw new TodayError(400, "invalid_date", "Gebruik een datum als 2026-11-20.");
+      if (input.person && isSlackMemberId(input.person)) throw new TodayError(400, "sender_is_id", senderIsId("persoon"));
       const brain = input.brain ? brainNamed((await scan()).brains, input.brain) : null;
+      const link = input.source === "slack" ? await slackLink(input.link, input.sourceId, null, null) : openableLink(input.link);
       const result = store.report({
         kind: "commitment", key: `belofte:${input.source}:${input.sourceId}:${text.toLowerCase().slice(0, 60)}`, source: input.source, text, who: input.who,
-        person: input.person?.trim().slice(0, 80) || null, due: input.due, brainId: brain?.kind === "project" ? brain.id : null, link: input.link, at: deps.now(),
+        person: input.person?.trim().slice(0, 80) || null, due: input.due, brainId: brain?.kind === "project" ? brain.id : null, link, at: deps.now(),
       });
       await store.save();
       return result === "dismissed" ? "De gebruiker besliste hier al over." : "Het voorstel staat bij de gebruiker; zet de belofte niet zelf als taak.";
@@ -435,11 +469,13 @@ export function createTodayService(deps: TodayDeps) {
       return deps.ms365.message(id);
     },
 
-    async slackRead(read: (cli: SlackCli) => Promise<string>): Promise<string> {
+    /** `asked`: the channel or link the agent passed, which may show the workspace too. */
+    async slackRead(read: (cli: SlackCli) => Promise<string>, asked: string | null = null): Promise<string> {
       requireConnector("slack");
       try {
         const found = await read(deps.slack);
         status.slack = { state: "ok", detail: null, checkedAt: deps.now() };
+        await learnSlackWorkspace(`${asked ?? ""}\n${found}`);
         return found;
       } catch (error) {
         status.slack = fail(error);

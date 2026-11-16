@@ -32,6 +32,8 @@ export type TodayState = {
   steps: Record<string, Step>;
   plan: DayPlan | null;
   focus: Focus | null;
+  /** The Slack workspace host (`team.slack.com`), learned from a message link the script or the agent gave; builds card links. */
+  slackWorkspace: string | null;
 };
 
 const KEEP_DISMISSED_MS = 45 * 24 * 60 * 60_000;
@@ -42,7 +44,7 @@ const MAX_SEEN = 1000;
 const times = (value: unknown): Record<string, number> => Object.fromEntries(Object.entries(record(value) ?? {}).filter((entry): entry is [string, number] => typeof entry[1] === "number"));
 
 export function emptyState(): TodayState {
-  return { settings: { ...DEFAULT_SETTINGS }, items: [], dismissed: {}, later: {}, seen: {}, done: [], sent: [], closed: "", pinned: null, skips: { date: "", ids: [] }, steps: {}, plan: null, focus: null };
+  return { settings: { ...DEFAULT_SETTINGS }, items: [], dismissed: {}, later: {}, seen: {}, done: [], sent: [], closed: "", pinned: null, skips: { date: "", ids: [] }, steps: {}, plan: null, focus: null, slackWorkspace: null };
 }
 
 export function parseState(raw: string): TodayState {
@@ -76,6 +78,7 @@ export function parseState(raw: string): TodayState {
     })),
     plan: readPlan(stored.plan),
     focus: readFocus(stored.focus),
+    slackWorkspace: text(stored, "slackWorkspace"),
   };
 }
 
