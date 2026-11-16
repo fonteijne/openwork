@@ -141,7 +141,7 @@ export function AgentAppSection() {
               />
             ))}
             {current.calendar || current.mail ? (
-              <InlineTextRow label={copy.today.settings.ms365Command} value={current.ms365Command} empty={copy.today.settings.commandEmpty} onSave={(ms365Command) => change({ ms365Command })} />
+              <InlineTextRow label={copy.today.settings.ms365Command} value={current.ms365Command} empty={copy.today.settings.commandEmpty} placeholder={copy.today.settings.ms365Placeholder} onSave={(ms365Command) => change({ ms365Command })} />
             ) : null}
             {current.slack ? (
               <InlineTextRow label={copy.today.settings.slackCommand} value={current.slackCommand} empty={copy.today.settings.commandEmpty} placeholder={copy.today.settings.slackPlaceholder} onSave={(slackCommand) => change({ slackCommand })} />

@@ -4,8 +4,9 @@ import { randomUUID } from "node:crypto";
 import type { Meeting } from "./types.ts";
 
 /**
- * The two local connections (plan §3, T8): the MS365 MCP server the person already runs (stdio) and
- * their Slack CLI. BonzaiWork starts them itself and offers the agent a small, read-only set of
+ * The two local connections (plan §3, T8): the MS365 MCP server the person already runs (stdio, or
+ * an address on their own machine such as a container on localhost) and their Slack CLI.
+ * BonzaiWork starts them itself (or connects) and offers the agent a small, read-only set of
  * tools on top; a reply is only ever sent here, after the person's click (T7). Nothing goes
  * through the OpenWork cloud (E6).
  */
@@ -139,11 +140,7 @@ export class McpStdioClient {
   /** Calls one tool and gives back its text; a tool error is thrown with the server's own words. */
   async call(name: string, args: Json): Promise<string> {
     await this.start();
-    const result = record(await this.request("tools/call", { name, arguments: args }));
-    const content = Array.isArray(result?.content) ? result.content : [];
-    const text = content.map((part) => str(part, "text") ?? "").filter(Boolean).join("\n");
-    if (result?.isError === true) throw new ConnectorError("refused", text.slice(0, 600) || `${name} mislukte.`);
-    return text;
+    return toolText(name, await this.request("tools/call", { name, arguments: args }));
   }
 
   dispose(): void {
@@ -151,6 +148,179 @@ export class McpStdioClient {
     this.child = null;
     this.ready = null;
     child?.kill();
+  }
+}
+
+/** The text of a `tools/call` result; a tool error is thrown with the server's own words. */
+function toolText(name: string, value: unknown): string {
+  const result = record(value);
+  const content = Array.isArray(result?.content) ? result.content : [];
+  const text = content.map((part) => str(part, "text") ?? "").filter(Boolean).join("\n");
+  if (result?.isError === true) throw new ConnectorError("refused", text.slice(0, 600) || `${name} mislukte.`);
+  return text;
+}
+
+// --- MCP over Streamable HTTP --------------------------------------------------------
+
+/** A server that already runs, for example in a container that did its own sign-in: an address instead of a command. */
+export const isMcpUrl = (value: string): boolean => /^https?:\/\/\S+$/i.test(value.trim());
+
+const PROTOCOL_VERSION = "2025-06-18";
+
+/** The JSON-RPC answer with this id in a JSON body or an event stream; null when the body has none. */
+async function readAnswer(response: Response, id: number): Promise<Json | null> {
+  const match = (value: unknown): Json | null => {
+    const list: unknown[] = Array.isArray(value) ? value : [value];
+    for (const entry of list) {
+      const message = record(entry);
+      if (message && message.id === id) return message;
+    }
+    return null;
+  };
+  const type = response.headers.get("content-type") ?? "";
+  if (!type.includes("text/event-stream")) {
+    const text = await response.text();
+    if (!text.trim()) return null;
+    try { return match(JSON.parse(text)); } catch { throw new ConnectorError("failed", "De MS365-server gaf een antwoord dat geen JSON is."); }
+  }
+  // An event stream can stay open after the answer: read until the answer is there, then stop.
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      buffer += done ? "\n\n" : decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n?/g, "\n");
+      let end = buffer.indexOf("\n\n");
+      while (end !== -1) {
+        const event = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        end = buffer.indexOf("\n\n");
+        const data = event.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).replace(/^ /, "")).join("\n");
+        if (!data) continue;
+        let parsed: unknown = null;
+        try { parsed = JSON.parse(data); } catch { parsed = null; }
+        const found = match(parsed);
+        if (found) return found;
+      }
+      if (done) return null;
+    }
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+}
+
+/**
+ * A minimal MCP client over Streamable HTTP (MCP 2025-06-18): every message is a POST to one
+ * address; the answer comes back as JSON or as an event stream. The session id from `initialize`
+ * goes along with every later request; when the server forgets it (404), one new session is tried.
+ */
+export class McpHttpClient {
+  private ready: Promise<void> | null = null;
+  private startedWith = "";
+  private session: string | null = null;
+  private nextId = 1;
+
+  constructor(private readonly options: { url: () => string; fetch?: typeof fetch; timeoutMs?: number }) {}
+
+  private start(): Promise<void> {
+    const url = this.options.url().trim();
+    if (this.ready && this.startedWith === url) return this.ready;
+    this.dispose();
+    this.startedWith = url;
+    const ready = (async () => {
+      await this.request("initialize", { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "bonzaiwork", version: "0.1.0" } }, false);
+      await this.post({ jsonrpc: "2.0", method: "notifications/initialized" }, null);
+    })();
+    this.ready = ready;
+    ready.catch(() => { if (this.ready === ready) this.dispose(); });
+    return ready;
+  }
+
+  private async post(message: Json, id: number | null): Promise<{ status: number; answer: Json | null }> {
+    const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+    if (this.session) headers["mcp-session-id"] = this.session;
+    if (message.method !== "initialize") headers["mcp-protocol-version"] = PROTOCOL_VERSION;
+    const timeoutMs = this.options.timeoutMs ?? 45_000;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    timer.unref?.();
+    const where = this.startedWith;
+    try {
+      const response = await (this.options.fetch ?? fetch)(where, { method: "POST", headers, body: JSON.stringify(message), signal: controller.signal });
+      const session = response.headers.get("mcp-session-id");
+      if (session) this.session = session;
+      if (response.status === 401 || response.status === 403) {
+        throw new ConnectorError("refused", `De MS365-server op ${where} vraagt om inloggen (${response.status}). BonzaiWork stuurt geen token mee; laat de server zelf ingelogd zijn.`);
+      }
+      if (response.status === 404 && this.session && message.method !== "initialize") return { status: 404, answer: null };
+      if (!response.ok) throw new ConnectorError("failed", `De MS365-server op ${where} gaf ${response.status}${response.statusText ? ` ${response.statusText}` : ""}.`);
+      return { status: response.status, answer: id === null ? null : await readAnswer(response, id) };
+    } catch (error) {
+      if (error instanceof ConnectorError) throw error;
+      if (controller.signal.aborted) throw new ConnectorError("timeout", "De MS365-koppeling antwoordde niet op tijd.");
+      const cause = record(error instanceof Error ? error.cause : null);
+      const reason = str(cause, "code") ?? (error instanceof Error ? error.message : String(error));
+      throw new ConnectorError("failed", `De MS365-server op ${where} is niet bereikbaar (${reason}).`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async request(method: string, params: Json, retry: boolean): Promise<unknown> {
+    const id = this.nextId;
+    this.nextId += 1;
+    const { status, answer } = await this.post({ jsonrpc: "2.0", id, method, params }, id);
+    if (status === 404) {
+      // The server restarted or dropped the session: start over once.
+      this.dispose();
+      if (!retry) throw new ConnectorError("failed", "De MS365-server kent de sessie niet meer.");
+      await this.start();
+      return this.request(method, params, false);
+    }
+    if (!answer) throw new ConnectorError("failed", "De MS365-server gaf geen antwoord.");
+    if (answer.error !== undefined) throw new ConnectorError("failed", str(answer.error, "message") ?? "De MS365-koppeling gaf een fout.");
+    return answer.result;
+  }
+
+  async call(name: string, args: Json): Promise<string> {
+    await this.start();
+    return toolText(name, await this.request("tools/call", { name, arguments: args }, true));
+  }
+
+  dispose(): void {
+    const session = this.session;
+    const where = this.startedWith;
+    this.ready = null;
+    this.session = null;
+    // Ending the session is a courtesy; a server that does not support it answers 405.
+    if (session && where) void (this.options.fetch ?? fetch)(where, { method: "DELETE", headers: { "mcp-session-id": session, "mcp-protocol-version": PROTOCOL_VERSION } }).catch(() => undefined);
+  }
+}
+
+/** The MS365 setting is a command (stdio) or an address (Streamable HTTP); a change switches the transport. */
+class McpClient {
+  private stdio: McpStdioClient | null = null;
+  private http: McpHttpClient | null = null;
+
+  constructor(private readonly options: { command: () => string; environment?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; timeoutMs?: number; fetch?: typeof fetch }) {}
+
+  call(name: string, args: Json): Promise<string> {
+    if (isMcpUrl(this.options.command())) {
+      this.stdio?.dispose();
+      this.http ??= new McpHttpClient({ url: this.options.command, fetch: this.options.fetch, timeoutMs: this.options.timeoutMs });
+      return this.http.call(name, args);
+    }
+    this.http?.dispose();
+    this.stdio ??= new McpStdioClient(this.options);
+    return this.stdio.call(name, args);
+  }
+
+  dispose(): void {
+    this.stdio?.dispose();
+    this.http?.dispose();
   }
 }
 
@@ -210,8 +380,8 @@ export function parseMails(text: string, maxChars: number): MailSummary[] {
 
 export type Ms365 = ReturnType<typeof createMs365>;
 
-export function createMs365(options: { command: () => string; environment?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; timeoutMs?: number }) {
-  const client = new McpStdioClient(options);
+export function createMs365(options: { command: () => string; environment?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; timeoutMs?: number; fetch?: typeof fetch }) {
+  const client = new McpClient(options);
   return {
     /** The appointments between two moments, in start order. */
     async events(from: number, to: number): Promise<Meeting[]> {

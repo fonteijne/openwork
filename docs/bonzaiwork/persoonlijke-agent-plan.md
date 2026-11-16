@@ -89,7 +89,7 @@ het team het resultaat ziet.
 
 | Bron | Hoe | Lezen | Versturen |
 |---|---|---|---|
-| Outlook-agenda en -mail | de server start zelf de lokale MS365-server ([softeria/ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server), stdio) met de opdracht uit de instellingen | `get-calendar-view`, `read-mail-text` (anders `list-mail-messages`) | `reply-mail-message`, alleen na de klik op de kaart |
+| Outlook-agenda en -mail | de server start zelf de lokale MS365-server ([softeria/ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server), stdio) met de opdracht uit de instellingen, of verbindt met een server die al draait als daar een adres staat (`http://localhost:3000/mcp`, Streamable HTTP) | `get-calendar-view`, `read-mail-text` (anders `list-mail-messages`) | `reply-mail-message`, alleen na de klik op de kaart |
 | Slack | de server draait het eigen Slack-script (pad in de instellingen), dat JSON geeft | `unreads`, `history`, `get_thread`, `search` | `reply` of `post_message`, tekst op stdin, alleen na de klik |
 | Breinen | de bestaande lokale server `breinen` | bestaand | bestaand |
 
@@ -103,6 +103,13 @@ de engine). Alleen de eigen rondes van de agent krijgen dat antwoord vanzelf.
 
 De MS365-server kent zelf ook `--read-only` en `--enabled-tools`; wie dat wil, zet het in de opdracht.
 Met `--read-only` kan BonzaiWork geen antwoord per mail versturen; "Versturen" meldt dan dat het niet lukte en de kaart blijft staan.
+
+Draait de MS365-server al, bijvoorbeeld in een container die zelf inlogt, dan vul je in plaats van een
+opdracht het adres in (`http://localhost:3000/mcp`). BonzaiWork praat dan MCP over Streamable HTTP met
+die server: een sessie per verbinding, antwoorden als JSON of als event-stream, en een nieuwe sessie als
+de server de oude vergat. BonzaiWork stuurt geen token mee; de server moet zelf ingelogd zijn. Vraagt hij
+om inloggen (401 of 403), dan meldt "Koppelingen testen" dat. Softeria's eigen `--http`-stand vraagt per
+verzoek een OAuth-token van de client; die werkt zo dus niet, de server moet de aanmelding zelf regelen.
 
 ## 4. Vandaag
 
@@ -196,7 +203,8 @@ Aanzetten voor het eerst:
 1. Maak je persoonlijke brein aan (Jouw brein) als dat er nog niet is.
 2. Zet de schakelaar aan. Taken, "Start hier", Parkeren en "Komt eraan" werken nu, zonder koppeling.
 3. Zet Outlook-agenda en -mail aan. De opdracht staat standaard op `npx -y @softeria/ms-365-mcp-server`;
-   pas hem aan als jouw server anders start. Je moet daar al zijn ingelogd.
+   pas hem aan als jouw server anders start, of vul het adres in van een server die al draait
+   (`http://localhost:3000/mcp`). Je moet daar al zijn ingelogd.
 4. Zet Slack aan en vul het pad naar het script in.
 5. Druk op "Koppelingen testen".
 
@@ -235,7 +243,7 @@ Aangepast buiten het nieuwe pakket: routines kunnen door de app zelf bijgehouden
 ## 9. Wat niet tegen het echte is getest
 
 - **Microsoft 365**: de aanroepen zijn geschreven naar de toolnamen en parameters van de MS365-server
-  (broncode gelezen) en getest tegen een nagebouwde server. Inloggen, je tenant en de echte antwoorden van
+  (broncode gelezen) en getest tegen een nagebouwde server, over stdio en over HTTP. Inloggen, je tenant en de echte antwoorden van
   Graph zijn niet geprobeerd.
 - **Slack**: de aanroepen volgen de opdrachten van het script en zijn getest tegen een nagebouwd script.
   De uitvoer van `unreads` en `history` gaat ongewijzigd naar de agent; hoe goed de agent die leest is niet
