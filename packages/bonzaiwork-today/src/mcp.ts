@@ -86,8 +86,8 @@ export const TODAY_TOOLS = [
   },
   {
     name: "bericht_melden",
-    description: "Meld een mail of Slack-draad die de gebruiker zelf nodig heeft. De gebruiker ziet een kaart met jouw 'waarom' en het concept, en verstuurt zelf. bron is 'mail' of 'slack'; id is de mail-id, of voor Slack kanaal-id plus tijdstempel van het bericht. Voor Slack: kanaal (id) en draad (tijdstempel van het eerste bericht) zodat het antwoord in de draad komt.",
-    inputSchema: { type: "object", properties: { bron: { ...str, enum: ["mail", "slack"] }, id: str, titel: str, van: str, waarom: str, concept: str, link: str, kanaal: str, draad: str }, required: ["bron", "id", "titel", "van", "waarom"] },
+    description: "Meld een mail of Slack-draad die de gebruiker zelf nodig heeft. De gebruiker ziet een kaart met jouw 'waarom' en het concept, en verstuurt zelf. bron is 'mail' of 'slack'; id is de mail-id, of voor Slack kanaal-id plus tijdstempel van het bericht. Voor Slack: kanaal (id) en draad (tijdstempel van het eerste bericht) zodat het antwoord in de draad komt. van is de naam van de afzender zoals de gebruiker die kent, nooit een id als U0123ABCD; leeg als je de naam niet vindt. link is het webadres van het bericht (https://…slack.com/archives/…) als je dat hebt; zonder link maakt de server hem uit kanaal en tijdstempel.",
+    inputSchema: { type: "object", properties: { bron: { ...str, enum: ["mail", "slack"] }, id: str, titel: str, van: str, waarom: str, concept: str, link: str, kanaal: str, draad: str }, required: ["bron", "id", "titel", "waarom"] },
   },
   {
     name: "voorbereiding_melden",
@@ -176,9 +176,9 @@ export async function callTodayTool(service: TodayService, name: string, args: J
     case "slack_ongelezen":
       return ok(await service.slackRead((slack) => slack.unreads(count("max", 10), yes("alleen_vermeldingen"))) || "Geen ongelezen gesprekken.");
     case "slack_geschiedenis":
-      return ok(await service.slackRead((slack) => slack.history(text("kanaal"), text("sinds") || null, count("max", 20))) || "Geen berichten.");
+      return ok(await service.slackRead((slack) => slack.history(text("kanaal"), text("sinds") || null, count("max", 20)), text("kanaal")) || "Geen berichten.");
     case "slack_draad":
-      return ok(await service.slackRead((slack) => slack.thread(text("link"))) || "Geen berichten.");
+      return ok(await service.slackRead((slack) => slack.thread(text("link")), text("link")) || "Geen berichten.");
     case "slack_zoeken":
       return ok(await service.slackRead((slack) => slack.search(text("vraag"), 10)) || "Niets gevonden.");
     case "bericht_melden": {

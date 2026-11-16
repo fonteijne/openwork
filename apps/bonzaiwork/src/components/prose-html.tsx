@@ -1,7 +1,9 @@
 import type { MouseEvent } from "react";
 
 import { useBackend } from "~/backend/context";
+import { toast } from "~/components/ui/toast";
 import { cn } from "~/lib/cn";
+import { errorText } from "~/lib/errors";
 import { externalLinkHref } from "~/lib/markdown";
 
 /**
@@ -30,7 +32,7 @@ export function ProseHtml(props: { html: string; className?: string; onLink?: ((
     const url = externalLinkHref(href);
     if (!url) return;
     event.preventDefault();
-    void backend.desktop.openUrl(url);
+    backend.desktop.openUrl(url).catch((failure: unknown) => toast(errorText(failure), { tone: "error" }));
   };
 
   return (

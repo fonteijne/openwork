@@ -13,7 +13,9 @@ import { Disclosure } from "~/components/ui/disclosure";
 import { Locked, Row, Section, Skeleton } from "~/components/ui/misc";
 import { ConfirmDialog } from "~/components/ui/overlay";
 import { Select } from "~/components/ui/select";
+import { toast } from "~/components/ui/toast";
 import { copy } from "~/copy";
+import { errorText } from "~/lib/errors";
 import { formatDateTime } from "~/lib/format";
 import { href } from "~/lib/router";
 import { localTimezone } from "~/lib/schedule";
@@ -188,7 +190,7 @@ function StateRows(props: { brain: Brain; readOnly: boolean }) {
         label={status.proposal.manual ? copy.brain.proposalMake : copy.brain.proposalOpen}
         action={
           url ? (
-            <Button variant="secondary" size="sm" onClick={() => void backend.desktop.openUrl(url)}>
+            <Button variant="secondary" size="sm" onClick={() => backend.desktop.openUrl(url).catch((failure: unknown) => toast(errorText(failure), { tone: "error" }))}>
               <ExternalLink />
               {status.proposal.manual ? copy.brain.proposalCreate : copy.brain.proposalView}
             </Button>

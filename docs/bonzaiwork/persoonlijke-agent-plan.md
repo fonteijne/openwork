@@ -98,6 +98,14 @@ tools (lokale server `vandaag`, zeventien tools) waarvan er geen enkele iets ver
 afspraak in een prompt, maar een eigenschap van de bouw: de enige plek waar een bericht de laptop verlaat
 is de route `POST /bonzaiwork/today/items/send`, die de app alleen aanroept bij "Versturen".
 
+Wat de agent op een kaart zet, controleert de server (`src/slack.ts`). Een Slack-id als afzender
+(`U020WN463K3`) weigert `bericht_melden` met de opdracht de naam op te zoeken; zonder naam blijft `van` leeg en
+leest de kaart "Slack · waarom". Een link moet een webadres zijn: `slack://` en verzonnen tekst vallen weg.
+Zonder bruikbare link bouwt de server de permalink uit kanaal en tijdstempel
+(`https://team.slack.com/archives/C…/p…`), met de werkruimte die hij onthoudt uit de eerste berichtlink die
+het script of de agent liet zien (`slackWorkspace` in `today.json`). Weet hij die nog niet, dan heeft de kaart
+geen link. De app toont oudere kaarten met dezelfde controles en meldt het als een link niet opent.
+
 De tools die mail, agenda of Slack lezen vragen in een gewone chat eerst toestemming (de gewone kaart van
 de engine). Alleen de eigen rondes van de agent krijgen dat antwoord vanzelf.
 

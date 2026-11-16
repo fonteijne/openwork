@@ -24,7 +24,8 @@ const RULES = `Regels voor elke ronde:
 - Hooguit vijf berichten per ronde, de belangrijkste eerst. Elk bericht krijgt één regel "waarom" in gewone woorden.
 - Een concept is kort, in de toon van de gebruiker, in de taal van het bericht, zonder aanhef-clichés. Weet je het antwoord niet, schrijf dan geen concept.
 - Een belofte met een datum ("ik stuur het vrijdag", "je krijgt het donderdag") meld je met \`belofte_voorstellen\`; zet haar nooit zelf als taak.
-- Gebruik de id's precies zoals de tools ze geven.`;
+- Gebruik de id's precies zoals de tools ze geven.
+- In \`van\` en \`persoon\` staat een naam die de gebruiker kent (zoals "Mila Bakker"), nooit een Slack-id als U0123ABCD. Staat er in Slack alleen een id, zoek de naam dan op in de draad of met \`slack_zoeken\`; vind je hem niet, laat het veld dan leeg.`;
 
 function sources(settings: TodaySettings): string {
   const parts: string[] = [];

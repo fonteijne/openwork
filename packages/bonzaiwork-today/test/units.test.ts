@@ -4,6 +4,7 @@ import { roundSpecs } from "../src/agent.ts";
 import { parseEvents, parseMails, splitCommand } from "../src/connectors.ts";
 import { formatTodoLine, isProseTodo, ownHandles, parseTeam, parseTodoLine, setDone } from "../src/notation.ts";
 import { meetingIsNear, pickStart, rankTodos, upcomingRows } from "../src/rank.ts";
+import { isSlackMemberId, isSlackWebLink, openableLink, parseSlackMessageId, slackPermalink, slackWorkspaceIn } from "../src/slack.ts";
 import { parseState, readSettings } from "../src/store.ts";
 import { DEFAULT_SETTINGS, type Meeting, type Todo } from "../src/types.ts";
 
@@ -149,5 +150,30 @@ describe("de rondes", () => {
     expect(specs[0]?.prompt).not.toContain("slack_ongelezen");
     expect(specs[0]?.prompt).not.toContain("agenda_lezen");
     for (const spec of specs) expect(spec.prompt).toContain("Je verstuurt nooit zelf iets");
+  });
+});
+
+describe("Slack op een kaart: een naam en een link die opent", () => {
+  test("een Slack-id is geen naam", () => {
+    for (const id of ["U020WN463K3", " W0123ABCD ", "<@U020WN463K3>", "@U020WN463K3", "<@U020WN463K3|mila>"]) expect(isSlackMemberId(id)).toBe(true);
+    for (const name of ["Mila Bakker", "WILLEMSEN", "Uwe", "", "U12"]) expect(isSlackMemberId(name)).toBe(false);
+  });
+
+  test("alleen een webadres opent; slack:// en tekst niet", () => {
+    expect(openableLink(" https://team.slack.com/archives/C1/p1 ")).toBe("https://team.slack.com/archives/C1/p1");
+    for (const dead of ["slack://channel?id=C1", "C1", "#sales", "", null, "javascript:alert(1)"]) expect(openableLink(dead)).toBeNull();
+    expect(isSlackWebLink("https://app.slack.com/client/T1/C1")).toBe(true);
+    expect(isSlackWebLink("https://slack.example/x")).toBe(false);
+    expect(isSlackWebLink("https://evilslack.com/x")).toBe(false);
+  });
+
+  test("de werkruimte, het bericht en de permalink", () => {
+    expect(slackWorkspaceIn('{"permalink":"https://Team.slack.com/archives/C1/p1700000000000100"}')).toBe("team.slack.com");
+    expect(slackWorkspaceIn("https://app.slack.com/client/T1/C1")).toBeNull();
+    expect(parseSlackMessageId("C0123:1700000000.000100")).toEqual({ channel: "C0123", ts: "1700000000.000100" });
+    expect(parseSlackMessageId("D1/1.0")).toEqual({ channel: "D1", ts: "1.0" });
+    expect(parseSlackMessageId("mail-1")).toBeNull();
+    expect(slackPermalink("team.slack.com", "C1", "1700000000.000100", null)).toBe("https://team.slack.com/archives/C1/p1700000000000100");
+    expect(slackPermalink("team.slack.com", "C1", "1700000000.000200", "1700000000.000100")).toBe("https://team.slack.com/archives/C1/p1700000000000200?thread_ts=1700000000.000100&cid=C1");
   });
 });
