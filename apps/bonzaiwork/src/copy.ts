@@ -173,7 +173,8 @@ export const copy = {
       sent: "Verstuurd",
       later: "Later",
       laterToast: "Morgen weer",
-      notMine: "Niet voor mij",
+      /** For a card with a reply: the person answered it themselves, outside BonzaiWork, or has no answer to give. */
+      handled: "Afgehandeld",
       seen: "Gelezen",
       open: (source: string) => `Openen in ${source}`,
     },
