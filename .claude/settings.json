@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v bun >/dev/null 2>&1 || exit 0; bun \"$CLAUDE_PROJECT_DIR/scripts/bonzaiwork/kennisbank-hook.ts\" session-start",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v bun >/dev/null 2>&1 || exit 0; bun \"$CLAUDE_PROJECT_DIR/scripts/bonzaiwork/kennisbank-hook.ts\" stop",
+            "timeout": 60,
+            "statusMessage": "Kennisbank controleren"
+          }
+        ]
+      }
+    ]
+  }
+}
