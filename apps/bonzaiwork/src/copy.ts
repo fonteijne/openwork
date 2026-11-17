@@ -173,7 +173,8 @@ export const copy = {
       sent: "Verstuurd",
       later: "Later",
       laterToast: "Morgen weer",
-      notMine: "Niet voor mij",
+      /** For a card with a reply: the person answered it themselves, outside BonzaiWork, or has no answer to give. */
+      handled: "Afgehandeld",
       seen: "Gelezen",
       open: (source: string) => `Openen in ${source}`,
     },
@@ -209,7 +210,7 @@ export const copy = {
       test: "Koppelingen testen",
       tested: "Getest",
       ms365Command: "Opdracht of adres voor Microsoft 365",
-      ms365Placeholder: "npx -y @softeria/ms-365-mcp-server of http://localhost:3000/mcp",
+      ms365Placeholder: "Opdracht die de server start, of het adres van een server die al draait",
       slackCommand: "Slack-script",
       commandEmpty: "Niet ingesteld",
       slackPlaceholder: "/pad/naar/slack.sh",

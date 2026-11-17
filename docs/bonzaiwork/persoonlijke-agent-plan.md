@@ -143,7 +143,7 @@ Volgorde; secties zonder inhoud worden niet getoond:
    stilzet en vóór mislukte chats:
    - afspraak die binnen een halfuur begint, met de voorbereiding als die er is · Gezien;
    - mail of Slack-draad: waarom het jou nodig heeft, het concept in een bewerkbaar veld, en in de
-     statusregel wat versturen doet · Versturen · Later (morgen weer) · Niet voor mij;
+     statusregel wat versturen doet · Versturen · Later (morgen weer) · Afgehandeld (zelf al beantwoord, of geen antwoord nodig);
    - gevonden belofte · Toevoegen · Negeren.
 5. **Komt eraan**: deadlines, beloftes en afspraken, gegroepeerd *te laat · vandaag · deze week · later*,
    te laat in amber; een taak vink je hier af.
