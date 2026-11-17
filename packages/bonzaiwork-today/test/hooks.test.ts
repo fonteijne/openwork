@@ -129,6 +129,87 @@ afterEach(async () => {
 
 const enable = (patch: Record<string, unknown> = {}) => call("PUT", "/bonzaiwork/today/settings", { enabled: true, ...patch });
 
+describe("To-do's uit Slack", () => {
+  const SLACK = { slack: true, slackCommand: "x", slackTodos: true };
+  const slackTodos = async () => (await view()).slackTodos;
+
+  test("uit tot je ze aanzet: geen lijst en het script draait niet", async () => {
+    await enable({ slack: true, slackCommand: "x" });
+    expect(await slackTodos()).toBeNull();
+    await enable({ slackTodos: true, slack: false });
+    expect(await slackTodos()).toBeNull();
+    expect((await lines(join(root, "slack.log"))).some((entry) => entry.command === "todos")).toBe(false);
+    expect((await call("POST", "/bonzaiwork/today/slack-todos/done", { id: "reminder:Sa1" })).status).toBe(409);
+  });
+
+  test("aan: de open to-do's, eerst wat een datum heeft; een id is geen naam en alleen een Slack-webadres is een link", async () => {
+    await enable(SLACK);
+    const found = await slackTodos();
+    expect(found?.error).toBeNull();
+    expect(found?.items).toEqual([
+      { id: "message:C1:1763000000.000100", kind: "message", text: "Kun jij de prijslijst delen?", author: "Mila Bakker", channel: "#sales", due: "2026-11-13", link: "https://bonzai.slack.com/archives/C1/p1763000000000100", createdAt: 1763000000000 },
+      // Without a date: the newest first.
+      { id: "reminder:Sa1", kind: "reminder", text: "Offerte nalopen", author: null, channel: null, due: null, link: null, createdAt: 1763020000000 },
+      { id: "message:C2:1763000001.000100", kind: "message", text: "Een id als naam", author: null, channel: null, due: null, link: null, createdAt: 1763000001000 },
+    ]);
+    expect((await lines(join(root, "slack.log"))).find((entry) => entry.command === "todos")?.list).toEqual(["--json", "--limit", "100"]);
+    // Vandaag polls often; the script does not run on every poll.
+    await view();
+    expect((await lines(join(root, "slack.log"))).filter((entry) => entry.command === "todos")).toHaveLength(1);
+    const answer = (await call("GET", "/bonzaiwork/today")).body;
+    expect(readView(JSON.parse(JSON.stringify(answer))).slackTodos).toEqual(found);
+  });
+
+  test("afvinken: via het script, weg uit de lijst, en het telt bij afgerond vandaag", async () => {
+    await enable(SLACK);
+    await slackTodos();
+    expect((await call("POST", "/bonzaiwork/today/slack-todos/done", { id: "reminder:Sa1" })).status).toBe(200);
+    expect((await lines(join(root, "slack.log"))).at(-1)).toMatchObject({ command: "todo_done", args: ["reminder:Sa1", "--json"] });
+    const now = await view();
+    expect(now.slackTodos?.items.map((todo) => todo.id)).not.toContain("reminder:Sa1");
+    expect(now.done.at(0)).toMatchObject({ todoId: "slack-todo:reminder:Sa1", text: "Offerte nalopen", brainName: "Slack" });
+    // A later read agrees with Slack: still gone.
+    await hooks.service.refreshSlackTodos(true);
+    expect((await slackTodos())?.items.map((todo) => todo.id)).not.toContain("reminder:Sa1");
+    // Opening it again brings it back.
+    expect((await call("POST", "/bonzaiwork/today/slack-todos/done", { id: "reminder:Sa1", done: false })).status).toBe(200);
+    expect((await lines(join(root, "slack.log"))).filter((entry) => entry.command === "todo_done").at(-1)?.list).toEqual(["reminder:Sa1", "--reopen", "--json"]);
+    await hooks.service.refreshSlackTodos(true);
+    expect((await slackTodos())?.items.map((todo) => todo.id)).toContain("reminder:Sa1");
+    expect((await view()).done.some((entry) => entry.todoId === "slack-todo:reminder:Sa1")).toBe(false);
+  });
+
+  test("een fout in Slack laat de to-do staan en zegt wat er mis is; een verzonnen id gaat niet naar het script", async () => {
+    await enable(SLACK);
+    await slackTodos();
+    const failed = await call("POST", "/bonzaiwork/today/slack-todos/done", { id: "reminder:SaWEG" });
+    expect(failed.status).toBe(502);
+    expect(String(field(failed.body, "message"))).toContain("item_not_found");
+    const before = (await lines(join(root, "slack.log"))).length;
+    expect((await call("POST", "/bonzaiwork/today/slack-todos/done", { id: "--reopen" })).status).toBe(400);
+    expect((await call("POST", "/bonzaiwork/today/slack-todos/done", { id: "C1 1.0" })).status).toBe(400);
+    expect((await lines(join(root, "slack.log"))).length).toBe(before);
+  });
+});
+
+describe("To-do's uit Slack met een script dat het niet kan", () => {
+  test("een ouder script of een verlopen sessie: de lijst zegt waarom, Vandaag werkt verder", async () => {
+    hooks.stop();
+    const environment = { ...process.env, FAKE_SLACK_LOG: join(root, "slack.log"), FAKE_SLACK_OLD: "1" };
+    hooks = createTodayHooks({
+      stateDirectory: join(root, "state-oud"), now: () => clock, environment, reconcileEveryMs: 3_600_000, permissionPollMs: 3_600_000,
+      brains: { brains: async () => [{ id: "ws-mijn", name: "Mijn brein", root: join(root, "mijn"), kind: "personal" as const, excluded: [], readOnly: false }], author: () => null, changed: async () => undefined },
+      ms365: createMs365({ command: () => "", environment }),
+      slack: createSlackCli({ command: () => `node ${fixture("fake-slack.mjs")}`, environment }),
+    });
+    await hooks.service.setSettings({ enabled: true, slack: true, slackCommand: "x", slackTodos: true });
+    const found = (await view()).slackTodos;
+    expect(found?.items).toEqual([]);
+    expect(found?.error).toContain("Werk het script bij");
+    expect((await view()).start).not.toBeNull();
+  });
+});
+
 describe("uit tot je het aanzet (T10)", () => {
   test("uit: geen tools in de engine, geen rondes, Vandaag zoals het was", async () => {
     expect(mcpEntries).toEqual([{ vandaag: null }]);

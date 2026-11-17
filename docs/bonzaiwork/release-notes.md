@@ -41,6 +41,11 @@ synchronisatie niet op tegen deze drie stappen. De code staat nog in die PR.
 
 **Vandaag en de agent**
 
+- **Je Slack-to-do's op Vandaag** (staat uit; Instellingen → Agent op Vandaag → "To-do's uit Slack op
+  Vandaag", met Slack aan). Je eigen to-do's uit Slack staan in een eigen lijstje naast "Komt eraan".
+  Vink je er een af, dan is hij ook in Slack afgevinkt; "Ongedaan maken" in de melding zet hem terug.
+  Je Slack-script moet de nieuwe opdrachten `todos` en `todo_done` kennen: werk het bij.
+
 - **Nieuwe opzet van de hele app.** De zijbalk heeft Vandaag, Routines, Agent en Instellingen, met daaronder
   je projecten; het open project klapt uit naar zijn chats. Vandaag is de startpagina: wat op je wacht, over
   alle projecten.

@@ -4,7 +4,7 @@ import { roundSpecs } from "../src/agent.ts";
 import { parseEvents, parseMails, splitCommand } from "../src/connectors.ts";
 import { formatTodoLine, isProseTodo, ownHandles, parseTeam, parseTodoLine, setDone } from "../src/notation.ts";
 import { meetingIsNear, pickStart, rankTodos, upcomingRows } from "../src/rank.ts";
-import { isSlackMemberId, isSlackWebLink, openableLink, parseSlackMessageId, slackPermalink, slackWorkspaceIn } from "../src/slack.ts";
+import { isSlackMemberId, isSlackTodoId, isSlackWebLink, openableLink, parseSlackMessageId, parseSlackTodos, slackPermalink, slackWorkspaceIn } from "../src/slack.ts";
 import { parseState, readSettings } from "../src/store.ts";
 import { DEFAULT_SETTINGS, type Meeting, type Todo } from "../src/types.ts";
 
@@ -97,7 +97,7 @@ describe("de keuze (T4)", () => {
 
 describe("instellingen en opslag", () => {
   test("alles staat uit tot de gebruiker het aanzet; het model is gpt-6-luna en instelbaar", () => {
-    expect(DEFAULT_SETTINGS).toMatchObject({ enabled: false, calendar: false, mail: false, slack: false, model: "gpt-6-luna" });
+    expect(DEFAULT_SETTINGS).toMatchObject({ enabled: false, calendar: false, mail: false, slack: false, slackTodos: false, model: "gpt-6-luna" });
     const next = readSettings({ enabled: true, model: " ander-model ", handle: "@Sam", workStartHour: 9, workEndHour: 9, slackCommand: "/x/slack.sh\n--json" });
     expect(next).toMatchObject({ enabled: true, model: "ander-model", handle: "Sam", workStartHour: 9, workEndHour: 10, slackCommand: "/x/slack.sh --json", ms365Command: DEFAULT_SETTINGS.ms365Command });
     expect(readSettings({ model: "" }).model).toBe("gpt-6-luna");
@@ -165,6 +165,21 @@ describe("Slack op een kaart: een naam en een link die opent", () => {
     expect(isSlackWebLink("https://app.slack.com/client/T1/C1")).toBe(true);
     expect(isSlackWebLink("https://slack.example/x")).toBe(false);
     expect(isSlackWebLink("https://evilslack.com/x")).toBe(false);
+  });
+
+  test("to-do's uit Slack: alleen de ids die het script geeft, alleen open, en een kapotte uitvoer is een fout", () => {
+    for (const id of ["reminder:Sa0CJFJE1JNA", "message:C1:1700000000.000100", "message:D1:1.0"]) expect(isSlackTodoId(id)).toBe(true);
+    for (const id of ["", "--reopen", "reminder:", "message:C1", "message:x:1.0", "C1:1.0", "reminder:Sa 1"]) expect(isSlackTodoId(id)).toBe(false);
+    expect(parseSlackTodos(JSON.stringify([
+      { id: "reminder:Sa1", text: "Een", done: false, due: null, created: 10 },
+      { id: "reminder:Sa2", text: "Klaar", done: true },
+      { id: "fout", text: "Geen id" },
+      { id: "message:C1:1.0", text: "Twee", author: "<@U020WN463K3>", channel: "#x", link: "https://evilslack.com/x", created: 1 },
+    ]))).toEqual([
+      { id: "reminder:Sa1", kind: "reminder", text: "Een", author: null, channel: null, due: null, link: null, createdAt: 10_000 },
+      { id: "message:C1:1.0", kind: "message", text: "Twee", author: null, channel: "#x", due: null, link: null, createdAt: 1000 },
+    ]);
+    expect(() => parseSlackTodos("Error: kapot")).toThrow();
   });
 
   test("de werkruimte, het bericht en de permalink", () => {

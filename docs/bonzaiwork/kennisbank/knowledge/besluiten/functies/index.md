@@ -7,5 +7,6 @@
 * [Eén begrip Agent](een-begrip-agent.md) - In de app heet het Agent (pagina), Mijn agent (project) en Agent op Vandaag; Brein blijft de naam voor een gedeeld projectbrein. Code en routes zijn niet hernoemd.
 * [Een boekdocument in plaats van zelf boeken](agenda-boekdocument.md) - BonzaiWork boekt niets in Bridge; het maakt per dag of week een Markdown-boekdocument dat een gewone chat na jouw goedkeuring omzet. Geen model in de MVP.
 * [Feedback via een redirect naar GitHub](feedback-redirect.md) - Feedback sturen opent een vooraf ingevuld GitHub-issueformulier; de gebruiker logt zelf in. Geen sleutel in de app, geen relay.
+* [Slack-to-do's als eigen lijst op Vandaag](slack-todos-op-vandaag.md) - Je eigen Slack-to-do's staan in een eigen lijst op Vandaag en worden daar in Slack zelf afgevinkt; ze worden geen taak in een brein en de agent komt er niet aan.
 * [Taken als Markdown-checkbox in de breinen](taken-als-checkbox.md) - Taken staan als Markdown-checkbox in het persoonlijke brein en in project-breinen, met een eigenaar; zonder eigenaar is het team-backlog.
 * [Voorkeursmodellen in de build](voorkeursmodellen.md) - Een lijst LiteLLM-model-id's zit in de build (PREFERRED_MODEL_IDS, te overschrijven met BONZAIWORK_PREFERRED_MODELS); nieuwe projecten starten met alleen die modellen.

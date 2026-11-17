@@ -13,7 +13,7 @@ import { errorText } from "~/lib/errors";
  * goes straight to the shell's `openExternal`. Renders nothing for an address that is not a web
  * page (no `slack://`, no made-up text), and says so in a toast when the page does not open.
  */
-export function ExternalLink(props: { url: string | null | undefined; label: string; className?: string }) {
+export function ExternalLink(props: { url: string | null | undefined; label: string; /** What a screen reader hears when `label` alone says too little ("Openen"). */ ariaLabel?: string; className?: string }) {
   const backend = useBackend();
   const url = openableLink(props.url);
   if (!url) return null;
@@ -21,6 +21,7 @@ export function ExternalLink(props: { url: string | null | undefined; label: str
     <button
       type="button"
       title={url}
+      aria-label={props.ariaLabel}
       onClick={() => backend.desktop.openUrl(url).catch((failure: unknown) => toast(errorText(failure), { tone: "error" }))}
       className={cn(
         "cursor-pointer rounded-sm text-start underline-offset-2 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",

@@ -452,11 +452,15 @@ export function createSlackCli(options: { command: () => string; environment?: N
   }
 
   /** A read command's output for the agent: the script's own JSON, cut where it gets long. */
-  async function read(args: readonly string[]): Promise<string> {
+  async function read(args: readonly string[], limit = SLACK_OUTPUT_LIMIT): Promise<string> {
     const result = await run(args, null);
-    if (result.code !== 0) throw new ConnectorError("refused", (result.stderr || result.stdout).trim().slice(0, 600) || "Het Slack-script gaf een fout.");
+    if (result.code !== 0) {
+      const reason = (result.stderr || result.stdout).trim().slice(0, 600);
+      if (args[0] === "todos" && /Unknown command/i.test(reason)) throw new ConnectorError("not_configured", "Dit Slack-script kent nog geen to-do's. Werk het script bij.");
+      throw new ConnectorError("refused", reason || "Het Slack-script gaf een fout.");
+    }
     const text = result.stdout.trim();
-    return text.length > SLACK_OUTPUT_LIMIT ? `${text.slice(0, SLACK_OUTPUT_LIMIT)}\n… (ingekort)` : text;
+    return text.length > limit ? `${text.slice(0, limit)}\n… (ingekort)` : text;
   }
 
   return {
@@ -475,6 +479,19 @@ export function createSlackCli(options: { command: () => string; environment?: N
       const answer = record(parseJson(result.stdout.trim()));
       if (result.code !== 0 || answer?.ok === false) {
         throw new ConnectorError("refused", (str(answer, "error") ?? result.stderr.trim().slice(0, 600)) || "Slack nam het bericht niet aan.");
+      }
+    },
+    /** The person's own open To-dos, as the script's JSON (`slack todos --json`). */
+    todos: (limit: number) => read(["todos", "--json", "--limit", String(Math.max(1, Math.min(limit, 200)))], Number.POSITIVE_INFINITY),
+    /** Ticks off one of the person's own To-dos (or opens it again). Only after the person's click. */
+    async todoDone(id: string, done: boolean): Promise<void> {
+      const result = await run(["todo_done", id, ...(done ? [] : ["--reopen"]), "--json"], null);
+      const answer = record(parseJson(result.stdout.trim()));
+      if (result.code !== 0 || answer?.ok !== true) {
+        const reason = (result.stderr.trim() || result.stdout.trim()).replace(/^Error:\s*/, "").slice(0, 600);
+        // An older script without the command: say what to do instead of argparse's own words.
+        if (/Unknown command/i.test(reason)) throw new ConnectorError("not_configured", "Dit Slack-script kent nog geen to-do's. Werk het script bij.");
+        throw new ConnectorError("refused", reason || "Slack nam het afvinken niet aan.");
       }
     },
     async check(): Promise<string> {

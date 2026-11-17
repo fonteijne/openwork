@@ -69,3 +69,19 @@ export function focusMinutes(startedAt: number, now: number): number {
 export function startProject(start: TodayChatStart, projects: readonly Project[]): Project | null {
   return projects.find((project) => project.id === start.projectId) ?? null;
 }
+
+/** Rows of "To-do's in Slack" before "Nog n": fewer when they share one column with everything else. */
+export const MAX_SLACK_TODOS = 5;
+export const MAX_SLACK_TODOS_NOW = 3;
+
+/** The rows shown at once and the rest, in the server's order (soonest date first). */
+export function slackTodosShown<T>(items: readonly T[], compact: boolean): { first: T[]; more: T[] } {
+  const count = compact ? MAX_SLACK_TODOS_NOW : MAX_SLACK_TODOS;
+  return { first: items.slice(0, count), more: items.slice(count) };
+}
+
+/** A Slack To-do whose date is before today (`YYYY-MM-DD`, local). */
+export function slackTodoLate(todo: { due: string | null }, today: string): boolean {
+  return todo.due !== null && todo.due < today;
+}
+

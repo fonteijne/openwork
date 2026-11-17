@@ -8,7 +8,7 @@ sources:
   - id: plan
     resource: ../references/persoonlijke-agent-plan.md
     title: Persoonlijke agent op Vandaag
-generated: {by: claude-opus-5-5, at: 2026-11-17T10:25:24.816Z}
+generated: {by: claude-opus-5-5, at: 2026-11-17T15:35:30.277Z}
 status: draft
 ---
 # Persoonlijke agent
@@ -24,6 +24,8 @@ beoordelen**: elk item komt binnen met de eerste stap al gedaan.[^plan]
 - Taken zijn Markdown-checkboxen in het persoonlijke brein en in project-breinen; de server indexeert ze
   zonder model.
 - Outlook, agenda en Slack lopen via lokale koppelingen, niet via de OpenWork-cloud.
+- De eigen Slack-to-do's staan als aparte lijst op Vandaag en worden daar in Slack afgevinkt, via het
+  Slack-script en Slacks interne `saved.*`-methodes (er is geen openbare API).[^plan]
 - Alles staat uit tot de gebruiker het per onderdeel aanzet; `BONZAIWORK_TODAY=0` zet het voor een
   installatie uit.[^plan]
 
@@ -34,5 +36,6 @@ De koppelingen met Microsoft 365 en Slack zijn alleen tegen nagebouwde tegenhang
 - [Taken als Markdown-checkbox in de breinen](../besluiten/functies/taken-als-checkbox.md)
 - [De agent kiest één taak](../besluiten/functies/agent-kiest-taak.md)
 - [Alleen de gebruiker verstuurt](../besluiten/functies/alleen-gebruiker-verstuurt.md)
+- [Slack-to-do's als eigen lijst op Vandaag](../besluiten/functies/slack-todos-op-vandaag.md)
 
-[^plan]: Plan persoonlijke agent, status, §0, §1 en §7.
+[^plan]: Plan persoonlijke agent, status, §0, §1 (T12), §3.1 en §7.

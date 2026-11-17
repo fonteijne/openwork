@@ -43,6 +43,8 @@ export function createTodayClient(req: Request, options: { available: boolean })
     checkConnectors: () => guard(async () => readConnectors(field(await post("/connectors/check", {}, 90_000), "connectors"))),
     addTodo: (input) => guard(async () => todo(await post("/todos", input))),
     setDone: (todoId, done) => guard(async () => void (await post(`/todos/${enc(todoId)}/done`, { done }))),
+    // The Slack script runs for this: give it time.
+    setSlackTodoDone: (id, done) => guard(async () => void (await post("/slack-todos/done", { id, done }, 60_000))),
     skip: (todoId) => guard(async () => void (await post(`/todos/${enc(todoId)}/skip`))),
     park: (text) => guard(async () => void (await post("/park", { text }))),
     focus: (todoId, chatId) =>

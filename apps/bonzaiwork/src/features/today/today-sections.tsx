@@ -3,7 +3,9 @@ import { CalendarClock, Flag, Hourglass, ListChecks, MoonStar, Plus } from "luci
 
 import { useBackend } from "~/backend/context";
 import { projectHasKey, startModel, useBrains, useProjects, useRefreshToday, useStatus } from "~/backend/queries";
-import type { CleanupCandidate, DayClose, DayPlan, DoneEntry, Focus, Project, SentEntry, StartHere, TodayChatStart, Todo, TodayView, UpcomingRow } from "~/backend/types";
+import { localDate } from "~/backend/types";
+import type { CleanupCandidate, DayClose, DayPlan, DoneEntry, Focus, Project, SentEntry, SlackTodo, SlackTodos, StartHere, TodayChatStart, Todo, TodayView, UpcomingRow } from "~/backend/types";
+import { ExternalLink } from "~/components/external-link";
 import { ProjectIcon } from "~/components/project-icon";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
@@ -23,7 +25,7 @@ import { href, navigate } from "~/lib/router";
 
 import { sendFirstMessage } from "../chat/first-message";
 import { SectionHeading } from "../home/attention-section";
-import { FOCUS_BLOCK_MINUTES, focusMinutes, formatDay, groupUpcoming, MAX_UPCOMING_ROWS, meetingTime, startProject, upcomingNow } from "./model";
+import { FOCUS_BLOCK_MINUTES, focusMinutes, formatDay, groupUpcoming, MAX_UPCOMING_ROWS, meetingTime, slackTodoLate, slackTodosShown, startProject, upcomingNow } from "./model";
 
 /**
  * The personal agent's own sections on Vandaag (docs/bonzaiwork/persoonlijke-agent-plan.md §4):
@@ -498,6 +500,83 @@ export function UpcomingSection(props: { rows: readonly UpcomingRow[]; projects:
           </Disclosure>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// To-do's in Slack
+// ---------------------------------------------------------------------------
+
+function SlackTodoRow(props: { todo: SlackTodo; today: string }) {
+  const backend = useBackend();
+  const refresh = useRefreshToday();
+  const { busy, act } = useAction();
+  const { todo } = props;
+  const late = slackTodoLate(todo, props.today);
+  // Ticking off is undone in one click (P8); the toast says what happened in the button's words (C2).
+  const reopen = () =>
+    void backend.today.setSlackTodoDone(todo.id, false).then(
+      () => { toast(copy.today.slackTodos.reopened); return refresh(); },
+      (failure: unknown) => toast(errorText(failure), { tone: "error" }),
+    );
+  const tick = () =>
+    void act(async () => {
+      await backend.today.setSlackTodoDone(todo.id, true);
+      toast(copy.today.slackTodos.done, { action: { label: copy.today.slackTodos.undo, onClick: reopen } });
+    });
+  return (
+    <li className={ROW} data-testid="today-slack-todo">
+      <Checkbox checked={false} disabled={busy} onCheckedChange={tick} label={copy.today.slackTodos.checkOff(todo.text)} className="min-w-0 flex-1 px-0">
+        <span className="flex min-w-0 flex-col" title={todo.text}>
+          <span className="truncate">{todo.text}</span>
+          <span className="truncate text-xs text-muted-foreground">{copy.today.slackTodos.from(todo.author, todo.channel)}</span>
+        </span>
+      </Checkbox>
+      {todo.due || todo.link ? (
+        <span className="flex shrink-0 flex-col items-end gap-0.5">
+          {todo.due ? <span className={cn("text-xs", late ? "font-medium text-amber-11" : "text-subtle-foreground")}>{late ? `${formatDay(todo.due)} · ${copy.today.late}` : formatDay(todo.due)}</span> : null}
+          <ExternalLink url={todo.link} label={copy.today.slackTodos.open} ariaLabel={copy.today.slackTodos.openLabel(todo.text)} className="text-xs text-muted-foreground" />
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * The person's own Slack To-dos, to tick off here: ticking off happens in Slack too. Without
+ * to-dos the section is not shown; a list that cannot be read says why and where to look (C6).
+ */
+export function SlackTodosSection(props: { todos: SlackTodos; /** In one column: fewer rows, the rest behind "Nog n". */ compact?: boolean }) {
+  const { items, error } = props.todos;
+  if (!items.length && !error) return null;
+  const today = localDate(Date.now());
+  const { first, more } = slackTodosShown(items, props.compact ?? false);
+  const rows = (list: readonly SlackTodo[]) => (
+    <ul>
+      {list.map((todo) => (
+        <SlackTodoRow key={todo.id} todo={todo} today={today} />
+      ))}
+    </ul>
+  );
+  return (
+    <section aria-labelledby="home-slack-todos" data-testid="home-slack-todos">
+      <SectionHeading id="home-slack-todos" title={copy.today.slackTodos.title} count={items.length || undefined} />
+      {error ? (
+        <p className="text-xs text-muted-foreground" data-testid="today-slack-todos-error">
+          {items.length ? `${copy.today.slackTodos.stale} · ` : null}
+          {copy.today.slackTodos.failed(error)}{" "}
+          <a className="font-medium text-foreground underline underline-offset-2" href={href({ name: "settings", group: "agent" })}>
+            {copy.today.slackTodos.openSettings}
+          </a>
+        </p>
+      ) : null}
+      {first.length ? rows(first) : null}
+      {more.length ? (
+        <Disclosure label={copy.home.more(more.length)} panelClassName="ps-0 pt-1">
+          {rows(more)}
+        </Disclosure>
+      ) : null}
     </section>
   );
 }

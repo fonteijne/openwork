@@ -74,6 +74,7 @@ evals/results/
 # DocShot review receipts are capture evidence, tied to the source commit.
 *.png.review.json
 .playwright-mcp/
+.playwright-cli/
 .vscode/
 
 # Warden local run logs

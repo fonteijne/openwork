@@ -791,10 +791,10 @@ export type AgendaBackend = {
 // ---------------------------------------------------------------------------
 
 export type {
-  AgentRound, CleanupCandidate, ConnectorStatus, DayClose, DayItem, DoneEntry, SentEntry, DayPlan, Focus, Meeting, StartHere, StartReason, TodaySettings, Todo, TodayView, UpcomingBucket, UpcomingRow,
+  AgentRound, CleanupCandidate, ConnectorStatus, DayClose, DayItem, DoneEntry, SentEntry, DayPlan, Focus, Meeting, SlackTodo, SlackTodos, StartHere, StartReason, TodaySettings, Todo, TodayView, UpcomingBucket, UpcomingRow,
 } from "@bonzaiwork/today/model";
 /** The server's own checks, for cards stored before it made them: a Slack id is no name, only a web address opens. */
-export { isSlackMemberId, openableLink } from "@bonzaiwork/today/model";
+export { isSlackMemberId, localDate, openableLink } from "@bonzaiwork/today/model";
 
 export type TodaySettingsView = { settings: TodaySettings; /** Turned off for this installation (`BONZAIWORK_TODAY=0`); the switch cannot turn it on. */ killed: boolean };
 
@@ -808,6 +808,8 @@ export type TodayBackend = {
   /** A new to-do in a brain's `taken.md`; without a brain, the personal one. */
   addTodo(input: { text: string; brainId: string | null; due: string | null }): Promise<Todo>;
   setDone(todoId: string, done: boolean): Promise<void>;
+  /** Ticks off one of the person's own Slack To-dos in Slack (or opens it again). */
+  setSlackTodoDone(id: string, done: boolean): Promise<void>;
   /** "Niet nu": the next to-do in "Start hier". */
   skip(todoId: string): Promise<void>;
   /** "Parkeren": the thought goes to the inbox of the personal brain. */
