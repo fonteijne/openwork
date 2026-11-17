@@ -1,6 +1,8 @@
 # Logboek
 
 ## 2026-11-17
+* **Update**: [Persoonlijke agent](architectuur/persoonlijke-agent.md) - sessie op t3/slack-todos-bonzaiwork
+* **Creation**: [Slack-to-do's als eigen lijst op Vandaag](besluiten/functies/slack-todos-op-vandaag.md) - sessie op t3/slack-todos-bonzaiwork
 * **Creation**: [Kennisbank als OKF-bundel, bijgehouden door een sessiehook](besluiten/platform/kennisbank-via-sessiehook.md) - sessie op t3/bonzaiwork-docs-okf-knowledge-base
 * **Creation**: [Agenda](architectuur/agenda.md) - sessie op t3/bonzaiwork-docs-okf-knowledge-base
 * **Creation**: [Breinen](architectuur/breinen.md) - sessie op t3/bonzaiwork-docs-okf-knowledge-base

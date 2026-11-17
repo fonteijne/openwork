@@ -16,7 +16,7 @@ import { DESKTOP, useMediaQuery, WIDE } from "~/lib/use-media";
 import { useSidebarProjects } from "../projects/use-listed-projects";
 import { useUi } from "../shell/ui-store";
 import { withWorld } from "../today/model";
-import { CleanupRow, DayCloseCard, FocusLine, PlanSection, SentToday, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
+import { CleanupRow, DayCloseCard, FocusLine, PlanSection, SentToday, SlackTodosSection, StartSection, TodayBlocked, UpcomingSection } from "../today/today-sections";
 import { AttentionSection } from "./attention-section";
 import { awayRows, MAX_AWAY_ROWS, nextRoutine, readLastSeen, writeLastSeen } from "./model";
 import { BusySection, ProjectsSection, WhileAwaySection, WorkdaySection } from "./sections";
@@ -99,6 +99,7 @@ export function HomePage() {
   const day = (
     <>
       {agent ? <UpcomingSection rows={agent.upcoming} projects={everyProject} compact={!columns} /> : null}
+      {agent?.slackTodos ? <SlackTodosSection todos={agent.slackTodos} compact={!columns} /> : null}
       {agent?.plan ? <PlanSection plan={agent.plan} open={columns} /> : null}
       {agent ? <SentToday sent={agent.sent} /> : null}
       <WorkdaySection nextRoutine={next} projects={projectMap} />

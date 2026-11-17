@@ -1,7 +1,7 @@
 import { isDate } from "./notation.ts";
 import {
   DEFAULT_SETTINGS, type AgentRound, type BrainKind, type ChatStart, type CleanupCandidate, type ConnectorState, type ConnectorStatus, type DayItem, type DayPlan, type DoneEntry, type Focus, type SentEntry, type Meeting,
-  type PlanBlock, type ReplyTarget, type StartHere, type StartReason, type TodaySettings, type Todo, type TodayView, type UpcomingBucket, type UpcomingRow,
+  type PlanBlock, type ReplyTarget, type SlackTodo, type SlackTodos, type StartHere, type StartReason, type TodaySettings, type Todo, type TodayView, type UpcomingBucket, type UpcomingRow,
 } from "./types.ts";
 
 /**
@@ -40,6 +40,7 @@ export function readSettings(value: unknown, current: TodaySettings = DEFAULT_SE
     calendar: flag(value, "calendar", current.calendar),
     mail: flag(value, "mail", current.mail),
     slack: flag(value, "slack", current.slack),
+    slackTodos: flag(value, "slackTodos", current.slackTodos),
     model: line("model", current.model, 120) || DEFAULT_SETTINGS.model,
     handle,
     ms365Command: line("ms365Command", current.ms365Command, 500),
@@ -131,6 +132,22 @@ export function readTodo(value: unknown): Todo | null {
   };
 }
 
+export function readSlackTodo(value: unknown): SlackTodo | null {
+  const id = text(value, "id");
+  const body = text(value, "text");
+  if (!id || body === null) return null;
+  const due = text(value, "due");
+  return {
+    id, kind: text(value, "kind") === "message" ? "message" : "reminder", text: body, author: text(value, "author"), channel: text(value, "channel"),
+    due: due && isDate(due) ? due : null, link: text(value, "link"), createdAt: number(value, "createdAt") ?? 0,
+  };
+}
+
+function readSlackTodos(value: unknown): SlackTodos | null {
+  if (!record(value)) return null;
+  return { items: each(list(value, "items"), readSlackTodo), error: text(value, "error") };
+}
+
 const REASONS: readonly StartReason[] = ["chosen", "overdue", "today", "waiting_due", "plan", "soon", "oldest"];
 const BUCKETS: readonly UpcomingBucket[] = ["late", "today", "week", "later"];
 const CONNECTOR_STATES: readonly ConnectorState[] = ["off", "ok", "not_configured", "error"];
@@ -204,6 +221,7 @@ export function readView(value: unknown): TodayView {
     close: record(value)?.close ? { open: each(list(record(value)?.close, "open"), readTodo), candidates: each(list(record(value)?.close, "candidates"), readTodo) } : null,
     connectors: readConnectors(record(value)?.connectors),
     rounds: each(list(value, "rounds"), readRound),
+    slackTodos: readSlackTodos(record(value)?.slackTodos),
   };
 }
 

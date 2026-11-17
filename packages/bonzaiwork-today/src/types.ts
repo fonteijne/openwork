@@ -125,6 +125,30 @@ export type SentEntry = { key: string; via: MessageSource; title: string; to: st
  */
 export type DayClose = { open: Todo[]; candidates: Todo[] };
 
+/**
+ * One of the person's own Slack To-dos (the tab that replaced Later in October 2026): a message
+ * they turned into a to-do, or one they wrote themselves. Only they see this list.
+ */
+export type SlackTodo = {
+  /** The id the Slack script gives (`message:C…:ts` or `reminder:Sa…`); ticking off sends it back. */
+  id: string;
+  kind: "message" | "reminder";
+  text: string;
+  /** Who wrote the message; null for a to-do the person wrote themselves. */
+  author: string | null;
+  /** Where the message stands (`#sales`, `@Robin`); null for one the person wrote. */
+  channel: string | null;
+  /** `YYYY-MM-DD` in local time, or null. */
+  due: string | null;
+  /** A web address that opens the message in Slack; null for one the person wrote. */
+  link: string | null;
+  /** Epoch ms. */
+  createdAt: number;
+};
+
+/** The open Slack To-dos; `error` says why the list could not be read (the last list that was read stays). */
+export type SlackTodos = { items: SlackTodo[]; error: string | null };
+
 export type ConnectorState = "off" | "ok" | "not_configured" | "error";
 export type ConnectorStatus = { state: ConnectorState; detail: string | null; checkedAt: number | null };
 
@@ -134,6 +158,8 @@ export type TodaySettings = {
   calendar: boolean;
   mail: boolean;
   slack: boolean;
+  /** The person's own Slack To-dos on Vandaag, to tick off there. Needs `slack`. */
+  slackTodos: boolean;
   /** The LiteLLM model the rounds run on. */
   model: string;
   /** The person's `@name` in project brains; null: taken from `team.md` or the git author. */
@@ -172,6 +198,8 @@ export type TodayView = {
   close: DayClose | null;
   connectors: { calendar: ConnectorStatus; mail: ConnectorStatus; slack: ConnectorStatus };
   rounds: AgentRound[];
+  /** Null while Slack To-dos are off (or Slack is off or not set up). */
+  slackTodos: SlackTodos | null;
 };
 
 /** What the app turns into a new chat (the server writes the prompt, the app starts the chat). */
@@ -183,7 +211,7 @@ export const DEFAULT_MS365_COMMAND = "npx -y @softeria/ms-365-mcp-server";
 export const MAX_SKIPS = 3;
 
 export const DEFAULT_SETTINGS: TodaySettings = {
-  enabled: false, calendar: false, mail: false, slack: false,
+  enabled: false, calendar: false, mail: false, slack: false, slackTodos: false,
   model: DEFAULT_MODEL, handle: null, ms365Command: DEFAULT_MS365_COMMAND, slackCommand: "",
   workStartHour: 8, workEndHour: 18,
 };

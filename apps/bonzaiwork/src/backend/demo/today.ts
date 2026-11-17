@@ -1,6 +1,6 @@
 import {
   DEFAULT_SETTINGS, MAX_SKIPS, addDays, formatTodoLine, localDate, meetingIsNear, parseTodoLine, pickStart, upcomingRows, visibleItems,
-  rankTodos, type AgentRound, type DayItem, type DayPlan, type DoneEntry, type Focus, type Meeting, type SentEntry, type TodaySettings, type Todo, type TodayView,
+  rankTodos, type AgentRound, type DayItem, type DayPlan, type DoneEntry, type Focus, type Meeting, type SentEntry, type SlackTodo, type TodaySettings, type Todo, type TodayView,
 } from "@bonzaiwork/today/model";
 
 import { readLocalJson, writeLocalJson } from "~/lib/storage";
@@ -28,6 +28,8 @@ type DemoToday = {
   sent: SentEntry[];
   closed: string;
   pinned: { todoId: string; after: string } | null;
+  /** The person's own Slack To-dos; missing in a state stored before they existed. */
+  slackTodos?: SlackTodo[];
 };
 
 type DemoProject = { id: string; name: string };
@@ -78,9 +80,21 @@ function seed(now: number, projects: readonly DemoProject[], mode: string | null
       due: addDays(today, 3), brainId: first.id, link: null, at: now - 3 * HOUR,
     },
   ];
+  const slackTodos: SlackTodo[] = mode === "leeg" ? [] : [
+    {
+      id: "message:C1:1.5", kind: "message", text: "Kun jij voor vrijdag de cijfers van de klantdag in het kanaal zetten?", author: "Mila Bakker", channel: "#sales",
+      due: addDays(today, -1), link: "https://demo.slack.com/archives/C1/p1000000000000500", createdAt: now - 26 * HOUR,
+    },
+    { id: "reminder:SaDemo1", kind: "reminder", text: "Robin bedanken voor de introductie", author: null, channel: null, due: today, link: null, createdAt: now - 4 * HOUR },
+    {
+      id: "message:D1:1.7", kind: "message", text: "Wil je mijn voorstel voor de nieuwe huisstijl nog even lezen? Geen haast.", author: "Sam Jansen", channel: "@Sam Jansen",
+      due: null, link: "https://demo.slack.com/archives/D1/p1000000000000700", createdAt: now - 2 * HOUR,
+    },
+  ];
   return {
     version: 1,
-    settings: { ...DEFAULT_SETTINGS, enabled: mode !== "uit", calendar: mode !== "uit", mail: mode !== "uit", slack: mode !== "uit", slackCommand: "~/tools/slack/slack.sh", handle: "ik" },
+    slackTodos,
+    settings: { ...DEFAULT_SETTINGS, enabled: mode !== "uit", calendar: mode !== "uit", mail: mode !== "uit", slack: mode !== "uit", slackTodos: mode !== "uit", slackCommand: "~/tools/slack/slack.sh", handle: "ik" },
     todos, items, later: {}, skips: { date: today, ids: [] },
     steps: mode === "leeg" ? {} : { "t-offerte": { step: "Open de offerte en controleer de drie bedragen in de tabel", why: "De gemeente verwachtte hem gisteren" } },
     plan: mode === "leeg" ? null : {
@@ -103,6 +117,8 @@ export function createDemoToday(input: { storageKey: string; search: string; now
   let state: DemoToday = valid(stored) && stored.skips.date === localDate(now()) ? stored : seed(now(), input.projects(), mode);
   const save = () => writeLocalJson(key, state);
   const missing = () => new BackendError("item_not_found", "Deze kaart is er niet meer.", 404);
+  /** Slack To-dos ticked in this session, so "Ongedaan maken" can bring them back. */
+  const ticked = new Map<string, SlackTodo>();
 
   const rounds = (): AgentRound[] => {
     if (!state.settings.enabled) return [];
@@ -117,7 +133,7 @@ export function createDemoToday(input: { storageKey: string; search: string; now
   function view(): TodayView {
     const off = { calendar: { state: "off" as const, detail: null, checkedAt: null }, mail: { state: "off" as const, detail: null, checkedAt: null }, slack: { state: "off" as const, detail: null, checkedAt: null } };
     if (!state.settings.enabled) {
-      return { enabled: false, blocked: null, handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, done: [], sent: [], close: null, connectors: off, rounds: [] };
+      return { enabled: false, blocked: null, handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, done: [], sent: [], close: null, connectors: off, rounds: [], slackTodos: null };
     }
     const at = now();
     const today = localDate(at);
@@ -147,6 +163,9 @@ export function createDemoToday(input: { storageKey: string; search: string; now
       close: closing ? { open: mine.filter((entry) => entry.reason === "overdue" || entry.reason === "today" || entry.reason === "waiting_due").map((entry) => entry.todo).slice(0, 5), candidates: mine.map((entry) => entry.todo).slice(0, 3) } : null,
       connectors: { calendar: ok(state.settings.calendar), mail: ok(state.settings.mail), slack: ok(state.settings.slack) },
       rounds: rounds(),
+      slackTodos: state.settings.slack && state.settings.slackTodos
+        ? { items: [...(state.slackTodos ?? [])].sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999") || b.createdAt - a.createdAt), error: null }
+        : null,
     };
   }
 
@@ -190,6 +209,21 @@ export function createDemoToday(input: { storageKey: string; search: string; now
       if (done && state.focus?.todoId === todoId) state.focus = null;
       state.done = state.done.filter((entry) => entry.todoId !== todoId);
       if (done) state.done.push({ todoId, text: todo.text, brainName: todo.brainName, at: now() });
+      save();
+    },
+    setSlackTodoDone: async (id, done) => {
+      const open = state.slackTodos ?? [];
+      const todo = done ? open.find((entry) => entry.id === id) : ticked.get(id);
+      if (!todo) throw new BackendError("slack_todo_failed", "Afvinken in Slack lukte niet: item_not_found", 502);
+      state.done = state.done.filter((entry) => entry.todoId !== `slack-todo:${id}`);
+      if (done) {
+        ticked.set(id, todo);
+        state.slackTodos = open.filter((entry) => entry.id !== id);
+        state.done.push({ todoId: `slack-todo:${id}`, text: todo.text, brainName: "Slack", at: now() });
+      } else {
+        ticked.delete(id);
+        state.slackTodos = [...open, todo];
+      }
       save();
     },
     skip: async (todoId) => {

@@ -30,6 +30,7 @@ de eerste stap al gedaan.
 | T9 | Verspreide taken in proza krijgen een **eenmalige opruiming** per brein | De agent stelt de omzetting voor; schrijven pas na jouw ja |
 | T10 | Alles staat **uit tot je het aanzet**, per onderdeel | Instellingen → Persoonlijke agent; `BONZAIWORK_TODAY=0` zet het voor een hele installatie uit |
 | T11 | De rondes draaien op **`gpt-6-luna`**, instelbaar | Eén veld in de instellingen geldt voor alle rondes |
+| T12 | Je eigen **Slack-to-do's** staan op Vandaag en vink je daar af | Eigen lijst naast "Komt eraan", geen taak in een brein; afvinken gebeurt in Slack zelf, alleen na jouw klik; staat apart aan/uit (§3.1) |
 
 ## 2. Taken
 
@@ -91,6 +92,7 @@ het team het resultaat ziet.
 |---|---|---|---|
 | Outlook-agenda en -mail | de server start zelf de lokale MS365-server ([softeria/ms-365-mcp-server](https://github.com/Softeria/ms-365-mcp-server), stdio) met de opdracht uit de instellingen, of verbindt met een server die al draait als daar een adres staat (`http://localhost:3000/mcp`, Streamable HTTP) | `get-calendar-view`, `read-mail-text` (anders `list-mail-messages`) | `reply-mail-message`, alleen na de klik op de kaart |
 | Slack | de server draait het eigen Slack-script (pad in de instellingen), dat JSON geeft | `unreads`, `history`, `get_thread`, `search` | `reply` of `post_message`, tekst op stdin, alleen na de klik |
+| Slack-to-do's (§3.1) | hetzelfde script | `todos` | `todo_done` (afvinken, `--reopen` maakt het ongedaan), alleen na de klik |
 | Breinen | de bestaande lokale server `breinen` | bestaand | bestaand |
 
 De agent praat **niet** rechtstreeks met de MS365-server of het script. Hij krijgt een eigen, kleine set
@@ -105,6 +107,25 @@ Zonder bruikbare link bouwt de server de permalink uit kanaal en tijdstempel
 (`https://team.slack.com/archives/C…/p…`), met de werkruimte die hij onthoudt uit de eerste berichtlink die
 het script of de agent liet zien (`slackWorkspace` in `today.json`). Weet hij die nog niet, dan heeft de kaart
 geen link. De app toont oudere kaarten met dezelfde controles en meldt het als een link niet opent.
+
+### 3.1 To-do's uit Slack (T12)
+
+Sinds oktober 2026 heet Later in Slack **To-dos**: een eigen lijst met berichten die je tot to-do maakte en
+to-do's die je zelf schreef. Alleen jij ziet die lijst. Slack heeft er geen openbare API voor; de webclient
+gebruikt de interne `saved.*`-methodes, die met dezelfde sessie werken als de rest van het script:
+`saved.list` met `filter=todo` om te lezen, `saved.update` met `mark=completed` / `mark=uncompleted` om af
+te vinken of terug te zetten. Slack kan die methodes zonder aankondiging veranderen.
+
+- Het script kent daarvoor `todos --json` (id, tekst, wie, waar, datum, permalink) en
+  `todo_done <id> [--reopen] --json`. Het id is `message:<kanaal>:<ts>` of `reminder:<id>`; de server
+  stuurt alleen een id in die vorm door.
+- De server leest de lijst op de achtergrond, hooguit elke twee minuten (het script doet er een paar
+  seconden over); de eerste keer wacht Vandaag tot zes seconden op de lijst.
+- Afvinken op Vandaag gaat via `POST /bonzaiwork/today/slack-todos/done` en telt mee bij "afgerond
+  vandaag". De toast heeft "Ongedaan maken", dat de to-do in Slack weer opent.
+- De agent krijgt geen tool voor deze lijst: hij leest hem niet en vinkt niets af.
+- Een ouder script zonder `todos` of een verlopen sessie: de sectie zegt waarom en linkt naar de
+  instellingen; de laatst gelezen lijst blijft staan.
 
 De tools die mail, agenda of Slack lezen vragen in een gewone chat eerst toestemming (de gewone kaart van
 de engine). Alleen de eigen rondes van de agent krijgen dat antwoord vanzelf.
@@ -147,7 +168,11 @@ Volgorde; secties zonder inhoud worden niet getoond:
    - gevonden belofte · Toevoegen · Negeren.
 5. **Komt eraan**: deadlines, beloftes en afspraken, gegroepeerd *te laat · vandaag · deze week · later*,
    te laat in amber; een taak vink je hier af.
-6. **Bezig**, **Terwijl je weg was**, **Je werkdag**, **Projecten**: ongewijzigd.
+6. **To-do's in Slack** (T12, alleen als het aanstaat): je open Slack-to-do's, eerst wat een datum heeft;
+   per regel de tekst, wie en waar ("Mila in #sales", "Privébericht van Sam", "Eigen to-do"), de datum
+   (te laat in amber) en "Openen". Afvinken vinkt in Slack af. Naast elkaar vijf regels, in één kolom drie,
+   de rest achter "Nog n".
+7. **Bezig**, **Terwijl je weg was**, **Je werkdag**, **Projecten**: ongewijzigd.
 
 Erbij gekomen na een vergelijking met wat een "command center" meestal biedt:
 
@@ -213,7 +238,8 @@ Aanzetten voor het eerst:
 3. Zet Outlook-agenda en -mail aan. De opdracht staat standaard op `npx -y @softeria/ms-365-mcp-server`;
    pas hem aan als jouw server anders start, of vul het adres in van een server die al draait
    (`http://localhost:3000/mcp`). Je moet daar al zijn ingelogd.
-4. Zet Slack aan en vul het pad naar het script in.
+4. Zet Slack aan en vul het pad naar het script in. Wil je je Slack-to-do's op Vandaag, zet dan ook
+   "To-do's uit Slack op Vandaag" aan (het script moet `todos` kennen).
 5. Druk op "Koppelingen testen".
 
 ## 7. Waar de code staat
@@ -254,6 +280,9 @@ Aangepast buiten het nieuwe pakket: routines kunnen door de app zelf bijgehouden
   (broncode gelezen) en getest tegen een nagebouwde server, over stdio en over HTTP. Inloggen, je tenant en de echte antwoorden van
   Graph zijn niet geprobeerd.
 - **Slack**: de aanroepen volgen de opdrachten van het script en zijn getest tegen een nagebouwd script.
+  Uitzondering: de to-do's (§3.1) zijn op 2026-11-17 tegen het echte Slack geprobeerd met een eigen
+  test-to-do (lezen, afvinken, terugzetten, verwijderen). Een to-do van een **bericht** is niet tegen het
+  echte Slack geprobeerd, alleen in de tests van het script.
   De uitvoer van `unreads` en `history` gaat ongewijzigd naar de agent; hoe goed de agent die leest is niet
   gemeten.
 - **De rondes met een echt model**: de opdrachten zijn niet met `gpt-6-luna` gedraaid. De end-to-end-test

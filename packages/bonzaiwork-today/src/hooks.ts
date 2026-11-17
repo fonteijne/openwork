@@ -226,6 +226,16 @@ export function createTodayHooks(options: TodayOptions = {}) {
       method: "POST", path: "/bonzaiwork/today/todos/:todoId/done", auth: "host-token",
       handle: async (request, params) => { needsOn(); return json({ todo: await service.setDone(params.todoId ?? "", (await readBody(request)).done !== false) }); },
     },
+    {
+      // The id has colons (`message:C…:ts`), so it travels in the body.
+      method: "POST", path: "/bonzaiwork/today/slack-todos/done", auth: "host-token",
+      handle: async (request) => {
+        needsOn();
+        const body = await readBody(request);
+        await service.setSlackTodoDone(text(body, "id") ?? "", body.done !== false);
+        return json({ ok: true });
+      },
+    },
     { method: "POST", path: "/bonzaiwork/today/todos/:todoId/skip", auth: "host-token", handle: async (_request, params) => { needsOn(); await service.skip(params.todoId ?? ""); return json({ ok: true }); } },
     { method: "POST", path: "/bonzaiwork/today/park", auth: "host-token", handle: async (request) => { needsOn(); return json({ entry: await service.park(text(await readBody(request), "text") ?? "") }, 201); } },
     {

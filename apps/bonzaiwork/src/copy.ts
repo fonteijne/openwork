@@ -156,6 +156,22 @@ export const copy = {
       line: (count: number, brain: string) => (count === 1 ? `1 taak in ${brain} staat nog als gewone tekst` : `${count} taken in ${brain} staan nog als gewone tekst`),
       start: "Opruimen",
     },
+    slackTodos: {
+      title: "To-do's in Slack",
+      checkOff: (text: string) => `Afvinken in Slack: ${text}`,
+      /** Who wrote the message and where; for one the person wrote: their own. */
+      from: (author: string | null, channel: string | null) =>
+        channel?.startsWith("@") ? `Privébericht van ${author ?? channel.slice(1)}` : author && channel ? `${author} in ${channel}` : (author ?? channel ?? "Eigen to-do"),
+      open: "Openen",
+      openLabel: (text: string) => `Openen in Slack: ${text}`,
+      done: "Afgevinkt in Slack",
+      undo: "Ongedaan maken",
+      reopened: "Weer open in Slack",
+      /** The list could not be read: what happened, and where to look (C6). */
+      failed: (reason: string) => `De to-do's uit Slack zijn niet te lezen: ${reason}`,
+      stale: "Niet bijgewerkt",
+      openSettings: "Instellingen openen",
+    },
     upcoming: "Komt eraan",
     buckets: { late: "Te laat", today: "Vandaag", week: "Deze week", later: "Later" },
     allDay: "hele dag",
@@ -212,6 +228,8 @@ export const copy = {
       ms365Command: "Opdracht of adres voor Microsoft 365",
       ms365Placeholder: "Opdracht die de server start, of het adres van een server die al draait",
       slackCommand: "Slack-script",
+      slackTodos: "To-do's uit Slack op Vandaag",
+      slackTodosHint: "Afvinken op Vandaag vinkt ze ook in Slack af",
       commandEmpty: "Niet ingesteld",
       slackPlaceholder: "/pad/naar/slack.sh",
       model: "Model voor de rondes",

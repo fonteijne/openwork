@@ -3,10 +3,10 @@ import { ConnectorError, type MailSummary, type Ms365, type SlackCli } from "./c
 import { isDate, ownHandles, type TeamMember } from "./notation.ts";
 import { localDate, meetingIsNear, pickStart, rankTodos, upcomingRows, visibleItems } from "./rank.ts";
 import { addTodo, parkThought, readInbox, readTeam, removeInboxEntry, scanBrain, setTodoDone, type BrainFolder, type InboxEntry } from "./scan.ts";
-import { isSlackMemberId, isSlackWebLink, openableLink, parseSlackMessageId, slackPermalink, slackWorkspaceIn } from "./slack.ts";
+import { isSlackMemberId, isSlackTodoId, isSlackWebLink, openableLink, parseSlackMessageId, parseSlackTodos, slackPermalink, slackWorkspaceIn } from "./slack.ts";
 import { readSettings, type TodayStore } from "./store.ts";
 import {
-  MAX_SKIPS, type AgentRound, type ChatStart, type CleanupCandidate, type ConnectorStatus, type DayItem, type DueKind, type Focus, type Meeting, type PlanBlock, type ReplyTarget, type StartReason,
+  MAX_SKIPS, type AgentRound, type ChatStart, type CleanupCandidate, type ConnectorStatus, type DayItem, type DueKind, type Focus, type Meeting, type PlanBlock, type ReplyTarget, type SlackTodo, type SlackTodos, type StartReason,
   type TodaySettings, type Todo, type TodayView,
 } from "./types.ts";
 
@@ -41,6 +41,11 @@ export class TodayError extends Error {
 
 const MEETINGS_EVERY_MS = 5 * 60_000;
 const MEETING_HORIZON_MS = 8 * 24 * 60 * 60_000;
+/** The Slack script takes seconds per run: the To-dos are read in the background, not on every poll of Vandaag. */
+const SLACK_TODOS_EVERY_MS = 2 * 60_000;
+/** The first read waits this long before Vandaag shows without the list. */
+const SLACK_TODOS_FIRST_WAIT_MS = 6_000;
+const SLACK_TODOS_LIMIT = 100;
 const OFF: ConnectorStatus = { state: "off", detail: null, checkedAt: null };
 const senderIsId = (field: string) => `${field} is een Slack-id; daar kan de gebruiker niets mee. Zoek de naam op (in de draad met slack_draad of met slack_zoeken) en geef die naam. Vind je geen naam, laat ${field} dan leeg.`;
 
@@ -52,6 +57,13 @@ export function createTodayService(deps: TodayDeps) {
   let meetingsAt = 0;
   let meetingsLoading: Promise<void> | null = null;
   const status: { calendar: ConnectorStatus; mail: ConnectorStatus; slack: ConnectorStatus } = { calendar: OFF, mail: OFF, slack: OFF };
+  /** The last list of Slack To-dos that was read; null until one was read since the setting went on. */
+  let slackTodos: SlackTodo[] | null = null;
+  let slackTodosError: string | null = null;
+  let slackTodosAt = 0;
+  let slackTodosLoading: Promise<void> | null = null;
+  /** Ticked here, with when: a read that started earlier still lists them, so they stay hidden until a later read. */
+  const ticked = new Map<string, number>();
 
   const settings = (): TodaySettings => ({ ...store.state.settings, enabled: store.state.settings.enabled && !deps.killed });
   const enabled = () => settings().enabled;
@@ -130,6 +142,80 @@ export function createTodayService(deps: TodayDeps) {
     return meetingsLoading;
   }
 
+  /** Slack To-dos on Vandaag: the setting, Slack itself, and a script to run. */
+  function slackTodosOn(): boolean {
+    const current = settings();
+    return current.enabled && current.slack && current.slackTodos && Boolean(current.slackCommand.trim());
+  }
+
+  /** The person's own Slack To-dos, refreshed in the background like the calendar. */
+  function refreshSlackTodos(force = false): Promise<void> {
+    if (!slackTodosOn()) {
+      slackTodos = null;
+      slackTodosError = null;
+      slackTodosAt = 0;
+      return Promise.resolve();
+    }
+    if (slackTodosLoading) return slackTodosLoading;
+    if (!force && deps.now() - slackTodosAt < SLACK_TODOS_EVERY_MS) return Promise.resolve();
+    const startedAt = deps.now();
+    slackTodosLoading = deps.slack.todos(SLACK_TODOS_LIMIT)
+      .then((output) => {
+        slackTodos = parseSlackTodos(output);
+        slackTodosError = null;
+        // This list was read after these were ticked: it is right about them now.
+        for (const [id, at] of ticked) if (at < startedAt) ticked.delete(id);
+        status.slack = { state: "ok", detail: null, checkedAt: deps.now() };
+        const link = slackTodos.find((todo) => todo.link)?.link;
+        if (link) return learnSlackWorkspace(link);
+      })
+      .catch((error: unknown) => {
+        slackTodosError = error instanceof Error ? error.message : String(error);
+        deps.log("warn", "Slack To-dos not read", { error: slackTodosError });
+      })
+      .finally(() => { slackTodosAt = deps.now(); slackTodosLoading = null; });
+    return slackTodosLoading;
+  }
+
+  /** What Vandaag shows of the Slack To-dos: soonest due date first, then the newest. */
+  async function slackTodosView(): Promise<SlackTodos | null> {
+    if (!slackTodosOn()) {
+      void refreshSlackTodos();
+      return null;
+    }
+    const loading = refreshSlackTodos();
+    // The very first time, wait a little so the list is there when Vandaag opens.
+    if (slackTodos === null && slackTodosError === null) {
+      await Promise.race([loading, new Promise<void>((resolve) => { setTimeout(resolve, SLACK_TODOS_FIRST_WAIT_MS).unref?.(); })]);
+    }
+    const shown = (slackTodos ?? []).filter((todo) => !ticked.has(todo.id));
+    shown.sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999") || b.createdAt - a.createdAt);
+    return { items: shown, error: slackTodosError };
+  }
+
+  /** The person ticked a Slack To-do on Vandaag (or opened it again): only their own list changes. */
+  async function setSlackTodoDone(id: string, done: boolean): Promise<void> {
+    if (!isSlackTodoId(id)) throw new TodayError(400, "invalid_slack_todo", "Dit is geen to-do uit Slack.");
+    if (!slackTodosOn()) throw new TodayError(409, "slack_todos_off", "To-do's uit Slack staan uit. Zet ze aan bij Instellingen → Agent op Vandaag.");
+    const todo = slackTodos?.find((entry) => entry.id === id);
+    try {
+      await deps.slack.todoDone(id, done);
+    } catch (error) {
+      throw new TodayError(502, "slack_todo_failed", `Afvinken in Slack lukte niet: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const key = `slack-todo:${id}`;
+    store.state.done = store.state.done.filter((entry) => entry.todoId !== key);
+    if (done) {
+      ticked.set(id, deps.now());
+      store.state.done.push({ todoId: key, text: todo?.text || "To-do in Slack", brainName: "Slack", at: deps.now() });
+    } else {
+      ticked.delete(id);
+      void refreshSlackTodos(true);
+    }
+    await store.save();
+    deps.log("info", "Slack To-do changed from Vandaag", { done });
+  }
+
   function items(now: number): DayItem[] {
     const stored = visibleItems(store.current(now), now);
     const shown = new Set(stored.map((item) => item.key));
@@ -144,7 +230,7 @@ export function createTodayService(deps: TodayDeps) {
   async function view(): Promise<TodayView> {
     const now = deps.now();
     const today = localDate(now);
-    const base = { handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, done: [], sent: [], close: null, connectors: { calendar: OFF, mail: OFF, slack: OFF }, rounds: [] };
+    const base = { handles: [], start: null, upcoming: [], items: [], plan: null, focus: null, cleanup: [], counts: { mine: 0, backlog: 0, inbox: 0 }, done: [], sent: [], close: null, connectors: { calendar: OFF, mail: OFF, slack: OFF }, rounds: [], slackTodos: null };
     if (!enabled()) return { enabled: false, blocked: null, ...base };
     store.prune(now, today);
     const found = await scan();
@@ -177,6 +263,7 @@ export function createTodayService(deps: TodayDeps) {
       } : null,
       connectors: { calendar: connector("calendar"), mail: connector("mail"), slack: connector("slack") },
       rounds: deps.rounds(),
+      slackTodos: await slackTodosView(),
     };
   }
 
@@ -309,13 +396,15 @@ export function createTodayService(deps: TodayDeps) {
   const today = () => localDate(deps.now());
 
   return {
-    settings, enabled, view, scan, add, setDone, startFocus, send, acceptCommitment, later, checkConnectors, refreshMeetings, requireConnector, brainNamed,
+    settings, enabled, view, scan, add, setDone, setSlackTodoDone, refreshSlackTodos, startFocus, send, acceptCommitment, later, checkConnectors, refreshMeetings, requireConnector, brainNamed,
 
     async setSettings(patch: unknown): Promise<TodaySettings> {
       const before = store.state.settings;
       store.state.settings = readSettings(patch, before);
       if (before.ms365Command !== store.state.settings.ms365Command) { deps.ms365.dispose(); meetingsAt = 0; status.calendar = OFF; status.mail = OFF; }
       if (before.slackCommand !== store.state.settings.slackCommand) status.slack = OFF;
+      // Another script, or the list just turned on: read it again now, not in two minutes.
+      if (before.slackCommand !== store.state.settings.slackCommand || !before.slackTodos || !before.slack) { slackTodos = null; slackTodosError = null; slackTodosAt = 0; }
       await store.save();
       return settings();
     },

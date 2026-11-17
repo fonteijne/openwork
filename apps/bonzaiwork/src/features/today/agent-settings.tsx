@@ -146,6 +146,13 @@ export function AgentAppSection() {
             {current.slack ? (
               <InlineTextRow label={copy.today.settings.slackCommand} value={current.slackCommand} empty={copy.today.settings.commandEmpty} placeholder={copy.today.settings.slackPlaceholder} onSave={(slackCommand) => change({ slackCommand })} />
             ) : null}
+            {current.slack ? (
+              <Row
+                label={copy.today.settings.slackTodos}
+                hint={copy.today.settings.slackTodosHint}
+                action={<Switch checked={current.slackTodos} onCheckedChange={(slackTodos) => flip({ slackTodos })} label={copy.today.settings.slackTodos} disabled={busy} />}
+              />
+            ) : null}
             <p className="pt-2 text-xs text-muted-foreground">{copy.today.settings.sendRule}</p>
           </Section>
 
