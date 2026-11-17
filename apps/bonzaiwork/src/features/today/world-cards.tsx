@@ -116,8 +116,8 @@ function MessageCard(props: CardProps<"message">) {
             <Kbd>esc</Kbd>
           </Button>
           {item.reply && open ? (
-            <Button variant="ghost" disabled={busy} onClick={() => void act(() => backend.today.dismiss(item.key), null)}>
-              {copy.today.message.notMine}
+            <Button variant="ghost" disabled={busy} onClick={() => void act(() => backend.today.dismiss(item.key), null)} data-testid="world-handled">
+              {copy.today.message.handled}
             </Button>
           ) : null}
         </>

@@ -88,8 +88,21 @@ focus. Check app UI in headless Chrome instead:
 
 * Specs: `seed.appWeb` (`write-a-spec`); `run-tests` explains which placement
   tests your working tree.
-* By hand: `pnpm world up dev-app-web --detach -- --browser`, then drive the
-  printed `cdp` address (`drive-desktop-cdp`).
+* By hand: use the repository's headless world first: `pnpm world up dev-app-web
+  --detach -- --browser`, then drive its printed `cdp` address with
+  `drive-desktop-cdp`.
+* For BonzaiWork's Today (`Vandaag`) UI, that OpenWork headless world is not the
+  right server. From the repository root, start the BonzaiWork Vite app directly
+  with `pnpm --dir apps/bonzaiwork exec vite --host 127.0.0.1`, open its printed
+  URL in Playwright's bundled Chromium (for example,
+  `playwright-cli -s=vandaag open --browser=chromium http://127.0.0.1:5183/`),
+  verify the rendered view, and capture it with
+  `playwright-cli -s=vandaag screenshot --filename=tmp/vandaag-view.png`.
+  Do not require a separately installed Google Chrome: Playwright's
+  `--browser=chromium` uses its own Chromium distribution. Check the browser
+  console for errors/warnings, close the Playwright session when finished, and
+  stop the Vite dev server when finished. The screenshot under `tmp/` is ignored
+  by Git.
 * Use the desktop app (`seed.desktop`, `pnpm dev`, `preview-desktop`,
   `live-desktop`) only when the user asks or the change needs the desktop
   shell: titlebar and window controls, native menus and dialogs, `openwork://`

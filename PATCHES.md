@@ -19,6 +19,7 @@ is regenerated with `pnpm install`, never merged by hand.
 | `apps/server/src/organization-provider-gate.ts` | Provider-allowlist van de hooks gaat vóór het Den-beleid, ook zonder Den-sessie (2 regels + import) | hook | – (kandidaat) | 20ddd4b |
 | `apps/server/src/managed-opencode-v2.ts` | Zet de allowlist als `experimental.policies` (`provider.use`) in de engine-config, zodat ook providers uit een project-`opencode.json` geblokkeerd zijn; zet de `ask`/`allow`/`deny`-regels van de hooks vooraan in de engine-`permissions` (breinen: eerst vragen bij een ander brein) (2 regels + import) | hook | – (kandidaat; dicht ook een gat in hun eigen "Only models you provide") | 20ddd4b |
 | `apps/server/src/engine-v2-preview.ts` | Kiest de v2-geschiedenis met de omgeving van de hooks (`engineHistoryDatabase`), zodat v2 zonder eigen OpenWork-chats een eigen database krijgt in plaats van de gedeelde OpenCode-database; v1 blijft ongemoeid (1 regel + import) | hook | – (kandidaat) | v0.18.65 (fonteijne/openwork#34) |
+| `AGENTS.md` | Beschrijft hoe agents de Vandaag-weergave van BonzaiWork headless controleren (Vite-app plus Playwright-Chromium), naast de OpenWork-world (alleen tekst, één opsommingspunt) | docs | – (alleen BonzaiWork) | 83b83af (fonteijne/openwork#50) |
 
 ## New files in upstream folders
 
