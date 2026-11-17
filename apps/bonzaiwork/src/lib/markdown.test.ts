@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { closeOpenMarkdown, externalLinkHref } from "./markdown";
+import { closeOpenMarkdown, externalLinkHref, webLinkHref } from "./markdown";
 
 describe("closeOpenMarkdown", () => {
   it("closes emphasis and code the stream has not closed yet", () => {
@@ -31,5 +31,18 @@ describe("externalLinkHref", () => {
     expect(externalLinkHref("./notities.md")).toBeNull();
     expect(externalLinkHref("javascript:alert(1)")).toBeNull();
     expect(externalLinkHref("file:///etc/passwd")).toBeNull();
+  });
+});
+
+describe("webLinkHref", () => {
+  it("takes web pages, the links the desktop shell would take over", () => {
+    expect(webLinkHref("https://team.slack.com/archives/C1/p1700000000000100")).toBe("https://team.slack.com/archives/C1/p1700000000000100");
+    expect(webLinkHref(" http://example.com ")).toBe("http://example.com/");
+  });
+
+  it("leaves mail, anchors, files and other schemes alone", () => {
+    for (const other of ["mailto:party@example.com", "#kop", "./notities.md", "slack://channel?id=C1", "javascript:alert(1)", "", null, undefined]) {
+      expect(webLinkHref(other)).toBeNull();
+    }
   });
 });
