@@ -21,12 +21,26 @@ function ensureHooks() {
     }
   });
   DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-    if (node.tagName === "A") {
+    if (node.tagName !== "A") return;
+    node.setAttribute("rel", "noopener noreferrer");
+    // The desktop shell grabs every click on an `<a href="https://…">` before React sees it and
+    // hands the page to a built-in browser pane that BonzaiWork does not have (so the click did
+    // nothing). A web link therefore leaves its address in `data-external-href` and carries a
+    // placeholder `href`; `ProseHtml` opens it in the person's own browser.
+    const web = webLinkHref(node.getAttribute("href"));
+    if (web) {
+      node.setAttribute(EXTERNAL_HREF_ATTR, web);
+      node.setAttribute("href", "#");
+      node.removeAttribute("target");
+      if (!node.getAttribute("title")) node.setAttribute("title", web);
+    } else {
       node.setAttribute("target", "_blank");
-      node.setAttribute("rel", "noopener noreferrer");
     }
   });
 }
+
+/** Where a rendered web link keeps its address (see the hook above). */
+export const EXTERNAL_HREF_ATTR = "data-external-href";
 
 const cache = new Map<string, string>();
 const CACHE_LIMIT = 200;
@@ -83,4 +97,10 @@ export function externalLinkHref(href: string | null | undefined): string | null
   } catch {
     return null;
   }
+}
+
+/** Like `externalLinkHref`, for web pages only (not `mailto:`): the links the desktop shell takes over. */
+export function webLinkHref(href: string | null | undefined): string | null {
+  const url = externalLinkHref(href);
+  return url !== null && /^https?:/i.test(url) ? url : null;
 }

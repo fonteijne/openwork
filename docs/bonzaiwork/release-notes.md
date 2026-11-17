@@ -102,6 +102,8 @@ synchronisatie niet op tegen deze drie stappen. De code staat nog in die PR.
 - Het pijltje naast het open project in de zijbalk deed niets; het klapt de chats nu in en uit.
 - Een dialoog bovenop een andere dialoog dimde de achtergrond niet.
 - De skill `icm-architect` kon zijn eigen bijlagen niet lezen.
+- "Openen in Slack" (en de andere "Openen in …"-links op Vandaag en links in de chat) deed niets. Ze openen nu
+  in je eigen browser, en je Slack-app als die de link overneemt.
 
 ### Anders dan je gewend bent
 

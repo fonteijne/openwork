@@ -4,6 +4,7 @@ import { CalendarClock, Handshake, Mail, MessagesSquare } from "lucide-react";
 import { useBackend } from "~/backend/context";
 import { useRefreshAttention, useRefreshToday } from "~/backend/queries";
 import { openableLink, type DayItem } from "~/backend/types";
+import { ExternalLink } from "~/components/external-link";
 import { ProseHtml } from "~/components/prose-html";
 import { Button } from "~/components/ui/button";
 import { Callout } from "~/components/ui/callout";
@@ -57,24 +58,6 @@ function useWorldAction(onResolved: () => void) {
     }
   };
   return { busy, act };
-}
-
-/** "Openen in …": only for a web address (no `slack://` or a made-up link), and it says so when it does not open. */
-function ExternalLink(props: { url: string | null; label: string }) {
-  const backend = useBackend();
-  const url = openableLink(props.url);
-  if (!url) return null;
-  return (
-    <a
-      href={url}
-      onClick={(event) => {
-        event.preventDefault();
-        backend.desktop.openUrl(url).catch((failure: unknown) => toast(errorText(failure), { tone: "error" }));
-      }}
-    >
-      {props.label}
-    </a>
-  );
 }
 
 function MessageCard(props: CardProps<"message">) {
