@@ -4,6 +4,10 @@ Eigen desktop-app op basis van OpenWork, met een eigen UI en LiteLLM als enige p
 De opdracht staat in [`referentie.md`](./referentie.md). Dit document beschrijft wat er gebouwd is,
 hoe het geverifieerd is, waar we van de referentie afwijken en wat er nog openstaat.
 
+**Kennisbank:** de architectuur en alle besluiten staan kort en doorzoekbaar als OKF-bundel in
+[`kennisbank/`](./kennisbank/AGENTS.md) (begin bij [`kennisbank/knowledge/index.md`](./kennisbank/knowledge/index.md)).
+Claude Code-sessies houden hem bij via een hook (`.claude/settings.json`); controle met `bun scripts/bonzaiwork/kennisbank.ts`.
+
 Stand: upstream-release `v0.18.66` (`ef75f7b`), gemerged in `nightly` via fonteijne/openwork#37. Getest op Linux (CI, stand-in LiteLLM). De test op macOS arm64 met echte LiteLLM is voor deze release (en voor `v0.18.64` en `v0.18.65`) nog niet gedaan; de laatste stand die daar wel op getest is, is `2aa4481` (`v0.18.63`).
 
 ## Genomen beslissingen
@@ -31,6 +35,7 @@ apps/bonzaiwork/                 eigen UI (React 19 + Vite + Tailwind) en Electr
 packages/bonzaiwork-policy/      "alleen litellm": ids, engine-providerconfig, ingebakken settings
 packages/bonzaiwork-litellm/     KeyStore/KeyResolver, loopback-proxy, server-hooks, e2e/
 packages/bonzaiwork-brains/      project-breinen en het persoonlijke brein: git/ssh, sync, OKF/ICM, routes, MCP
+docs/bonzaiwork/kennisbank/      kennisbank (OKF): architectuur, besluiten, eisen en begrippen; controle: scripts/bonzaiwork/kennisbank.ts
 docs/bonzaiwork/windows.md       wat op Windows anders loopt en nog niet getest is, en regels daarvoor
 docs/bonzaiwork/overdracht-project-breinen.md   overdracht: wat er staat, wat nog open is, waar je op let
 docs/bonzaiwork/agenda-manager-onderzoek.md    onderzoek: agenda-agent die per kwartier je werkdag bijhoudt
