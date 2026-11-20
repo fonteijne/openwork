@@ -1,0 +1,1394 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BonzaiWork adoptieroadmap</title>
+<meta name="description" content="Projectroadmap voor de invoering van BonzaiWork: van voorbereiding via pilot, alfa en bèta naar volledige uitrol en borging, met meetings en onderdelen per fase.">
+<style>
+  :root {
+    color-scheme: light;
+    --ink-1: #ffffff; --ink-2: #f8f8f8; --ink-3: #f2f2f2; --ink-4: #e9e9e9; --ink-5: #e0e0e0;
+    --ink-8: #a6a6a6; --ink-10: #727272; --ink-11: #555555; --ink-12: #232323;
+    --sand-2: #f8f3f0; --sand-3: #f2e9e4; --sand-4: #ebdfd8;
+    --electric-3: #ebebfc; --electric-9: #0000d2; --electric-10: #0000a8; --electric-11: #0000d2;
+    --green-3: #e6f6eb; --green-9: #30a46c; --green-11: #218358;
+    --amber-3: #fff7c2; --amber-11: #ab6400;
+    --red-3: #feebec; --red-11: #ce2c31;
+    --violet-3: #f4f0fe; --violet-11: #6550b9;
+    --cyan-3: #def7f9; --cyan-11: #107d98;
+    --orange-3: #ffefd6; --orange-11: #cc4e00;
+
+    --background: var(--ink-1);
+    --foreground: var(--ink-12);
+    --muted: var(--ink-3);
+    --muted-foreground: var(--ink-11);
+    --border: rgba(35, 35, 35, 0.12);
+    --primary: var(--electric-9);
+    --primary-hover: var(--electric-10);
+    --primary-foreground: #ffffff;
+    --sidebar: var(--sand-2);
+    --hover: rgba(35, 35, 35, 0.05);
+    --card-shadow: 0 0 0 1px rgba(35, 35, 35, 0.06);
+    --radius: 10px;
+    --radius-lg: 16px;
+    --font-sans: "Manrope Variable", "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ink-1: #111111; --ink-2: #181818; --ink-3: #1f1f1f; --ink-4: #272727; --ink-5: #303030;
+      --ink-8: #5c5c5c; --ink-10: #a6a6a6; --ink-11: #c0b9b3; --ink-12: #f2e9e4;
+      --sand-2: #241f1c; --sand-3: #2b2521; --sand-4: #352e29;
+      --electric-3: #1f1f5a; --electric-9: #4a4aff; --electric-10: #6060ff; --electric-11: #b0b0ff;
+      --green-3: #132d21; --green-9: #30a46c; --green-11: #3dd68c;
+      --amber-3: #302008; --amber-11: #ffca16;
+      --red-3: #3b1219; --red-11: #ff9592;
+      --violet-3: #291f43; --violet-11: #baa7ff;
+      --cyan-3: #0b2a33; --cyan-11: #4ccce6;
+      --orange-3: #331e0b; --orange-11: #ffa057;
+      --border: rgba(242, 233, 228, 0.12);
+      --hover: rgba(242, 233, 228, 0.06);
+      --card-shadow: 0 0 0 1px rgba(242, 233, 228, 0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ink-1: #111111; --ink-2: #181818; --ink-3: #1f1f1f; --ink-4: #272727; --ink-5: #303030;
+    --ink-8: #5c5c5c; --ink-10: #a6a6a6; --ink-11: #c0b9b3; --ink-12: #f2e9e4;
+    --sand-2: #241f1c; --sand-3: #2b2521; --sand-4: #352e29;
+    --electric-3: #1f1f5a; --electric-9: #4a4aff; --electric-10: #6060ff; --electric-11: #b0b0ff;
+    --green-3: #132d21; --green-9: #30a46c; --green-11: #3dd68c;
+    --amber-3: #302008; --amber-11: #ffca16;
+    --red-3: #3b1219; --red-11: #ff9592;
+    --violet-3: #291f43; --violet-11: #baa7ff;
+    --cyan-3: #0b2a33; --cyan-11: #4ccce6;
+    --orange-3: #331e0b; --orange-11: #ffa057;
+    --border: rgba(242, 233, 228, 0.12);
+    --hover: rgba(242, 233, 228, 0.06);
+    --card-shadow: 0 0 0 1px rgba(242, 233, 228, 0.08);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body {
+    margin: 0; background: var(--background); color: var(--foreground);
+    font-family: var(--font-sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: rgba(0, 0, 210, 0.14); }
+  a { color: var(--electric-11); }
+  h1, h2, h3, h4 { line-height: 1.25; margin: 0; letter-spacing: -0.01em; }
+  h1 { font-size: 28px; font-weight: 700; }
+  h2 { font-size: 21px; font-weight: 700; }
+  h3 { font-size: 15px; font-weight: 700; }
+  h4 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
+  p { margin: 0; }
+  ul { margin: 0; padding-left: 1.2em; }
+  li + li { margin-top: 4px; }
+  code { font-family: var(--font-mono); font-size: 0.88em; background: var(--muted); padding: 1px 5px; border-radius: 5px; }
+  :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+
+  .layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+  .sidebar {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    background: var(--sidebar); border-right: 1px solid var(--border); padding: 20px 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 0 6px 18px; font-weight: 700; font-size: 14px; }
+  .brand svg { width: 24px; height: 24px; flex: none; }
+  .nav-label { font-size: 12px; font-weight: 600; color: var(--muted-foreground); padding: 12px 8px 6px; }
+  .nav a {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px;
+    color: var(--foreground); text-decoration: none; font-size: 14px;
+  }
+  .nav a:hover { background: var(--hover); }
+  .nav .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-5); flex: none; }
+  .nav .dot[data-status="bezig"] { background: var(--electric-9); }
+  .nav .dot[data-status="klaar"] { background: var(--green-9); }
+  .nav .nr { color: var(--muted-foreground); font-variant-numeric: tabular-nums; width: 14px; flex: none; }
+
+  main { padding: 32px 40px 80px; max-width: 1120px; width: 100%; }
+  section.block { margin-top: 40px; }
+  .lede { color: var(--muted-foreground); max-width: 70ch; margin-top: 8px; }
+  .muted { color: var(--muted-foreground); }
+  .small { font-size: 13px; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 20px; }
+  .btn {
+    font: inherit; font-size: 14px; font-weight: 600; border-radius: 9px; padding: 7px 12px;
+    border: 1px solid var(--border); background: var(--ink-1); color: var(--foreground); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px; min-height: 34px;
+  }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
+  .btn.primary:hover { background: var(--primary-hover); }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn.ghost:hover { background: var(--hover); }
+  .btn.sm { font-size: 13px; padding: 4px 9px; min-height: 28px; }
+  .btn.danger { color: var(--red-11); }
+
+  label.field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+  input[type="text"], input[type="date"], input[type="url"], input[type="number"], select, textarea {
+    font: inherit; font-size: 14px; font-weight: 400; color: var(--foreground); background: var(--ink-1);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; min-height: 34px; width: 100%;
+  }
+  textarea { min-height: 72px; resize: vertical; }
+  input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); margin: 3px 0 0; flex: none; }
+
+  .banner {
+    margin-top: 16px; padding: 10px 14px; border-radius: var(--radius); font-size: 14px;
+    background: var(--amber-3); color: var(--foreground); display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  .banner[hidden] { display: none; }
+  .status-line { font-size: 13px; color: var(--muted-foreground); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+  .stat { background: var(--ink-2); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--card-shadow); }
+  .stat .label { font-size: 12px; color: var(--muted-foreground); font-weight: 600; }
+  .stat .value { font-size: 20px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .sub { font-size: 12px; color: var(--muted-foreground); }
+
+  /* Tijdlijn */
+  .timeline { margin-top: 16px; position: relative; }
+  .tl-bar { display: flex; gap: 3px; border-radius: var(--radius); overflow: hidden; }
+  .tl-seg {
+    min-width: 0; padding: 8px 8px; background: var(--ink-3); color: var(--foreground); text-decoration: none;
+    display: grid; gap: 1px; border-top: 3px solid var(--ink-5);
+  }
+  .tl-seg:hover { background: var(--ink-4); }
+  .tl-seg[data-status="bezig"] { background: var(--electric-3); border-top-color: var(--electric-9); }
+  .tl-seg[data-status="klaar"] { background: var(--green-3); border-top-color: var(--green-9); }
+  .tl-seg .t1 { font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-seg .t2 { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-today { position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--red-11); border-radius: 1px; pointer-events: none; }
+  .tl-today span {
+    position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700;
+    color: var(--red-11); white-space: nowrap;
+  }
+  .tl-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted-foreground); }
+  .tl-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+  /* Kaarten en grids */
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .card { background: var(--ink-1); border-radius: var(--radius-lg); box-shadow: var(--card-shadow); padding: 18px 20px; }
+  .card.soft { background: var(--ink-2); }
+  .card h3 + p, .card h3 + ul { margin-top: 6px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  th { font-size: 12px; font-weight: 700; color: var(--muted-foreground); background: var(--ink-2); }
+  .table-wrap { overflow-x: auto; border-radius: var(--radius); box-shadow: var(--card-shadow); margin-top: 14px; }
+  .table-wrap table td:first-child { font-weight: 600; white-space: nowrap; }
+
+  .upcoming { margin-top: 14px; display: grid; gap: 6px; }
+  .up-row { display: grid; grid-template-columns: 104px 92px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 8px 12px; border-radius: 9px; background: var(--ink-2); font-size: 14px; }
+  .up-row .d { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .up-row .ph { font-size: 12px; color: var(--muted-foreground); text-align: right; }
+  .up-row a { color: inherit; text-decoration: none; }
+  .up-row a:hover { text-decoration: underline; }
+
+  /* Fase */
+  .phase { margin-top: 28px; border-radius: var(--radius-lg); box-shadow: var(--card-shadow); background: var(--ink-1); overflow: hidden; }
+  .phase[data-status="bezig"] { box-shadow: 0 0 0 2px var(--electric-9); }
+  .ph-head { padding: 20px 22px 16px; background: var(--ink-2); border-bottom: 1px solid var(--border); }
+  .ph-top { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+  .ph-title { display: flex; gap: 12px; align-items: baseline; }
+  .ph-nr {
+    width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none;
+    background: var(--ink-12); color: var(--ink-1); font-weight: 700; font-size: 15px; align-self: center;
+  }
+  .phase[data-status="bezig"] .ph-nr { background: var(--primary); color: var(--primary-foreground); }
+  .phase[data-status="klaar"] .ph-nr { background: var(--green-9); color: #fff; }
+  .ph-sub { color: var(--muted-foreground); font-size: 14px; margin-top: 2px; }
+  .ph-controls { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .ph-controls label.field { font-size: 12px; }
+  .ph-controls select { width: 128px; }
+  .ph-controls input[type="number"] { width: 76px; }
+  .ph-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 12px; font-size: 13px; }
+  .ph-meta b { font-weight: 600; color: var(--muted-foreground); margin-right: 4px; }
+  .ph-goal { margin-top: 12px; max-width: 78ch; }
+  .progress { height: 6px; border-radius: 3px; background: var(--ink-4); overflow: hidden; margin-top: 14px; }
+  .progress > div { height: 100%; background: var(--green-9); width: 0; transition: width 200ms ease; }
+  .ph-body { padding: 18px 22px 22px; display: grid; gap: 22px; }
+  .ph-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+  .ph-section h4 { margin-bottom: 8px; display: flex; justify-content: space-between; gap: 8px; }
+  .ph-section h4 .count { font-weight: 600; text-transform: none; letter-spacing: 0; }
+
+  .checklist { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+  .checklist li { margin: 0; }
+  .checklist label { display: flex; gap: 9px; align-items: flex-start; padding: 5px 6px; border-radius: 7px; cursor: pointer; font-size: 14px; }
+  .checklist label:hover { background: var(--hover); }
+  .checklist input:checked + span { color: var(--muted-foreground); text-decoration: line-through; text-decoration-color: var(--ink-8); }
+  .checklist .note { display: block; font-size: 12px; color: var(--muted-foreground); text-decoration: none; }
+
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 99px; white-space: nowrap; }
+  .tag.meeting { background: var(--electric-3); color: var(--electric-11); }
+  .tag.besluit { background: var(--violet-3); color: var(--violet-11); }
+  .tag.document { background: var(--cyan-3); color: var(--cyan-11); }
+  .tag.actie { background: var(--orange-3); color: var(--orange-11); }
+  .tag.notitie { background: var(--ink-4); color: var(--muted-foreground); }
+
+  .meet-templates { display: grid; gap: 8px; }
+  .tpl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 12px; border-radius: 10px; background: var(--ink-2); }
+  .tpl .n { font-weight: 700; font-size: 14px; }
+  .tpl .r { font-size: 12px; color: var(--muted-foreground); }
+  .tpl .w { font-size: 13px; grid-column: 1 / -1; }
+  .tpl .btn { align-self: start; }
+
+  .items { display: grid; gap: 8px; }
+  .item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .item.done { opacity: 0.65; }
+  .item-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .item-top .t { font-weight: 700; font-size: 14px; }
+  .item-top .d { font-size: 13px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+  .item-top .acts { margin-left: auto; display: flex; gap: 2px; }
+  .item .body { margin-top: 6px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .item .link { margin-top: 4px; font-size: 13px; overflow-wrap: anywhere; }
+  .empty { font-size: 14px; color: var(--muted-foreground); padding: 10px 12px; border: 1px dashed var(--border); border-radius: 10px; }
+  .item-form { display: grid; gap: 10px; padding: 12px; border-radius: 10px; background: var(--ink-2); }
+  .item-form .row { display: grid; grid-template-columns: 140px 150px minmax(0, 1fr); gap: 10px; }
+  .item-form .acts { display: flex; gap: 8px; justify-content: flex-end; }
+  .item-form .err { color: var(--red-11); font-size: 13px; }
+
+  .gate { border-radius: 10px; background: var(--green-3); padding: 12px 14px; }
+  .gate h4, .risk h4 { margin-bottom: 8px; display: flex; justify-content: space-between; gap: 8px; }
+  .gate h4 .count { font-weight: 600; text-transform: none; letter-spacing: 0; }
+  .gate h4 { color: var(--green-11); }
+  .risk { border-radius: 10px; background: var(--red-3); padding: 12px 14px; }
+  .risk h4 { color: var(--red-11); }
+
+  .defs { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 8px 16px; margin-top: 14px; font-size: 14px; }
+  .defs dt { font-weight: 700; }
+  .defs dd { margin: 0; color: var(--muted-foreground); }
+
+  .menu-toggle { display: none; }
+
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 12px 16px; }
+    .sidebar .nav-wrap { display: none; }
+    .sidebar.open .nav-wrap { display: block; }
+    .brand { padding: 0; justify-content: space-between; }
+    .menu-toggle { display: inline-flex; }
+    main { padding: 24px 16px 64px; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-2, .grid-3, .ph-cols { grid-template-columns: minmax(0, 1fr); }
+    .tl-bar { flex-direction: column; }
+    .tl-seg { flex: none !important; }
+    .tl-today { display: none; }
+    .up-row { grid-template-columns: 96px minmax(0, 1fr); }
+    .up-row .ph { grid-column: 1 / -1; text-align: left; }
+    .up-row .tag { justify-self: start; }
+    .item-form .row { grid-template-columns: minmax(0, 1fr); }
+    .defs { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .defs dd { margin-bottom: 8px; }
+    .ph-head, .ph-body { padding-left: 16px; padding-right: 16px; }
+    h1 { font-size: 24px; }
+  }
+
+  @media print {
+    .sidebar, .toolbar, .banner, .no-print, .ph-controls, .item .acts, .tpl .btn { display: none !important; }
+    .layout { display: block; }
+    main { padding: 0; max-width: none; }
+    .phase { break-inside: auto; box-shadow: 0 0 0 1px #ccc; }
+    .card, .tpl, .item { break-inside: avoid; }
+    body { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span style="display:flex;align-items:center;gap:8px">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--primary)" /><g fill="var(--primary-foreground)"><ellipse cx="11" cy="12" rx="5.2" ry="2.9" /><ellipse cx="20.5" cy="9" rx="5.6" ry="3" /><ellipse cx="21.5" cy="15.5" rx="3.8" ry="2.2" /><path d="M15.2 22.5c.3-2.6-1.6-3.9-1.4-6.1.1-1.3 1.4-2.3 2.9-3.1l.9 1.1c-1.1.6-2 1.3-2.1 2.1-.1 1.5 1.6 3 1.3 6z" /><path d="M9 22.5h14l-1.6 4.2c-.2.5-.6.8-1.1.8h-8.6c-.5 0-.9-.3-1.1-.8z" /></g></svg>
+        BonzaiWork adoptie
+      </span>
+      <button class="btn sm ghost menu-toggle" type="button" id="menu-toggle" aria-expanded="false" aria-controls="nav-wrap">Inhoud</button>
+    </div>
+    <div class="nav-wrap" id="nav-wrap">
+      <div class="nav-label">Overzicht</div>
+      <nav class="nav" aria-label="Overzicht">
+        <a href="#overzicht">Tijdlijn en stand</a>
+        <a href="#komend">Komende onderdelen</a>
+        <a href="#aanpak">Aanpak en begrippen</a>
+        <a href="#rollen">Rollen</a>
+        <a href="#sporen">Adoptiesporen per fase</a>
+      </nav>
+      <div class="nav-label">Fases</div>
+      <nav class="nav" aria-label="Fases" id="nav-phases"></nav>
+      <div class="nav-label">Doorlopend</div>
+      <nav class="nav" aria-label="Doorlopend">
+        <a href="#fase-doorlopend">Vaste overleggen en logboek</a>
+        <a href="#meten">Meetkader</a>
+        <a href="#open">Open punten uit het product</a>
+      </nav>
+    </div>
+  </aside>
+
+  <main>
+    <header id="overzicht">
+      <h1>Projectroadmap: BonzaiWork invoeren</h1>
+      <p class="lede">Van voorbereiding via pilot, alfa en bèta naar uitrol in de hele organisatie, inclusief het adoptiestuk: communicatie, training, support en meten. Elke fase heeft een eigen doel, stappen, voorgestelde meetings en een go/no-go. Onder elke fase hang je je eigen meetings, besluiten, documenten en acties op zodra je ermee bezig bent.</p>
+
+      <div class="toolbar">
+        <label class="field" style="width:170px">Startdatum project
+          <input type="date" id="start-date">
+        </label>
+        <span style="flex:1"></span>
+        <button class="btn primary" type="button" id="btn-save">Opslaan als bestand</button>
+        <button class="btn" type="button" id="btn-export">JSON exporteren</button>
+        <button class="btn" type="button" id="btn-import">JSON importeren</button>
+        <button class="btn" type="button" id="btn-print">Afdrukken</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+      <p class="status-line" id="save-status" role="status" aria-live="polite"></p>
+      <div class="banner" id="draft-banner" hidden>
+        <span id="draft-text"></span>
+        <button class="btn sm" type="button" id="btn-draft-discard">Terug naar de versie in het bestand</button>
+      </div>
+
+      <div class="stats" id="stats"></div>
+
+      <section class="block" aria-labelledby="tl-h" style="margin-top:28px">
+        <h2 id="tl-h">Tijdlijn</h2>
+        <p class="muted small" style="margin-top:4px">De fases lopen achter elkaar. De duur per fase pas je aan bij de fase zelf; de data schuiven mee.</p>
+        <div class="timeline" id="timeline"></div>
+        <div class="tl-legend">
+          <span><i style="background:var(--ink-3);border-top:3px solid var(--ink-5)"></i>Nog niet gestart</span>
+          <span><i style="background:var(--electric-9)"></i>Bezig</span>
+          <span><i style="background:var(--green-9)"></i>Afgerond</span>
+          <span><i style="background:var(--red-11)"></i>Vandaag</span>
+        </div>
+      </section>
+    </header>
+
+    <section class="block" id="komend" aria-labelledby="komend-h">
+      <h2 id="komend-h">Komende onderdelen</h2>
+      <p class="muted small" style="margin-top:4px">De eerstvolgende meetings, besluiten en acties met een datum, uit alle fases. Een afgevinkt onderdeel verdwijnt hier.</p>
+      <div class="upcoming" id="upcoming"></div>
+    </section>
+
+    <section class="block" id="aanpak" aria-labelledby="aanpak-h">
+      <h2 id="aanpak-h">Aanpak en begrippen</h2>
+      <div class="grid-2" style="margin-top:14px">
+        <div class="card soft">
+          <h3>Waarom in kringen</h3>
+          <p>Elke fase is een grotere kring gebruikers. Een kleine kring vindt de fouten die een grote kring afschrikken. Pas als de vorige kring de exitcriteria haalt, gaat de volgende open. Dat besluit valt in een go/no-go-meeting, niet vanzelf op een datum.</p>
+        </div>
+        <div class="card soft">
+          <h3>Adoptie loopt mee in elke fase</h3>
+          <p>Adoptie is geen eindfase. Per fase lopen vier sporen mee: <b>communicatie</b> (weten waarom), <b>training</b> (weten hoe), <b>support</b> (hulp als het vastloopt) en <b>meten</b> (zien of het werkt). Het overzicht staat bij <a href="#sporen">Adoptiesporen</a>.</p>
+        </div>
+      </div>
+      <dl class="defs">
+        <dt>Pilot</dt><dd>De kleinste kring: het projectteam en een paar enthousiaste collega's die het in hun echte werk gebruiken. Begeleid, veel contact.</dd>
+        <dt>Alfa (testgroep)</dt><dd>Een vaste testgroep met een mix van rollen, minstens de helft niet-technisch. Werkt het zonder dat de bouwer naast je zit?</dd>
+        <dt>Gesloten bèta</dt><dd>Twee of drie hele teams. Werkt het samen (gedeelde breinen, gedeelde werkwijzen) en houdt de support het vol?</dd>
+        <dt>Open bèta</dt><dd>Iedereen die wil, meldt zich aan. Hier leer je hoe groot de vraag is en welke afdelingen trekken.</dd>
+        <dt>Uitrol in golven</dt><dd>Afdeling voor afdeling naar iedereen, met per golf twee weken hypercare.</dd>
+        <dt>Borging</dt><dd>Van project naar staande organisatie: beheer, budget, releases en onboarding van nieuwe collega's liggen bij een vaste eigenaar.</dd>
+        <dt>Go/no-go</dt><dd>Het besluitmoment aan het eind van elke fase: door, langer blijven, of een stap terug.</dd>
+        <dt>Champion</dt><dd>Een collega in een team die BonzaiWork goed kent, vragen opvangt en signalen doorgeeft. Eerste lijn van de support.</dd>
+        <dt>Hypercare</dt><dd>Een korte periode met extra support direct na de uitrol bij een afdeling.</dd>
+      </dl>
+      <p class="muted small" style="margin-top:12px">Aanname: de volgorde is pilot → alfa → bèta, zoals gebruikelijk. De duur per fase is een voorstel voor een organisatie van enkele honderden medewerkers; pas het aan bij de fase.</p>
+    </section>
+
+    <section class="block" id="rollen" aria-labelledby="rollen-h">
+      <h2 id="rollen-h">Rollen</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Rol</th><th>Wat</th><th>Wanneer vooral</th></tr></thead>
+          <tbody>
+            <tr><td>Sponsor</td><td>Eigenaar van het waarom en het budget. Neemt de go/no-go-besluiten in de stuurgroep en zegt het hardop in de organisatie.</td><td>Fase 0, elke go/no-go, uitrol</td></tr>
+            <tr><td>Projectleider</td><td>Houdt deze roadmap bij, plant de meetings, bewaakt exitcriteria, risico's en besluiten.</td><td>Alle fases</td></tr>
+            <tr><td>Productteam</td><td>Bouwt en levert BonzaiWork: builds, release-notes, fixes, triage van feedback.</td><td>Pilot t/m open bèta; daarna releases</td></tr>
+            <tr><td>LiteLLM- en modelbeheer</td><td>Virtual keys, budgetten per key, modellen, capaciteit en kostenrapportage.</td><td>Fase 0, bèta, uitrol</td></tr>
+            <tr><td>IT / werkplekbeheer</td><td>Signing, distributie via het softwarecentrum (MDM), updates, tweede lijn.</td><td>Fase 0, gesloten bèta, uitrol</td></tr>
+            <tr><td>Security en privacy</td><td>DPIA, dataclassificatie, verwerkersafspraken met modelproviders, gebruiksbeleid.</td><td>Fase 0, alfa, borging</td></tr>
+            <tr><td>Communicatie en HR / L&amp;D</td><td>Boodschap en kanalen, trainingsmateriaal, opname in onboarding van nieuwe medewerkers.</td><td>Alfa t/m borging</td></tr>
+            <tr><td>Leidinggevenden</td><td>Geven tijd en ruimte, kiezen use cases voor hun team, kondigen de golf aan.</td><td>Gesloten bèta, uitrol</td></tr>
+            <tr><td>Champions</td><td>Vraagbaak in hun team, eerste lijn support, signalen naar het productteam.</td><td>Alfa t/m borging</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block" id="sporen" aria-labelledby="sporen-h">
+      <h2 id="sporen-h">Adoptiesporen per fase</h2>
+      <p class="muted small" style="margin-top:4px">Wat er per fase op elk spoor gebeurt. De details staan bij de fase.</p>
+      <div class="table-wrap" id="tracks"></div>
+    </section>
+
+    <div id="phases"></div>
+
+    <section class="block" id="meten" aria-labelledby="meten-h">
+      <h2 id="meten-h">Meetkader</h2>
+      <p class="muted small" style="margin-top:4px">Dezelfde maten in elke fase, zodat je fases kunt vergelijken. De doelwaarden zijn een startpunt; leg ze vast in fase 0.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Maat</th><th>Definitie</th><th>Bron</th><th>Doel (voorstel)</th></tr></thead>
+          <tbody>
+            <tr><td>Activatie</td><td>Deel van de mensen met een key dat binnen 7 dagen een eerste chat met een antwoord heeft.</td><td>LiteLLM-verbruik per key</td><td>≥ 80%</td></tr>
+            <tr><td>Wekelijks actief</td><td>Deel van de gebruikers met minstens 3 werkdagen gebruik in een week.</td><td>LiteLLM-verbruik per key per dag</td><td>Alfa ≥ 70%, uitrol ≥ 50%</td></tr>
+            <tr><td>Retentie week 4</td><td>Deel van de nieuwe gebruikers dat in week 4 na de start nog actief is.</td><td>LiteLLM-verbruik</td><td>≥ 60%</td></tr>
+            <tr><td>Time to first value</td><td>Tijd van installatie tot de eerste taak die de gebruiker zelf nuttig vindt.</td><td>Enquête, interviews</td><td>&lt; 1 werkdag</td></tr>
+            <tr><td>Tevredenheid</td><td>System Usability Scale (SUS) of één vraag "zou je het een collega aanraden" (0–10).</td><td>Korte enquête</td><td>SUS ≥ 68</td></tr>
+            <tr><td>Ervaren tijdwinst</td><td>Zelf ingeschatte uren per week die het oplevert, vergeleken met de nulmeting.</td><td>Enquête</td><td>Vast te stellen na de pilot</td></tr>
+            <tr><td>Supportdruk</td><td>Vragen en meldingen per 100 actieve gebruikers per week, en welk deel de champion oplost.</td><td>Feedbackkanaal, servicedesk</td><td>Dalend per fase; champion ≥ 70%</td></tr>
+            <tr><td>Kosten per gebruiker</td><td>Modelkosten per actieve gebruiker per maand.</td><td>LiteLLM-budgetten</td><td>Binnen het budget uit fase 0</td></tr>
+            <tr><td>Blokkerende fouten</td><td>Open meldingen waardoor iemand zijn werk niet kan doen.</td><td>Issues</td><td>0 bij elke go/no-go</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block" id="open" aria-labelledby="open-h">
+      <h2 id="open-h">Open punten uit het product</h2>
+      <p class="muted small" style="margin-top:4px">Uit de BonzaiWork-documentatie in deze repo (stand 20 november 2026). Deze raken de planning en horen in fase 0 of vóór de gesloten bèta beslist te zijn.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Punt</th><th>Waarom het telt voor adoptie</th><th>Uiterlijk</th></tr></thead>
+          <tbody>
+            <tr><td>O1: keys per gebruiker of per project</td><td>Bepaalt hoe je keys uitgeeft, budget toewijst en kosten meet. De build kiest met <code>BONZAIWORK_KEY_MODE</code>; nu staat <code>user</code> als standaard. Zie <code>README.md</code>.</td><td>Fase 0</td></tr>
+            <tr><td>O4: signing en updater-host</td><td>Zonder getekende build krijgt een niet-technische gebruiker een waarschuwing bij installeren; zonder updater-host moet iedere update met de hand.</td><td>Vóór de alfa</td></tr>
+            <tr><td>Windows niet getest</td><td>Werkt een deel van de organisatie op Windows, dan moet dat in de alfa getest zijn. Zie <code>windows.md</code>.</td><td>Alfa</td></tr>
+            <tr><td>Feedback via GitHub</td><td>"Feedback sturen" vraagt nu een GitHub-account en toegang tot de repo per gebruiker. Dat werkt voor een testgroep, niet voor een afdeling. Zie <code>feedback.md</code>.</td><td>Vóór de gesloten bèta</td></tr>
+            <tr><td>Test op macOS met echte LiteLLM</td><td>De laatste stand die daarop getest is, is ouder dan de huidige upstream-release. Doe die test vóór de eerste pilotbuild.</td><td>Fase 0</td></tr>
+            <tr><td>Releaseritme</td><td>Testgebruikers krijgen builds vanaf <code>main</code> met de tekst uit <code>release-notes.md</code>. Spreek per fase af hoe vaak je promoveert.</td><td>Per fase</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p class="muted small" style="margin-top:48px">Bewaren: je wijzigingen staan direct als concept in deze browser. Met <b>Opslaan als bestand</b> komen ze in het HTML-bestand zelf, zodat je het kunt delen of in de repo kunt zetten. In Chrome en Edge overschrijf je daarmee het bestand; in andere browsers krijg je een download.</p>
+  </main>
+</div>
+
+<script type="application/json" id="roadmap-state">{}</script>
+<script>
+(function () {
+  "use strict";
+
+  // Pristine copy of the document, taken before rendering, used for "Opslaan als bestand".
+  var TEMPLATE = "<!doctype html>\n" + document.documentElement.outerHTML;
+  var STORE_KEY = "bonzaiwork-adoptie-roadmap-v1";
+  var DEFAULT_START = "2026-12-07";
+
+  var TYPES = { meeting: "Meeting", besluit: "Besluit", document: "Document", actie: "Actie", notitie: "Notitie" };
+  var STATUSES = { todo: "Nog niet", bezig: "Bezig", klaar: "Afgerond" };
+
+  var PHASES = [
+    {
+      id: "f0", nr: 0, naam: "Voorbereiding en besluiten", weken: 4,
+      kort: "Kaders, besluiten en techniek klaar",
+      doelgroep: "Projectteam, sponsor, IT, security en privacy, budgethouder",
+      omvang: "Geen gebruikers",
+      doel: "Alles staat klaar zodat de eerste gebruikers zonder omweg kunnen beginnen: eigenaarschap, budget, beleid en een build die een niet-technische collega kan installeren.",
+      ingang: ["Opdracht en sponsor zijn bekend"],
+      stappen: [
+        ["Sponsor en projectleider benoemen; doel en succesdefinitie op één A4 (projectopdracht)", ""],
+        ["Besluit O1: keys per gebruiker of per project", "Bepaalt keyuitgifte, budget en meten"],
+        ["LiteLLM klaarzetten: virtual keys, budgetlimiet per key, voorkeursmodellen beschikbaar", ""],
+        ["Test op macOS met echte LiteLLM op de build die naar de pilot gaat", ""],
+        ["Signing en notarisatie (macOS) en de updater-host regelen (O4)", ""],
+        ["DPIA of privacy-quickscan; verwerkersafspraken met de modelproviders", ""],
+        ["Dataclassificatie: welke gegevens mogen naar welke modellen", ""],
+        ["Concept-gebruiksbeleid AI: wat mag wel en niet", ""],
+        ["Feedback- en supportroute voor de pilot en alfa vastleggen", "Nu via GitHub; zie open punten"],
+        ["Nulmeting: korte enquête over hoe mensen nu werken en hoeveel tijd taken kosten", ""],
+        ["Meetkader en doelwaarden vastleggen", ""],
+        ["Kandidaten voor de pilot vragen en bevestigen", ""]
+      ],
+      adoptie: {
+        communicatie: "Stakeholderkaart; het verhaal over het waarom in een paar zinnen; sponsor kondigt het project aan bij het management.",
+        training: "Nog niet. Bepaal wie het trainingsmateriaal maakt.",
+        support: "Supportroute voor de pilot: direct contact met het productteam.",
+        meten: "Nulmeting en meetkader."
+      },
+      meetings: [
+        ["Kick-off projectteam", "1×, 90 min", "Projectteam, sponsor", "Doel, scope, rollen, planning en werkwijze afspreken"],
+        ["Stakeholdersessie", "1×, 60 min", "Sponsor, management, IT, HR", "Draagvlak, verwachtingen en zorgen ophalen"],
+        ["Security- en privacyreview", "1–2×, 60 min", "Security, privacy, productteam", "DPIA, dataclassificatie, verwerkersafspraken"],
+        ["Besluitsessie O1 en budget", "1×, 45 min", "Sponsor, budgethouder, LiteLLM-beheer", "Keymodel en budget per gebruiker vastleggen"],
+        ["Go/no-go pilot", "1×, 30 min", "Stuurgroep", "Exitcriteria fase 0 langs, besluit start pilot"]
+      ],
+      opleveringen: ["Projectopdracht", "Besluitnotitie O1 en O4", "DPIA-quickscan", "Concept-gebruiksbeleid", "Nulmeting", "Pilotgroep"],
+      kpis: ["Nog geen gebruik; meetkader en nulmeting liggen vast"],
+      exit: [
+        "Een getekende build installeert op macOS zonder waarschuwing",
+        "Een nieuwe key werkt in de onboarding en het verbruik is per key te zien",
+        "Privacy en security geven akkoord voor de pilot",
+        "Pilotgroep bevestigd, met tijd vrijgemaakt",
+        "Feedbackroute werkt (getest met één melding)"
+      ],
+      risicos: ["Besluiten blijven open en schuiven de pilot op", "Security komt pas laat aan tafel en blokkeert dan"]
+    },
+    {
+      id: "f1", nr: 1, naam: "Pilot", weken: 4,
+      kort: "Kernteam gebruikt het in echt werk",
+      doelgroep: "Projectteam en 1–2 enthousiaste vakcollega's",
+      omvang: "3–5 mensen",
+      doel: "Laten zien dat BonzaiWork werkt in het echte werk van een paar mensen, en de grootste fouten vinden voordat niet-technische collega's het zien.",
+      ingang: ["Exitcriteria fase 0 gehaald"],
+      stappen: [
+        ["Begeleide installatie per persoon; meet hoe lang het duurt", ""],
+        ["Onboarding: key invoeren, eerste project, eerste chat", ""],
+        ["Ieder kiest 2–3 echte werktaken en doet die twee weken in BonzaiWork", ""],
+        ["Kernfuncties doorlopen: Vandaag, projecten, Agent, breinen, routines, agenda, transcriptie", ""],
+        ["Minstens één nieuwe build installeren en de release-notes volgen", "Test het updatepad"],
+        ["Elke fout via Feedback sturen melden; wekelijks triëren", ""],
+        ["Verbruik en kosten per persoon in LiteLLM bekijken", ""],
+        ["Begin van de use-casebibliotheek: per taak een korte beschrijving en de prompt of werkwijze", ""],
+        ["Installatiegids v1 schrijven en laten testen door iemand die hem niet schreef", ""]
+      ],
+      adoptie: {
+        communicatie: "Geen brede communicatie. Korte lijnen in een eigen kanaal.",
+        training: "Begeleide installatie, één-op-één uitleg.",
+        support: "Direct bij het productteam.",
+        meten: "Gebruik per dag, installatietijd, fouten, kosten per persoon."
+      },
+      meetings: [
+        ["Pilot-kick-off en installatiesessie", "1×, 90 min", "Pilotgroep, productteam", "Samen installeren, use cases kiezen, afspraken over melden"],
+        ["Pilot-check-in", "Wekelijks, 30 min", "Pilotgroep", "Wat werkt, wat niet, wat blokkeert"],
+        ["Triage feedback", "Wekelijks, 30 min", "Productteam, projectleider", "Meldingen prioriteren, fixes in de volgende build"],
+        ["Pilot-demo en retro", "1×, 60 min", "Pilotgroep, sponsor", "Use cases laten zien, lessen ophalen"],
+        ["Go/no-go alfa", "1×, 30 min", "Stuurgroep", "Exitcriteria pilot langs, besluit start alfa"]
+      ],
+      opleveringen: ["Lijst bekende problemen", "Eerste 5–10 use cases", "Installatiegids v1", "Kostenbeeld per gebruiker"],
+      kpis: ["≥ 3 van de 5 pilotgebruikers gebruiken het ≥ 3 dagen per week", "Installatie in < 15 min met gids", "Kosten per gebruiker per maand bekend"],
+      exit: [
+        "Geen blokkerende fouten open",
+        "Installatiegids getest door iemand die hem niet schreef",
+        "Minstens 5 use cases die werken en beschreven zijn",
+        "Een update komt bij de gebruiker aan zonder hulp",
+        "Budget per gebruiker past bij de raming"
+      ],
+      risicos: ["Een te technische pilotgroep mist wat niet-technische collega's tegenhoudt (daarom de mix in de alfa)"]
+    },
+    {
+      id: "f2", nr: 2, naam: "Alfa: testgroep", weken: 6,
+      kort: "Werkt het voor niet-technische collega's?",
+      doelgroep: "Vaste testgroep met een mix van rollen; minstens de helft niet-technisch; elk besturingssysteem dat in gebruik is",
+      omvang: "8–15 mensen",
+      doel: "Vaststellen dat collega's zonder technische achtergrond BonzaiWork zelf installeren en er hun werk mee doen, met lichte begeleiding.",
+      ingang: ["Go pilot", "Signing en updater geregeld", "Gebruiksbeleid in concept beschikbaar"],
+      stappen: [
+        ["Testgroep werven: motivatie, mix van rollen, ±2 uur per week afspreken met de leidinggevende", ""],
+        ["Testafspraken delen: wat testen is, hoe je meldt, wat met welke gegevens mag", ""],
+        ["Onboardingsessie in de groep; daarna zelf installeren met de gids", ""],
+        ["Pilotgebruikers worden de eerste champions en vraagbaak", ""],
+        ["Weekthema's: 1 chat en bestanden · 2 projecten en brein · 3 Vandaag en Agent · 4 routines · 5 agenda en meetings · 6 vrij", ""],
+        ["Windows testen als dat in de organisatie voorkomt", "Zie windows.md"],
+        ["Wekelijks een build met release-notes", ""],
+        ["Enquête na week 2 en week 6 (SUS en aanraden)", ""],
+        ["3–5 gebruikersinterviews van 30 minuten", ""],
+        ["Trainingsmateriaal v1: korte video's of uitlegkaarten per weekthema", ""],
+        ["Besluit over het feedbackkanaal voor grotere groepen", "GitHub per gebruiker schaalt niet"],
+        ["Gebruiksbeleid definitief maken", ""]
+      ],
+      adoptie: {
+        communicatie: "Eigen kanaal voor de testgroep; heldere boodschap dat dit een test is.",
+        training: "Groepsonboarding, weekthema's, materiaal v1.",
+        support: "Wekelijks spreekuur; champions uit de pilot.",
+        meten: "Wekelijks actief, SUS, time to first value, meldingen en doorlooptijd."
+      },
+      meetings: [
+        ["Alfa-kick-off", "1×, 60 min", "Testgroep, productteam, sponsor", "Doel, afspraken, samen de eerste stappen"],
+        ["Spreekuur", "Wekelijks, 45 min inloop", "Testgroep, champions", "Vragen beantwoorden, meekijken"],
+        ["Triage feedback", "Wekelijks, 30 min", "Productteam, projectleider", "Prioriteren en terugkoppelen aan de testgroep"],
+        ["Tussenevaluatie", "Week 3, 45 min", "Testgroep", "Eerste enquête bespreken, bijsturen"],
+        ["Gebruikersinterviews", "3–5×, 30 min", "Losse testers", "Diepte: waar loopt het vast, wat levert het op"],
+        ["Retro en go/no-go gesloten bèta", "1×, 60 min", "Testgroep, stuurgroep", "Resultaten, besluit over de bèta"]
+      ],
+      opleveringen: ["Trainingsmateriaal v1", "FAQ", "Verbeterde installatiegids", "Definitief gebruiksbeleid", "Prioriteitenlijst voor de bèta", "Keuze feedbackkanaal"],
+      kpis: ["Wekelijks actief ≥ 70% van de testgroep", "SUS ≥ 68", "Time to first value < 1 werkdag", "Doorlooptijd van een blokkerende melding < 1 week"],
+      exit: [
+        "Een niet-technische tester installeert zonder hulp",
+        "De top-5 klachten zijn opgelost of bewust geaccepteerd",
+        "Het aantal supportvragen per tester daalt",
+        "Feedbackkanaal voor grote groepen gekozen",
+        "Windows getest of bewust buiten scope"
+      ],
+      risicos: ["Testmoeheid na een paar weken", "Te hoge verwachtingen; zeg vaak dat het een test is"]
+    },
+    {
+      id: "f3", nr: 3, naam: "Gesloten bèta: teams", weken: 8,
+      kort: "Samenwerken in teams, support zonder projectteam",
+      doelgroep: "2–3 complete teams met een leidinggevende die het wil",
+      omvang: "30–60 mensen",
+      doel: "Laten zien dat het als team werkt (gedeelde projectbreinen en werkwijzen) en dat de support draait zonder dat het projectteam eerste lijn is.",
+      ingang: ["Go alfa", "Feedbackkanaal voor grote groepen werkt", "Distributie via het softwarecentrum klaar om te testen"],
+      stappen: [
+        ["Teams kiezen met de leidinggevenden; per team 3–5 teamuse cases", ""],
+        ["Per team een teamproject met gedeeld brein inrichten en toegang regelen", ""],
+        ["Keys en budget per team in LiteLLM; maandelijks verbruiksrapport", ""],
+        ["Installatie via het softwarecentrum (MDM) testen bij deze teams", ""],
+        ["Supportmodel: champion per team is eerste lijn, IT en productteam tweede lijn, met afgesproken reactietijden", ""],
+        ["Train-de-trainer voor de champions", ""],
+        ["Workshop per team: eigen werkwijzen (skills en commando's) maken", ""],
+        ["Trainingsmateriaal v2 op basis van de alfa", ""],
+        ["Meten: gebruik, ervaren tijdwinst, kosten per team", ""],
+        ["Businesscase bijwerken met echte cijfers", ""],
+        ["Uitrolvolgorde en golven voorstellen", ""]
+      ],
+      adoptie: {
+        communicatie: "Leidinggevende kondigt het aan in het team; succesverhalen uit de alfa delen.",
+        training: "Teamworkshops, train-de-trainer, materiaal v2.",
+        support: "Champion per team als eerste lijn; servicedesk als tweede.",
+        meten: "Gebruik per team, tijdwinst, kosten, champion-oplosgraad."
+      },
+      meetings: [
+        ["Teamintake", "Per team, 60 min", "Leidinggevende, champion, projectleider", "Use cases, verwachtingen, planning"],
+        ["Teamworkshop werkwijzen", "Per team, 2 uur", "Heel team", "Teamproject, brein en eigen werkwijzen inrichten"],
+        ["Champion-overleg", "Tweewekelijks, 45 min", "Champions, productteam", "Vragen, patronen, tips delen"],
+        ["Bèta-stand", "Wekelijks, 30 min", "Projectteam", "Cijfers, meldingen, risico's"],
+        ["Stuurgroep tussenstand", "1×, 45 min", "Stuurgroep", "Eerste cijfers en businesscase"],
+        ["Bèta-evaluatie en go/no-go open bèta", "1×, 60 min", "Stuurgroep, leidinggevenden", "Resultaten, uitrolvolgorde, besluit"]
+      ],
+      opleveringen: ["Supportmodel", "MDM-pakket", "Championhandboek", "Teamplaybook: zo richt je een team in", "Bijgewerkte businesscase", "Voorstel uitrolgolven"],
+      kpis: ["Wekelijks actief ≥ 60%", "Champion lost ≥ 70% van de vragen op", "Kosten binnen het teambudget", "Ervaren tijdwinst per week (vs. nulmeting)"],
+      exit: [
+        "Installatie via het softwarecentrum werkt zonder handwerk",
+        "Support draait zonder het projectteam als eerste lijn",
+        "Stuurgroep akkoord op de businesscase",
+        "Uitrolvolgorde vastgesteld"
+      ],
+      risicos: ["Een team zonder trekker valt stil; kies teams met een leidinggevende die meedoet", "Gedeelde breinen geven conflicten of toegangsvragen"]
+    },
+    {
+      id: "f4", nr: 4, naam: "Open bèta: aanmelden", weken: 6,
+      kort: "Wie wil, mag; vraag en capaciteit testen",
+      doelgroep: "Iedereen die zich aanmeldt",
+      omvang: "Tot ±25% van de organisatie",
+      doel: "Draagvlak en vraag breed testen, zien welke afdelingen trekken, en de capaciteit en kosten onder echte belasting meten.",
+      ingang: ["Go gesloten bèta", "Supportmodel en MDM-pakket klaar"],
+      stappen: [
+        ["Aankondiging op intranet en in het teamoverleg van het management", ""],
+        ["Aanmeldformulier; korte basisinstructie vóór je een key krijgt", ""],
+        ["Keyuitgifte als vast proces (aanvraag → key → welkomstmail)", ""],
+        ["Zelf installeren via het softwarecentrum", ""],
+        ["Wekelijkse introductiewebinar voor nieuwe deelnemers", ""],
+        ["Use-casebibliotheek openzetten voor iedereen", ""],
+        ["Communitykanaal waar gebruikers elkaar helpen", ""],
+        ["Capaciteit en kosten in LiteLLM tweewekelijks bekijken", ""],
+        ["Uitrolplan per afdeling uitwerken met de afdelingshoofden", ""]
+      ],
+      adoptie: {
+        communicatie: "Lancering via intranet en management; verhalen van bèta-teams.",
+        training: "Basisinstructie vóór de key, wekelijkse webinar, bibliotheek.",
+        support: "Community, champions, servicedesk.",
+        meten: "Aanmeldingen, activatie, retentie week 4, tickets per 100."
+      },
+      meetings: [
+        ["Lancering open bèta", "1×, 30 min", "Hele organisatie (webinar of all-hands)", "Waarom, wat je kunt, hoe je meedoet"],
+        ["Introductiewebinar", "Wekelijks, 45 min", "Nieuwe deelnemers", "Eerste stappen en goede use cases"],
+        ["Championnetwerk", "Tweewekelijks, 45 min", "Alle champions", "Signalen, tips, nieuwe champions"],
+        ["Capaciteits- en kostenreview", "Tweewekelijks, 30 min", "LiteLLM-beheer, projectleider, budgethouder", "Belasting, kosten, limieten"],
+        ["Go/no-go uitrol", "1×, 60 min", "Stuurgroep, afdelingshoofden", "Resultaten, uitrolplan, besluit"]
+      ],
+      opleveringen: ["Aanmeld- en keyproces", "Basisinstructie", "Publieke use-casebibliotheek", "Uitrolplan per afdeling"],
+      kpis: ["Activatie ≥ 80%", "Retentie week 4 ≥ 60%", "Tickets per 100 gebruikers dalend", "Kosten per gebruiker binnen budget"],
+      exit: [
+        "Retentie en activatie halen het doel",
+        "Supportvolume is met de huidige bezetting op te vangen",
+        "Capaciteit en budget voor de hele organisatie zijn toegezegd",
+        "Uitrolplan per afdeling akkoord"
+      ],
+      risicos: ["Te veel aanmeldingen tegelijk voor de support", "Kosten lopen op zonder limieten per key"]
+    },
+    {
+      id: "f5", nr: 5, naam: "Uitrol in golven", weken: 12,
+      kort: "Afdeling voor afdeling naar iedereen",
+      doelgroep: "Alle medewerkers die het nodig hebben",
+      omvang: "3–4 golven van elk een aantal afdelingen",
+      doel: "Iedereen die er baat bij heeft, werkt met BonzaiWork, afdeling voor afdeling, zonder dat de support of het budget overloopt.",
+      ingang: ["Go open bèta", "Uitrolplan per afdeling vastgesteld"],
+      stappen: [
+        ["Golf 1: afdelingen die al in de bèta meededen", ""],
+        ["Golf 2", ""],
+        ["Golf 3", ""],
+        ["Golf 4: de afdelingen met de meeste aandacht nodig", ""],
+        ["Per golf: aankondiging door de leidinggevende twee weken vooraf", ""],
+        ["Per golf: champion per afdeling aangewezen en getraind", ""],
+        ["Per golf: installatie via het softwarecentrum (pushen)", ""],
+        ["Per golf: basistraining en afdelingsuse cases", ""],
+        ["Per golf: twee weken hypercare", ""],
+        ["Per golf: evaluatie en aanpassen van de volgende golf", ""]
+      ],
+      adoptie: {
+        communicatie: "Per golf via de leidinggevende; organisatiebrede updates over de voortgang.",
+        training: "Basistraining per golf, afdelingsuse cases, webinars blijven.",
+        support: "Hypercare per golf, champions, servicedesk.",
+        meten: "% geïnstalleerd, % actief na 30 dagen, tickets, tevredenheid per golf."
+      },
+      meetings: [
+        ["Golfvoorbereiding", "Per golf, 45 min", "Afdelingshoofden, champions, projectleider", "Planning, use cases, aankondiging"],
+        ["Kick-off afdeling", "Per afdeling, 30 min", "Afdeling", "Waarom, wat er gebeurt, waar je hulp vindt"],
+        ["Hypercare-stand-up", "Dagelijks, 15 min, 2 weken per golf", "Support, champions", "Problemen van gisteren en vandaag"],
+        ["Golfevaluatie", "Per golf, 45 min", "Projectteam, afdelingshoofden", "Cijfers, lessen, aanpassingen"],
+        ["Stuurgroep", "Maandelijks, 45 min", "Stuurgroep", "Voortgang, kosten, risico's"]
+      ],
+      opleveringen: ["Uitrol per golf afgerond", "Evaluatie per golf", "Bijgewerkt trainingsmateriaal"],
+      kpis: ["% geïnstalleerd per afdeling", "Actief na 30 dagen ≥ 50%", "Tickets per 100 per golf", "Tevredenheid per golf"],
+      exit: [
+        "Alle golven afgerond",
+        "Actief na 30 dagen haalt het doel",
+        "Geen blokkerende meldingen open",
+        "Kosten binnen het jaarbudget"
+      ],
+      risicos: ["Een afdeling voelt het als opgelegd; laat de leidinggevende het verhaal vertellen", "Hypercare te kort voor complexe afdelingen"]
+    },
+    {
+      id: "f6", nr: 6, naam: "Borging en overdracht", weken: 8,
+      kort: "Van project naar staande organisatie",
+      doelgroep: "Beheer, HR, champions, stuurgroep",
+      omvang: "Hele organisatie",
+      doel: "BonzaiWork heeft een vaste eigenaar: beheer, releases, budget en de onboarding van nieuwe collega's lopen zonder projectteam.",
+      ingang: ["Uitrol afgerond"],
+      stappen: [
+        ["Beheer overdragen: applicatie, LiteLLM, keys en budgetten", ""],
+        ["Releaseproces vastleggen: upstream-sync, nightly naar main, release-notes en communicatie", ""],
+        ["Budget opnemen in de lijnbegroting", ""],
+        ["BonzaiWork opnemen in de onboarding van nieuwe medewerkers", ""],
+        ["Championnetwerk blijvend maken (eigenaar, ritme, erkenning)", ""],
+        ["Vast dashboard met de maten uit het meetkader", ""],
+        ["Nameting en vergelijking met de nulmeting", ""],
+        ["Lessons learned vastleggen", ""],
+        ["Roadmap voor doorontwikkeling met de beheerorganisatie", ""],
+        ["Decharge van het project door de stuurgroep", ""]
+      ],
+      adoptie: {
+        communicatie: "Resultaten delen; vaste plek voor nieuws en tips.",
+        training: "Onderdeel van de onboarding; materiaal heeft een eigenaar.",
+        support: "Standaard servicedesk en championnetwerk.",
+        meten: "Nameting, kwartaaldashboard."
+      },
+      meetings: [
+        ["Overdrachtssessie beheer", "1–2×, 90 min", "Beheer, productteam, IT", "Taken, documentatie, contactpersonen"],
+        ["Eindevaluatie en nameting", "1×, 60 min", "Stuurgroep, projectteam", "Resultaten vs. nulmeting en doelen"],
+        ["Lessons learned", "1×, 60 min", "Projectteam, champions", "Wat herhalen, wat niet"],
+        ["Decharge", "1×, 30 min", "Stuurgroep", "Project formeel afsluiten"],
+        ["Kwartaalreview", "Elk kwartaal, 45 min", "Eigenaar, beheer, sponsor", "Gebruik, kosten, wensen (na het project)"]
+      ],
+      opleveringen: ["Beheerdocumentatie", "Releaseprocedure", "Onboardingmodule", "Nameting", "Lessons learned", "Dechargedocument"],
+      kpis: ["Maten uit het meetkader stabiel of stijgend", "Ervaren tijdwinst vs. nulmeting"],
+      exit: [
+        "Beheer heeft het overgenomen en draait een release zelf",
+        "Budget staat in de lijn",
+        "Nieuwe collega's krijgen het in hun eerste week",
+        "Stuurgroep verleent decharge"
+      ],
+      risicos: ["Na het project zakt het gebruik weg zonder vaste eigenaar en championnetwerk"]
+    }
+  ];
+
+  var ONGOING = {
+    id: "doorlopend", naam: "Doorlopend",
+    meetings: [
+      ["Projectstand", "Wekelijks, 30 min", "Projectteam", "Voortgang, acties, risico's"],
+      ["Stuurgroep", "Maandelijks, 45 min", "Sponsor, projectleider, IT, budgethouder", "Besluiten, kosten, go/no-go"],
+      ["Release en triage", "Wekelijks, 30 min", "Productteam", "Wat gaat naar main, wat komt in de release-notes"],
+      ["Communicatieplanning", "Tweewekelijks, 20 min", "Projectleider, communicatie", "Wat gaat er de komende weken uit"]
+    ]
+  };
+
+  var ALL_IDS = PHASES.map(function (p) { return p.id; }).concat([ONGOING.id]);
+
+  // ---------- helpers ----------
+  function h(tag, attrs, children) {
+    var el = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (k) {
+        var v = attrs[k];
+        if (v === null || v === undefined || v === false) return;
+        if (k === "class") el.className = v;
+        else if (k === "text") el.textContent = v;
+        else if (k.slice(0, 2) === "on") el.addEventListener(k.slice(2), v);
+        else el.setAttribute(k, v === true ? "" : String(v));
+      });
+    }
+    (children || []).forEach(function (c) {
+      if (c === null || c === undefined || c === false) return;
+      el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    });
+    return el;
+  }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function parseDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  }
+  function toISO(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function addDays(d, n) { var c = new Date(d.getTime()); c.setDate(c.getDate() + n); return c; }
+  var fmtShort = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short" });
+  var fmtLong = new Intl.DateTimeFormat("nl-NL", { day: "numeric", month: "short", year: "numeric" });
+  var fmtDay = new Intl.DateTimeFormat("nl-NL", { weekday: "short", day: "numeric", month: "short" });
+  function today() { var n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+  function isSafeUrl(u) { return /^(https?:|mailto:|file:)/i.test(u); }
+
+  // ---------- state ----------
+  function normalize(raw) {
+    var s = raw && typeof raw === "object" ? raw : {};
+    var out = {
+      version: 1,
+      updatedAt: typeof s.updatedAt === "string" ? s.updatedAt : null,
+      startDatum: parseDate(s.startDatum) ? s.startDatum : DEFAULT_START,
+      fases: {}
+    };
+    var src = s.fases && typeof s.fases === "object" ? s.fases : {};
+    ALL_IDS.forEach(function (id) {
+      var f = src[id] && typeof src[id] === "object" ? src[id] : {};
+      var def = PHASES.filter(function (p) { return p.id === id; })[0];
+      out.fases[id] = {
+        status: STATUSES[f.status] ? f.status : "todo",
+        weken: Number.isFinite(f.weken) && f.weken > 0 ? f.weken : (def ? def.weken : 0),
+        checks: f.checks && typeof f.checks === "object" ? f.checks : {},
+        items: Array.isArray(f.items) ? f.items.filter(function (i) { return i && typeof i === "object" && typeof i.titel === "string"; }).map(function (i) {
+          return {
+            id: typeof i.id === "string" ? i.id : uid(),
+            type: TYPES[i.type] ? i.type : "notitie",
+            titel: i.titel,
+            datum: parseDate(i.datum) ? i.datum : "",
+            notitie: typeof i.notitie === "string" ? i.notitie : "",
+            link: typeof i.link === "string" ? i.link : "",
+            klaar: i.klaar === true
+          };
+        }) : []
+      };
+    });
+    return out;
+  }
+
+  var embedded = (function () {
+    try { return JSON.parse(document.getElementById("roadmap-state").textContent || "{}"); } catch (e) { return {}; }
+  })();
+  var embeddedState = normalize(embedded);
+  var local = null;
+  try { var raw = localStorage.getItem(STORE_KEY); local = raw ? JSON.parse(raw) : null; } catch (e) { local = null; }
+  var state = embeddedState;
+  var loadedDraft = false;
+  if (local && typeof local.updatedAt === "string" && (!embeddedState.updatedAt || local.updatedAt > embeddedState.updatedAt)) {
+    state = normalize(local);
+    loadedDraft = true;
+  }
+
+  var fileHandle = null;
+  var dirty = loadedDraft;
+
+  function persist() {
+    state.updatedAt = new Date().toISOString();
+    dirty = true;
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable: the file save still works */ }
+    setStatus("Concept bewaard in deze browser. Nog niet in het bestand.");
+  }
+  function setStatus(t) { document.getElementById("save-status").textContent = t; }
+
+  // ---------- schedule ----------
+  function schedule() {
+    var start = parseDate(state.startDatum) || parseDate(DEFAULT_START);
+    var cur = start;
+    var map = {};
+    PHASES.forEach(function (p) {
+      var w = state.fases[p.id].weken;
+      var end = addDays(cur, w * 7 - 1);
+      map[p.id] = { start: cur, end: end, weken: w };
+      cur = addDays(end, 1);
+    });
+    map.total = { start: start, end: addDays(cur, -1) };
+    return map;
+  }
+
+  function checkKeys(p) {
+    var keys = [];
+    p.stappen.forEach(function (_, i) { keys.push("s" + i); });
+    p.exit.forEach(function (_, i) { keys.push("e" + i); });
+    return keys;
+  }
+  function progressOf(p) {
+    var keys = checkKeys(p);
+    var c = state.fases[p.id].checks;
+    var done = keys.filter(function (k) { return c[k] === true; }).length;
+    return { done: done, total: keys.length };
+  }
+
+  // ---------- render: overview ----------
+  function renderNav() {
+    var nav = document.getElementById("nav-phases");
+    nav.textContent = "";
+    PHASES.forEach(function (p) {
+      nav.appendChild(h("a", { href: "#fase-" + p.id }, [
+        h("span", { class: "nr", text: String(p.nr) }),
+        h("span", { class: "dot", "data-status": state.fases[p.id].status }),
+        h("span", { text: p.naam })
+      ]));
+    });
+  }
+
+  function renderStats() {
+    var sch = schedule();
+    var cur = PHASES.filter(function (p) { return state.fases[p.id].status === "bezig"; })[0];
+    var doneCount = PHASES.filter(function (p) { return state.fases[p.id].status === "klaar"; }).length;
+    var totalChecks = 0, doneChecks = 0;
+    PHASES.forEach(function (p) { var pr = progressOf(p); totalChecks += pr.total; doneChecks += pr.done; });
+    var itemCount = 0;
+    ALL_IDS.forEach(function (id) { itemCount += state.fases[id].items.length; });
+    var weeks = PHASES.reduce(function (a, p) { return a + state.fases[p.id].weken; }, 0);
+    var box = document.getElementById("stats");
+    box.textContent = "";
+    function stat(label, value, sub) {
+      box.appendChild(h("div", { class: "stat" }, [h("div", { class: "label", text: label }), h("div", { class: "value", text: value }), h("div", { class: "sub", text: sub })]));
+    }
+    stat("Huidige fase", cur ? cur.nr + " · " + cur.naam : (doneCount === PHASES.length ? "Afgerond" : "Nog niet gestart"), cur ? "tot " + fmtLong.format(sch[cur.id].end) : "zet een fase op Bezig");
+    stat("Fases afgerond", doneCount + " van " + PHASES.length, "");
+    stat("Stappen en criteria", doneChecks + " van " + totalChecks, Math.round(totalChecks ? doneChecks / totalChecks * 100 : 0) + "% afgevinkt");
+    stat("Doorlooptijd", weeks + " weken", fmtShort.format(sch.total.start) + " – " + fmtLong.format(sch.total.end) + " · " + itemCount + " onderdelen");
+  }
+
+  function renderTimeline() {
+    var sch = schedule();
+    var box = document.getElementById("timeline");
+    box.textContent = "";
+    var bar = h("div", { class: "tl-bar" });
+    PHASES.forEach(function (p) {
+      var s = sch[p.id];
+      var seg = h("a", { class: "tl-seg", href: "#fase-" + p.id, "data-status": state.fases[p.id].status, title: p.nr + ". " + p.naam + " (" + s.weken + " weken)" }, [
+        h("span", { class: "t1", text: p.nr + ". " + p.naam }),
+        h("span", { class: "t2", text: fmtShort.format(s.start) + " – " + fmtShort.format(s.end) + " · " + s.weken + " wk" })
+      ]);
+      seg.style.flex = s.weken + " 1 0";
+      bar.appendChild(seg);
+    });
+    box.appendChild(bar);
+    var t = today();
+    var total = sch.total;
+    var span = total.end - total.start + 86400000;
+    var pos = t - total.start;
+    if (pos >= 0 && pos <= span) {
+      // Gaps between segments (3px) make this approximate; good enough for a marker.
+      var m = h("div", { class: "tl-today", "aria-hidden": "true" }, [h("span", { text: "Vandaag" })]);
+      m.style.left = (pos / span * 100) + "%";
+      box.appendChild(m);
+    }
+  }
+
+  function renderTracks() {
+    var rows = [["communicatie", "Communicatie"], ["training", "Training"], ["support", "Support"], ["meten", "Meten"]];
+    var table = h("table", null, [
+      h("thead", null, [h("tr", null, [h("th", { text: "Fase" })].concat(rows.map(function (r) { return h("th", { text: r[1] }); })))]),
+      h("tbody", null, PHASES.map(function (p) {
+        return h("tr", null, [h("td", null, [h("a", { href: "#fase-" + p.id, text: p.nr + ". " + p.naam })])].concat(rows.map(function (r) { return h("td", { text: p.adoptie[r[0]] }); })));
+      }))
+    ]);
+    var box = document.getElementById("tracks");
+    box.textContent = "";
+    box.appendChild(table);
+  }
+
+  function phaseName(id) {
+    if (id === ONGOING.id) return ONGOING.naam;
+    var p = PHASES.filter(function (x) { return x.id === id; })[0];
+    return p ? p.nr + ". " + p.naam : id;
+  }
+
+  function renderUpcoming() {
+    var box = document.getElementById("upcoming");
+    box.textContent = "";
+    var t = toISO(today());
+    var list = [];
+    ALL_IDS.forEach(function (id) {
+      state.fases[id].items.forEach(function (i) { if (i.datum && i.datum >= t && !i.klaar) list.push({ id: id, item: i }); });
+    });
+    list.sort(function (a, b) { return a.item.datum < b.item.datum ? -1 : a.item.datum > b.item.datum ? 1 : 0; });
+    if (!list.length) {
+      box.appendChild(h("div", { class: "empty", text: "Nog niets gepland. Voeg bij een fase een meeting of actie met een datum toe, of plan een voorgestelde meeting in." }));
+      return;
+    }
+    list.slice(0, 8).forEach(function (x) {
+      box.appendChild(h("div", { class: "up-row" }, [
+        h("span", { class: "d", text: fmtDay.format(parseDate(x.item.datum)) }),
+        h("span", { class: "tag " + x.item.type, text: TYPES[x.item.type] }),
+        h("a", { href: "#item-" + x.item.id, text: x.item.titel }),
+        h("span", { class: "ph", text: phaseName(x.id) })
+      ]));
+    });
+    if (list.length > 8) box.appendChild(h("p", { class: "muted small", text: "En nog " + (list.length - 8) + " later." }));
+  }
+
+  function renderOverview() {
+    renderNav(); renderStats(); renderTimeline(); renderUpcoming();
+  }
+
+  // ---------- render: items ----------
+  var editing = {}; // phaseId -> item id | "new" | undefined
+
+  function itemForm(phaseId, item, onDone) {
+    var isNew = !item;
+    var v = item || { type: "meeting", titel: "", datum: "", notitie: "", link: "" };
+    var sel = h("select", { "aria-label": "Soort" }, Object.keys(TYPES).map(function (k) { var o = h("option", { value: k, text: TYPES[k] }); if (k === v.type) o.selected = true; return o; }));
+    var date = h("input", { type: "date", value: v.datum, "aria-label": "Datum" });
+    var title = h("input", { type: "text", value: v.titel, placeholder: "Bijvoorbeeld: Kick-off pilot", "aria-label": "Titel" });
+    var note = h("textarea", { placeholder: "Agenda, besluiten, actiepunten, wie erbij was…", "aria-label": "Notitie" });
+    note.value = v.notitie;
+    var link = h("input", { type: "url", value: v.link, placeholder: "https://… (agenda-uitnodiging, verslag, document)", "aria-label": "Link" });
+    var err = h("p", { class: "err", role: "alert" });
+    function submit(e) {
+      e.preventDefault();
+      var t = title.value.trim();
+      var l = link.value.trim();
+      if (!t) { err.textContent = "Geef het onderdeel een titel."; title.focus(); return; }
+      if (l && !isSafeUrl(l)) { err.textContent = "De link moet beginnen met https://, http://, mailto: of file:."; link.focus(); return; }
+      var list = state.fases[phaseId].items;
+      if (isNew) {
+        var created = { id: uid(), type: sel.value, titel: t, datum: date.value, notitie: note.value.trim(), link: l, klaar: false };
+        list.push(created);
+        onDone(created.id);
+      } else {
+        item.type = sel.value; item.titel = t; item.datum = date.value; item.notitie = note.value.trim(); item.link = l;
+        onDone(item.id);
+      }
+      persist();
+    }
+    var form = h("form", { class: "item-form", onsubmit: submit }, [
+      h("div", { class: "row" }, [
+        h("label", { class: "field" }, ["Soort", sel]),
+        h("label", { class: "field" }, ["Datum", date]),
+        h("label", { class: "field" }, ["Titel", title])
+      ]),
+      h("label", { class: "field" }, ["Notitie", note]),
+      h("label", { class: "field" }, ["Link", link]),
+      err,
+      h("div", { class: "acts" }, [
+        h("button", { class: "btn ghost", type: "button", text: "Annuleren", onclick: function () { onDone(item ? item.id : null); } }),
+        h("button", { class: "btn primary", type: "submit", text: isNew ? "Toevoegen" : "Opslaan" })
+      ])
+    ]);
+    form.addEventListener("keydown", function (e) { if (e.key === "Escape") { e.preventDefault(); onDone(item ? item.id : null); } });
+    setTimeout(function () { title.focus(); }, 0);
+    return form;
+  }
+
+  function renderItems(phaseId, focusId) {
+    var box = document.getElementById("items-" + phaseId);
+    if (!box) return;
+    box.textContent = "";
+    var f = state.fases[phaseId];
+    var sorted = f.items.slice().sort(function (a, b) {
+      if (a.datum && b.datum) return a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0;
+      if (a.datum) return -1;
+      if (b.datum) return 1;
+      return 0;
+    });
+    function done(id) {
+      editing[phaseId] = undefined;
+      renderItems(phaseId, id);
+      renderOverview();
+    }
+    if (!sorted.length && editing[phaseId] !== "new") {
+      box.appendChild(h("div", { class: "empty", text: "Nog geen onderdelen. Voeg een meeting, besluit, document, actie of notitie toe, of plan een voorgestelde meeting in." }));
+    }
+    sorted.forEach(function (i) {
+      if (editing[phaseId] === i.id) { box.appendChild(itemForm(phaseId, i, done)); return; }
+      var cb = h("input", { type: "checkbox", "aria-label": "Afgerond: " + i.titel });
+      cb.checked = i.klaar;
+      cb.addEventListener("change", function () { i.klaar = cb.checked; persist(); el.classList.toggle("done", i.klaar); renderUpcoming(); });
+      var editBtn = h("button", { class: "btn sm ghost", type: "button", text: "Wijzig", "aria-label": "Wijzig " + i.titel, onclick: function () { editing[phaseId] = i.id; renderItems(phaseId); } });
+      var delBtn = h("button", { class: "btn sm ghost danger", type: "button", text: "Verwijder", "aria-label": "Verwijder " + i.titel, onclick: function () {
+        if (!window.confirm("Onderdeel \"" + i.titel + "\" verwijderen?")) return;
+        f.items = f.items.filter(function (x) { return x.id !== i.id; });
+        persist(); renderItems(phaseId); renderOverview();
+        var addBtn = document.getElementById("add-" + phaseId); if (addBtn) addBtn.focus();
+      } });
+      var el = h("div", { class: "item" + (i.klaar ? " done" : ""), id: "item-" + i.id, tabindex: "-1" }, [
+        h("div", { class: "item-top" }, [
+          cb,
+          h("span", { class: "tag " + i.type, text: TYPES[i.type] }),
+          h("span", { class: "t", text: i.titel }),
+          i.datum ? h("span", { class: "d", text: fmtDay.format(parseDate(i.datum)) }) : null,
+          h("span", { class: "acts" }, [editBtn, delBtn])
+        ]),
+        i.notitie ? h("div", { class: "body", text: i.notitie }) : null,
+        i.link && isSafeUrl(i.link) ? h("div", { class: "link" }, [h("a", { href: i.link, target: "_blank", rel: "noopener noreferrer", text: i.link })]) : null
+      ]);
+      box.appendChild(el);
+      if (focusId === i.id) setTimeout(function () { editBtn.focus(); }, 0);
+    });
+    if (editing[phaseId] === "new") box.appendChild(itemForm(phaseId, null, done));
+    else if (focusId === null) { var add = document.getElementById("add-" + phaseId); if (add) setTimeout(function () { add.focus(); }, 0); }
+  }
+
+  function planMeeting(phaseId, m, startDate) {
+    var item = { id: uid(), type: "meeting", titel: m[0], datum: startDate ? toISO(startDate) : "", notitie: "Ritme: " + m[1] + "\nWie: " + m[2] + "\nDoel: " + m[3], link: "", klaar: false };
+    state.fases[phaseId].items.push(item);
+    editing[phaseId] = item.id;
+    persist();
+    renderItems(phaseId);
+    renderOverview();
+  }
+
+  function itemsPanel(phaseId, meetings, startDate) {
+    var add = h("button", { class: "btn sm", type: "button", id: "add-" + phaseId, text: "+ Onderdeel toevoegen", onclick: function () { editing[phaseId] = "new"; renderItems(phaseId); } });
+    return h("div", { class: "ph-cols" }, [
+      h("div", { class: "ph-section" }, [
+        h("h4", null, [h("span", { text: "Voorgestelde meetings" })]),
+        h("div", { class: "meet-templates" }, meetings.map(function (m) {
+          return h("div", { class: "tpl" }, [
+            h("div", null, [h("div", { class: "n", text: m[0] }), h("div", { class: "r", text: m[1] + " · " + m[2] })]),
+            h("button", { class: "btn sm", type: "button", text: "Plan in", "aria-label": "Plan in: " + m[0], onclick: function () { planMeeting(phaseId, m, startDate); } }),
+            h("div", { class: "w", text: m[3] })
+          ]);
+        }))
+      ]),
+      h("div", { class: "ph-section" }, [
+        h("h4", null, [h("span", { text: "Meetings en onderdelen" }), add]),
+        h("div", { class: "items", id: "items-" + phaseId })
+      ])
+    ]);
+  }
+
+  // ---------- render: phases ----------
+  function list(items) { return h("ul", null, items.map(function (t) { return h("li", { text: t }); })); }
+
+  function checklist(p, prefix, entries, onChange) {
+    var c = state.fases[p.id].checks;
+    return h("ul", { class: "checklist" }, entries.map(function (e, i) {
+      var key = prefix + i;
+      var text = Array.isArray(e) ? e[0] : e;
+      var note = Array.isArray(e) ? e[1] : "";
+      var cb = h("input", { type: "checkbox" });
+      cb.checked = c[key] === true;
+      cb.addEventListener("change", function () {
+        if (cb.checked) c[key] = true; else delete c[key];
+        persist(); onChange();
+      });
+      return h("li", null, [h("label", null, [cb, h("span", null, [text, note ? h("span", { class: "note", text: note }) : null])])]);
+    }));
+  }
+
+  function renderPhase(p, container) {
+    var sch = schedule();
+    var s = sch[p.id];
+    var f = state.fases[p.id];
+    var pr = progressOf(p);
+    var bar = h("div");
+    var stepCount = h("span", { class: "count" });
+    var exitCount = h("span", { class: "count" });
+    function updateProgress() {
+      var x = progressOf(p);
+      bar.style.width = (x.total ? x.done / x.total * 100 : 0) + "%";
+      var c = f.checks;
+      stepCount.textContent = p.stappen.filter(function (_, i) { return c["s" + i]; }).length + "/" + p.stappen.length;
+      exitCount.textContent = p.exit.filter(function (_, i) { return c["e" + i]; }).length + "/" + p.exit.length;
+      progressLabel.textContent = x.done + " van " + x.total + " afgevinkt";
+      renderStats();
+    }
+    var progressLabel = h("span", { class: "muted small" });
+
+    var statusSel = h("select", { id: "status-" + p.id }, Object.keys(STATUSES).map(function (k) { var o = h("option", { value: k, text: STATUSES[k] }); if (k === f.status) o.selected = true; return o; }));
+    statusSel.addEventListener("change", function () {
+      f.status = statusSel.value;
+      persist();
+      section.setAttribute("data-status", f.status);
+      renderOverview();
+    });
+    var weeks = h("input", { type: "number", min: "1", max: "52", step: "1", value: String(f.weken), id: "weken-" + p.id });
+    weeks.addEventListener("change", function () {
+      var n = Math.round(Number(weeks.value));
+      if (!Number.isFinite(n) || n < 1 || n > 52) { weeks.value = String(f.weken); return; }
+      f.weken = n; persist(); renderAll(true);
+    });
+
+    var section = h("section", { class: "phase", id: "fase-" + p.id, "data-status": f.status, "aria-labelledby": "fase-h-" + p.id }, [
+      h("div", { class: "ph-head" }, [
+        h("div", { class: "ph-top" }, [
+          h("div", { class: "ph-title" }, [
+            h("span", { class: "ph-nr", text: String(p.nr) }),
+            h("div", null, [
+              h("h2", { id: "fase-h-" + p.id, text: p.naam }),
+              h("div", { class: "ph-sub", text: p.kort + " · " + fmtShort.format(s.start) + " – " + fmtLong.format(s.end) })
+            ])
+          ]),
+          h("div", { class: "ph-controls" }, [
+            h("label", { class: "field", for: "status-" + p.id }, ["Status", statusSel]),
+            h("label", { class: "field", for: "weken-" + p.id }, ["Weken", weeks])
+          ])
+        ]),
+        h("div", { class: "ph-meta" }, [
+          h("span", null, [h("b", { text: "Doelgroep" }), p.doelgroep]),
+          h("span", null, [h("b", { text: "Omvang" }), p.omvang]),
+          h("span", null, [h("b", { text: "Start als" }), p.ingang.join("; ")])
+        ]),
+        h("p", { class: "ph-goal", text: p.doel }),
+        h("div", { class: "progress", "aria-hidden": "true" }, [bar]),
+        h("div", { style: "margin-top:4px" }, [progressLabel])
+      ]),
+      h("div", { class: "ph-body" }, [
+        h("div", { class: "ph-cols" }, [
+          h("div", { class: "ph-section" }, [h("h4", null, [h("span", { text: "Stappen" }), stepCount]), checklist(p, "s", p.stappen, updateProgress)]),
+          h("div", { style: "display:grid;gap:16px;align-content:start" }, [
+            h("div", { class: "ph-section" }, [h("h4", { text: "Adoptie in deze fase" }), h("ul", null, [
+              h("li", null, [h("b", { text: "Communicatie: " }), p.adoptie.communicatie]),
+              h("li", null, [h("b", { text: "Training: " }), p.adoptie.training]),
+              h("li", null, [h("b", { text: "Support: " }), p.adoptie.support]),
+              h("li", null, [h("b", { text: "Meten: " }), p.adoptie.meten])
+            ])]),
+            h("div", { class: "ph-section" }, [h("h4", { text: "Opleveringen" }), list(p.opleveringen)]),
+            h("div", { class: "ph-section" }, [h("h4", { text: "Maten" }), list(p.kpis)])
+          ])
+        ]),
+        h("div", { class: "ph-cols" }, [
+          h("div", { class: "gate" }, [h("h4", null, [h("span", { text: "Exitcriteria (go/no-go)" }), exitCount]), checklist(p, "e", p.exit, updateProgress)]),
+          h("div", { class: "risk" }, [h("h4", { text: "Risico's" }), list(p.risicos)])
+        ]),
+        itemsPanel(p.id, p.meetings, s.start)
+      ])
+    ]);
+    container.appendChild(section);
+    updateProgressSilent();
+    function updateProgressSilent() {
+      var c = f.checks;
+      bar.style.width = (pr.total ? pr.done / pr.total * 100 : 0) + "%";
+      stepCount.textContent = p.stappen.filter(function (_, i) { return c["s" + i]; }).length + "/" + p.stappen.length;
+      exitCount.textContent = p.exit.filter(function (_, i) { return c["e" + i]; }).length + "/" + p.exit.length;
+      progressLabel.textContent = pr.done + " van " + pr.total + " afgevinkt";
+    }
+    renderItems(p.id);
+  }
+
+  function renderOngoing(container) {
+    var sch = schedule();
+    var section = h("section", { class: "phase", id: "fase-" + ONGOING.id, "aria-labelledby": "fase-h-doorlopend" }, [
+      h("div", { class: "ph-head" }, [
+        h("div", { class: "ph-title" }, [
+          h("span", { class: "ph-nr", text: "∞" }),
+          h("div", null, [
+            h("h2", { id: "fase-h-doorlopend", text: "Doorlopend: vaste overleggen en logboek" }),
+            h("div", { class: "ph-sub", text: "Over alle fases heen · " + fmtShort.format(sch.total.start) + " – " + fmtLong.format(sch.total.end) })
+          ])
+        ]),
+        h("p", { class: "ph-goal", text: "Overleggen die het hele project doorlopen, en een plek voor besluiten, risico's en documenten die niet bij één fase horen." })
+      ]),
+      h("div", { class: "ph-body" }, [itemsPanel(ONGOING.id, ONGOING.meetings, sch.total.start)])
+    ]);
+    container.appendChild(section);
+    renderItems(ONGOING.id);
+  }
+
+  function renderPhases() {
+    var box = document.getElementById("phases");
+    box.textContent = "";
+    PHASES.forEach(function (p) { renderPhase(p, box); });
+    renderOngoing(box);
+  }
+
+  function renderAll(keepFocus) {
+    var active = keepFocus && document.activeElement ? document.activeElement.id : null;
+    document.getElementById("start-date").value = state.startDatum;
+    renderOverview();
+    renderTracks();
+    renderPhases();
+    if (active) { var el = document.getElementById(active); if (el) el.focus(); }
+  }
+
+  // ---------- saving ----------
+  function serializedFile() {
+    var json = JSON.stringify(state, null, 1).replace(/</g, "\\u003c");
+    var re = /(<script type="application\/json" id="roadmap-state">)[\s\S]*?(<\/script>)/;
+    return TEMPLATE.replace(re, function (_, a, b) { return a + json + b; });
+  }
+  function download(name, type, text) {
+    var url = URL.createObjectURL(new Blob([text], { type: type }));
+    var a = h("a", { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  function markSaved(how) {
+    dirty = false;
+    document.getElementById("draft-banner").hidden = true;
+    setStatus(how + " om " + new Date().toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" }) + ".");
+  }
+  async function saveFile() {
+    if (!state.updatedAt) state.updatedAt = new Date().toISOString();
+    var text = serializedFile();
+    if (window.showSaveFilePicker) {
+      try {
+        if (!fileHandle) {
+          fileHandle = await window.showSaveFilePicker({ suggestedName: "adoptie-roadmap.html", types: [{ description: "HTML", accept: { "text/html": [".html"] } }] });
+        }
+        var w = await fileHandle.createWritable();
+        await w.write(text); await w.close();
+        markSaved("Opgeslagen in " + fileHandle.name);
+        return;
+      } catch (e) {
+        if (e && e.name === "AbortError") return;
+        fileHandle = null;
+      }
+    }
+    download("adoptie-roadmap.html", "text/html", text);
+    markSaved("Gedownload als adoptie-roadmap.html; vervang het oude bestand ermee");
+  }
+
+  // ---------- wiring ----------
+  document.getElementById("start-date").addEventListener("change", function (e) {
+    if (!parseDate(e.target.value)) { e.target.value = state.startDatum; return; }
+    state.startDatum = e.target.value; persist(); renderAll(true);
+  });
+  document.getElementById("btn-save").addEventListener("click", saveFile);
+  document.getElementById("btn-export").addEventListener("click", function () {
+    download("adoptie-roadmap-" + toISO(today()) + ".json", "application/json", JSON.stringify(state, null, 2));
+    setStatus("JSON geëxporteerd.");
+  });
+  document.getElementById("btn-import").addEventListener("click", function () { document.getElementById("import-file").click(); });
+  document.getElementById("import-file").addEventListener("change", function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    file.text().then(function (t) {
+      var parsed;
+      try { parsed = JSON.parse(t); } catch (err) { setStatus("Dit bestand is geen geldige JSON. Er is niets veranderd."); return; }
+      if (!parsed || typeof parsed !== "object" || !parsed.fases) { setStatus("Dit lijkt geen export van deze roadmap. Er is niets veranderd."); return; }
+      if (!window.confirm("De huidige stand vervangen door de import?")) return;
+      state = normalize(parsed); editing = {}; persist(); renderAll(false);
+      setStatus("Import geladen. Sla op als bestand om hem te bewaren.");
+    }).finally(function () { e.target.value = ""; });
+  });
+  document.getElementById("btn-print").addEventListener("click", function () { window.print(); });
+  document.getElementById("btn-draft-discard").addEventListener("click", function () {
+    if (!window.confirm("Het concept in deze browser weggooien en de versie uit het bestand tonen?")) return;
+    try { localStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
+    state = normalize(embedded); editing = {}; dirty = false;
+    document.getElementById("draft-banner").hidden = true;
+    renderAll(false);
+    setStatus("Versie uit het bestand geladen.");
+  });
+  var toggle = document.getElementById("menu-toggle");
+  toggle.addEventListener("click", function () {
+    var sb = document.getElementById("sidebar");
+    var open = sb.classList.toggle("open");
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.getElementById("nav-wrap").addEventListener("click", function (e) {
+    if (e.target.closest("a")) { document.getElementById("sidebar").classList.remove("open"); toggle.setAttribute("aria-expanded", "false"); }
+  });
+  window.addEventListener("beforeunload", function (e) {
+    // The draft is in localStorage when available; only warn when it might not be.
+    var stored = false;
+    try { stored = localStorage.getItem(STORE_KEY) !== null; } catch (err) { stored = false; }
+    if (dirty && !stored) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  renderAll(false);
+  if (loadedDraft) {
+    document.getElementById("draft-text").textContent = "Je ziet een concept uit deze browser (" + new Date(state.updatedAt).toLocaleString("nl-NL") + ") dat nieuwer is dan het bestand. Klik Opslaan als bestand om het te bewaren.";
+    document.getElementById("draft-banner").hidden = false;
+  } else {
+    setStatus(embeddedState.updatedAt ? "Laatst opgeslagen in het bestand: " + new Date(embeddedState.updatedAt).toLocaleString("nl-NL") + "." : "");
+  }
+})();
+</script>
+</body>
+</html>
